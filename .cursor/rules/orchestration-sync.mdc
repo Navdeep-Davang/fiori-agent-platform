@@ -1,0 +1,24 @@
+---
+description: Enforce atomic synchronization between manifest, action plan, and scratchpad
+globs: **/*
+alwaysApply: true
+---
+
+# Orchestration Synchronization Rule
+
+To prevent status desynchronization, the following rule MUST be followed for every task completion:
+
+1. **Atomic Updates**: When a task is completed, you MUST update all three tracking artifacts in the same turn:
+   - `doc/.manifest.json`: Update phase status (`completed`, `in_progress`, etc.) and `last_updated` timestamp.
+   - `doc/Action-Plan/*.md`: Mark tasks/subtasks with `[X]` and update Phase status.
+   - `.cursor/scratchpad.md`: Update Task Analysis table and overall status.
+
+2. **Verification**: Before ending a turn where a task was marked complete, verify that the status matches across all three files.
+
+3. **No Partial Updates**: Never update the action plan without also checking if the manifest phase status needs updating.
+
+## Example Sync
+If Phase 2 Task 2.2 is finished:
+- **Action Plan**: Mark `[X] Task 2.2`
+- **Manifest**: If all Task 2.x are `[X]`, set `phase-2` status to `completed` and `phase-3` to `in_progress`.
+- **Scratchpad**: Update `phase-2-task-2.2` to `COMPLETE` and set status to `PHASE-2-COMPLETE`.

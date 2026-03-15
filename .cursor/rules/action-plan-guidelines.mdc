@@ -1,0 +1,59 @@
+---
+title: Action Plan Generation and Management Guidelines
+description:
+globs:
+alwaysApply: true
+---
+
+# Action Plan Generation and Management Guidelines
+
+When the user asks to create an "action plan" for a complex task or workflow, you must follow these guidelines to ensure a structured, iterative, and collaborative development process.
+
+## 1. Understand and Draft the Initial Plan
+
+Your first step is to thoroughly understand the user's requirements for the complex workflow. Based on this understanding, create an initial draft of the action plan in a new markdown file (e.g., `doc/Action-Plan/new-feature-action-plan.md`).
+
+The plan must be structured hierarchically:
+
+- **Phases**: Broad stages of the project (e.g., "Phase 1: Setup and Configuration", "Phase 2: Core Logic Implementation").
+- **Tasks**: Specific actions within a phase. Each task must be a checkbox item.
+- **Subtasks**: If a task is too complex, break it down into smaller, more manageable subtasks. These should also be checkbox items, indented under the parent task.
+
+**Example Format:**
+
+```markdown
+# Action Plan: [Name of the Feature or Workflow]
+
+## Phase 1: [Phase Name]
+
+- [ ] **Task 1:** [Description of the task]
+  - [ ] Subtask 1.1: [Description of the subtask]
+  - [ ] Subtask 1.2: [Description of the subtask]
+- [ ] **Task 2:** [Description of the task]
+
+## Phase 2: [Phase Name]
+
+- [ ] **Task 3:** [Description of the task]
+```
+
+## 2. Iteratively Refine the Plan (Iterative Thinking)
+
+The initial draft is not final. You must now enter an iterative refinement cycle.
+
+- **Analyze**: Study the codebase, identify potential challenges, and think through the implementation details for each task and subtask.
+- **Update**: Modify the action plan based on your analysis. This may involve adding more detail, creating new subtasks, re-ordering tasks, or even adding/removing entire tasks or phases.
+- **Confidence**: Continue this process until you are confident that the action plan is comprehensive, realistic, and accurately reflects the work required to achieve the user's goal.
+
+## 3. Collaborate with the User for Approval
+
+Present the refined action plan to the user for their review. Explain your reasoning for the structure and tasks you've outlined. Be prepared to discuss, clarify, and make further adjustments based on their feedback. The goal is to reach a shared understanding and get the user's approval before starting implementation.
+
+## 4. Execute and Track Progress
+
+Once the plan is approved, begin executing the tasks in the specified order.
+
+- **Execute**: Work on one task or subtask at a time.
+- **Track**: **This is critical.** Immediately after you have successfully completed and verified a task or subtask, you **must** edit the action plan file and mark the corresponding item as complete by changing `[ ]` to `[X]`.
+
+This tracking mechanism is the single source of truth for the project's progress. It allows both you and the user to know exactly what has been done and what is pending, and it enables you to pause and resume work seamlessly.
+

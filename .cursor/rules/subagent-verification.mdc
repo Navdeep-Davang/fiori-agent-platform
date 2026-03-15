@@ -1,0 +1,71 @@
+---
+description: Trust-but-verify protocol for master agent after receiving subagent reports. Subagents — especially fast-model ones — frequently write confident reports before fully completing a task. Use when running as master orchestrator and reviewing any worker report.
+alwaysApply: false
+---
+
+# Subagent Report Verification Protocol
+
+Never mark a task complete from the report alone. Always run independent verification.
+
+## Verification by Task Type
+
+### File Creation / Secret Initialization
+```powershell
+# Check no placeholder values remain
+Select-String "your_|changeme|placeholder|secret_here|xxx" <file>
+# Must return nothing
+```
+Read the actual file. Do not trust "I set the value" without reading the content yourself.
+
+### Docker Services Started
+```powershell
+docker-compose ps
+# Every service must show "Up" or "running"
+# Any showing "Exit" or "Restarting" → read logs:
+docker-compose logs --tail=50 <failed_service>
+```
+
+### Scripts Executed (DB init, seed, migrations)
+```bash
+# Query the database directly — don't trust the script output summary
+# See verification-scripts.md in the global skill for the query pattern
+```
+Always check actual row counts or table existence, not just whether the script ran.
+
+### API / Health Verification
+```powershell
+# Re-run the actual HTTP call yourself — don't trust the report's summary
+Invoke-RestMethod -Uri "http://localhost:<PORT>/health" -Method Get
+```
+
+## Subagent Prompt Requirement
+
+Always include this in prompts for infrastructure or deployment tasks:
+
+> "If you encounter errors during any step, diagnose and fix them autonomously — do not pause to ask for permission. Document every fix in your report's Issues section. Only set `status: COMPLETE` if you independently verified the result by running the actual command or reading the actual file."
+
+This prevents two failure modes:
+- The "Should I proceed?" halt (subagent asks for permission mid-task)
+- The false-positive report (subagent claims completion without verification)
+
+## Report Status — What They Actually Mean
+
+| Status | What it means in practice | Required action |
+|--------|--------------------------|-----------------|
+| COMPLETE | Subagent believes it's done | Run independent verification |
+| PARTIAL | Something left undone | Read Issues, spawn follow-up |
+| BLOCKED | Cannot proceed | Identify blocker, resolve or ask user |
+
+## Model Trust Reference
+
+| Model | Trust level | Verify |
+|-------|------------|--------|
+| fast | Low | Everything |
+| default | Medium | All critical steps |
+
+## Red Flags in a Report
+
+- "Manual check confirmed" with no command output shown
+- `Issues: None` on a task with known complexity
+- `started` → `completed` timestamp gap too short for the work
+- All acceptance criteria listed but none have actual output/evidence

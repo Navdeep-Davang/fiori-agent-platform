@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "project_id": "fiori-adk-playground",
+  "created": "2026-03-15T00:00:00Z",
+  "last_updated": "2026-03-15T12:00:00Z",
+  "artifacts": {
+    "architectures": {
+      "fiori-adk-playground": {
+        "path": "doc/Architecture/fiori-adk-playground.md",
+        "hash": "sha256:04a8e3fb3d621a3a5106a8f21c6f9ba897796703060e28d3b1406c02a180e891",
+        "last_modified": "2026-03-15T12:00:00Z",
+        "description": "Full-stack SAP Fiori chat playground on BTP with XSUAA auth, Node.js BFF, and Python ADK backend (verified against live SAP docs)"
+      }
+    },
+    "action_plans": {}
+  }
+}
