@@ -11,47 +11,50 @@
 
 These tools must be installed on your machine before you can build and deploy the app. Run all commands in your terminal.
 
-- [ ] **Task 1.1:** Install Node.js LTS (v20 or v22).
+> **Windows:** After `npm install -g …`, if `cds`, `ui5`, or `mbt` are not recognized, add the directory printed by `npm prefix -g` to your user **PATH** (this often happens when the global prefix is a pnpm folder). For CF CLI v8 without a manual MSI, run: `winget install CloudFoundry.CLI.v8`.
+
+- [x] **Task 1.1:** Install Node.js LTS (v20 or v22).
   - Download from https://nodejs.org — use the LTS installer.
   - Verify: `node --version` and `npm --version`.
-- [ ] **Task 1.2:** Install SAP CDS DK globally.
+- [x] **Task 1.2:** Install SAP CDS DK globally.
   - `npm install -g @sap/cds-dk`
   - Verify: `cds version` — must show version 8.x or higher.
-- [ ] **Task 1.3:** Install UI5 Tooling globally.
+- [x] **Task 1.3:** Install UI5 Tooling globally.
   - `npm install -g @ui5/cli`
   - Verify: `ui5 --version`.
-- [ ] **Task 1.4:** Install MBT (MTA Build Tool) globally.
+- [x] **Task 1.4:** Install MBT (MTA Build Tool) globally.
   - `npm install -g mbt`
   - Verify: `mbt --version`.
-- [ ] **Task 1.5:** Install Cloud Foundry CLI (CF CLI v8).
-  - Download from https://github.com/cloudfoundry/cli/releases — pick the v8 installer for your OS.
+- [x] **Task 1.5:** Install Cloud Foundry CLI (CF CLI v8).
+  - Download from https://github.com/cloudfoundry/cli/releases — pick the v8 installer for your OS (on Windows, `winget install CloudFoundry.CLI.v8` is equivalent).
   - Verify: `cf --version`.
-- [ ] **Task 1.6:** Install Python 3.11 or higher.
+- [x] **Task 1.6:** Install Python 3.11 or higher.
   - Download from https://python.org/downloads — check "Add to PATH" on Windows.
   - Verify: `python --version` and `pip --version`.
 - [ ] **Task 1.7:** Obtain a Google AI Studio API key (if using `google-genai` as the LLM provider).
   - Visit https://aistudio.google.com/apikey → Generate API key → copy and store it securely.
   - This key is injected into CF via `cf set-env acp-python GOOGLE_API_KEY <key>` after deploy and stored in `.env` locally. Never commit it to the repo.
-- [ ] **Task 1.8:** Install SAP Business Application Studio (BAS) — optional but recommended for annotation editing.
-  - Access it from your BTP Cockpit → Services → Service Marketplace → SAP Business Application Studio → Subscribe (free dev plan).
+- [ ] **Task 1.8:** SAP Business Application Studio (BAS) — **optional.**
+  - [x] **Local alternative (Cursor / VS Code):** Workspace recommends **SAP CDS Language Support** (`SAPSE.vscode-cds`) via `.vscode/extensions.json` — install the extension when the editor prompts.
+  - [ ] **BAS only if needed:** For SAP-hosted annotation wizards and Fiori generators: BTP Cockpit → Services → Service Marketplace → **SAP Business Application Studio** → Subscribe (free dev plan).
 
 ---
 
 ## Phase 2: BTP Trial Account and Cloud Foundry Space
 
-- [ ] **Task 2.1:** Sign in to the BTP Cockpit.
-  - Open https://cockpit.btp.cloud.sap and log in with your SAP universal ID.
-- [ ] **Task 2.2:** Verify your trial subaccount exists.
+- [x] **Task 2.1:** Sign in to the BTP Cockpit.
+  - Open **https://cockpit.hanatrial.ondemand.com/trial/** and log in with your SAP universal ID. (Note: Generic cockpit URLs may redirect to a regional cockpit with no global account shown for trial users).
+- [x] **Task 2.2:** Verify your trial subaccount exists.
   - You should see a tile named something like `trial` on the Global Account overview.
   - Click it to enter the subaccount.
-- [ ] **Task 2.3:** Enable Cloud Foundry environment (if not already done).
+- [x] **Task 2.3:** Enable Cloud Foundry environment (if not already done).
   - In the subaccount overview, click **Enable Cloud Foundry** if you see that button.
   - Accept the default org name (usually `<your-trial-id>trial`) and click **Create**.
   - This creates the CF environment with one `dev` space automatically.
-- [ ] **Task 2.4:** Note your CF API endpoint.
+- [x] **Task 2.4:** Note your CF API endpoint.
   - In the subaccount overview → Cloud Foundry Environment section → API Endpoint.
   - It looks like `https://api.cf.eu10.hana.ondemand.com` (region may differ).
-- [ ] **Task 2.5:** Log in to CF from your terminal.
+- [x] **Task 2.5:** Log in to CF from your terminal.
   - `cf login -a <CF_API_ENDPOINT>`
   - Enter your SAP Universal ID email and password.
   - Select the org and space when prompted (usually org = `<your-id>trial`, space = `dev`).
@@ -63,17 +66,17 @@ These tools must be installed on your machine before you can build and deploy th
 
 BTP trial accounts come with a set of default entitlements. Verify all required services are available; add them if missing.
 
-- [ ] **Task 3.1:** Open entitlements page.
+- [x] **Task 3.1:** Open entitlements page.
   - In BTP Cockpit → Subaccount → **Entitlements** → **Edit**.
-- [ ] **Task 3.2:** Confirm or add the following entitlements (all free on trial):
-  - [ ] **Authorization and Trust Management Service** → plan `application` (for XSUAA).
-  - [ ] **SAP HANA Cloud** → plan `hana` (one instance allowed on trial).
-  - [ ] **SAP HANA Schemas & HDI Containers** → plan `hdi-shared` (schemas inside the HANA instance).
-  - [ ] **Destination Service** → plan `lite`.
-  - [ ] **HTML5 Application Repository** → plans `app-host` and `app-runtime`.
-  - [ ] **SAP Identity Authentication** → plan `default` (needed for custom JWT claims; also free on trial).
-- [ ] **Task 3.3:** Save entitlements.
-- [ ] **Task 3.4:** Verify in CF marketplace: `cf marketplace` in terminal — all services above should appear.
+- [x] **Task 3.2:** Confirm or add the following entitlements (all free on trial):
+  - [x] **Authorization and Trust Management Service** → plan `application` (for XSUAA).
+  - [x] **SAP HANA Cloud** → plan `hana` (one instance allowed on trial).
+  - [x] **SAP HANA Schemas & HDI Containers** → plan `hdi-shared` (schemas inside the HANA instance).
+  - [x] **Destination Service** → plan `lite`.
+  - [x] **HTML5 Application Repository** → plans `app-host` and `app-runtime`.
+  - [x] **SAP Identity Authentication** → plan `default` (needed for custom JWT claims; also free on trial).
+- [x] **Task 3.3:** Save entitlements.
+- [x] **Task 3.4:** Verify in CF marketplace: `cf marketplace` in terminal — all services above should appear.
 
 ---
 
@@ -81,17 +84,19 @@ BTP trial accounts come with a set of default entitlements. Verify all required 
 
 This is the most time-consuming step. The HANA instance takes ~10 minutes to provision.
 
-- [ ] **Task 4.1:** Open SAP HANA Cloud tool.
-  - In BTP Cockpit → Subaccount → **Services** → **Instances and Subscriptions** → click the **SAP HANA Cloud** subscription (subscribe first if not done).
-  - OR from the BTP Cockpit overview → **SAP HANA Cloud** tile → **Go to Application**.
-- [ ] **Task 4.2:** Create a new SAP HANA Database instance.
+- [x] **Task 4.1:** Open SAP HANA Cloud tool.
+  - Subscribe to **SAP HANA Cloud** plan **`tools`** if not already (this is HANA Cloud Central).
+  - **Subaccount → Security → Users** → your user → **Assign Role Collection** → **`SAP HANA Cloud Administrator`** (without this, **Go to Application** may show *Not authorized*). Sign out and reopen after assigning.
+  - **Services → Instances and Subscriptions** → **SAP HANA Cloud** (`tools`) → **Go to Application**.
+  - Reference: [SAP Developers — Start Using SAP HANA Cloud Free Tier](https://developers.sap.com/tutorials/hana-cloud-mission-trial-2.html) (Step 2).
+- [x] **Task 4.2:** Create a new SAP HANA Database instance.
   - Click **Create** → **SAP HANA Database**.
   - Instance name: `acp-hana` (or any name you prefer).
   - Administrator password: set a strong password and note it (you will not need it directly, but it is good to record).
-  - Allowed connections: select **Allow all IP addresses** (required for CF apps to connect from any CF cell IP).
+  - Allowed connections: select **Allow all IP addresses** if you need laptop access; CF-only is enough if you only deploy to CF in-region.
   - Click **Create**.
-- [ ] **Task 4.3:** Wait for provisioning — status changes from `Creating` to `Running`. This takes 5–15 minutes.
-- [ ] **Task 4.4:** Verify the instance is running.
+- [x] **Task 4.3:** Wait for provisioning — status changes from `Creating` to `Running`. This takes 5–15 minutes.
+- [x] **Task 4.4:** Verify the instance is running.
   - In SAP HANA Cloud tool — status dot is green, instance is `Running`.
 - [ ] **Task 4.5:** Note: HANA Cloud trial instances are stopped automatically every night and are deleted if not started within 30 days. Before each work session, check and start the instance here if it is stopped.
 
@@ -101,9 +106,12 @@ This is the most time-consuming step. The HANA instance takes ~10 minutes to pro
 
 > This phase sets up the `dept` JWT claim that the agent group resolution logic reads. Without this, the chat UI cannot determine which agents each user may access.
 
-- [ ] **Task 5.1:** Subscribe to SAP Identity Authentication Service (IAS).
-  - BTP Cockpit → Services → Service Marketplace → **Identity Authentication** → Subscribe (default plan, free).
-  - After subscription, go to **Instances and Subscriptions** → click the **Identity Authentication** tile → **Go to Application** — this opens the IAS admin console.
+> **Email / activation:** After IAS provisioning or **Establish Trust**, SAP may send an **activation or invitation** message to your BTP user’s mailbox (check spam). **Complete that link** before relying on **Administration Console** sign-in; skipping it often causes *Sorry, we could not authenticate you*, wrong password, or an IAS user row with **no Login Name** until activation is done.
+
+- [x] **Task 5.1:** Provision SAP Identity Authentication (IAS) via **Cloud Identity Services** (cockpit often shows **Create**, not **Subscribe**).
+  - **Entitlements first:** Subaccount → **Entitlements** → **Edit** → **Add Service Plans** → **Cloud Identity Services** → add **Application plan `default`** → **Save** (if **Create** is disabled or provisioning fails, quota is usually missing here).
+  - **Service Marketplace** → **Cloud Identity Services** → **Create** → choose **Application plan `default`** (tab *Application Plans*). **Do not** pick **Service plan `application`** — that plan fails with *OIDC Trust missing* until trust exists; it is for registering an app in an **existing** IAS tenant. Runtime: **Cloud Foundry**; instance name: e.g. `acp-ias` (delete any **Creation Failed** row first if the cockpit allows). Finish the wizard.
+  - After success: **Instances and Subscriptions** → open the instance → **Go to Application** / admin URL for the **IAS admin console**. Reference: [Creating and Accessing an IAS Tenant on SAP BTP (Part 2)](https://community.sap.com/t5/technology-blog-posts-by-sap/creating-and-accessing-an-ias-tenant-on-sap-btp-part-2/ba-p/14302873); [Cloud Identity Services help](https://help.sap.com/docs/cloud-identity-services).
 - [ ] **Task 5.2:** Create demo users in IAS admin console.
   - In IAS admin console → **Users & Authorizations** → **User Management** → **Add User**.
   - Create four users:
@@ -118,12 +126,12 @@ This is the most time-consuming step. The HANA instance takes ~10 minutes to pro
     - Bob: `dept = procurement`
     - Carol: `dept = finance`
     - Dave: (no dept — Dave uses read-only Auditor role only)
-- [ ] **Task 5.4:** Configure trust between BTP XSUAA and IAS.
+- [x] **Task 5.4:** Configure trust between BTP XSUAA and IAS.
   - BTP Cockpit → Subaccount → **Security** → **Trust Configuration** → **Establish Trust**.
   - Select the IAS tenant you just configured (it should appear in the list).
-  - Click **Establish Trust** — BTP now trusts tokens issued by IAS.
+  - Finish the wizard — the custom IdP should show **Active** (e.g. `*.trial-accounts.ondemand.com (business users)`).
 - [ ] **Task 5.5:** Configure attribute propagation in the trust configuration.
-  - Open the newly established trust with IAS → **Attributes** tab.
+  - Open the **custom** IAS trust (not *Default identity provider*) → **Attribute Mappings** tab (cockpit label; may appear as **Attributes** in older UI).
   - Add a mapping: Source `Custom Attribute`, Source Value `dept` → Target `dept` (this passes the IAS `dept` attribute into the XSUAA JWT claim).
   - Save.
 - [ ] **Task 5.6:** Verify the setup.
