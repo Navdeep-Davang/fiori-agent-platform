@@ -1,331 +1,910 @@
-# Architecture: Fiori ADK Playground — Full-Stack AI Chat on SAP BTP
+# Architecture: Agent Control Plane (SAP BTP)
 
-## Overview
-
-A modern AI agent playground built on SAP BTP, delivering a ChatGPT/Claude-style chat experience via SAP Fiori UI5, backed by an existing Python + Google ADK agent service with PostgreSQL. Authentication and role-based access are handled end-to-end through SAP XSUAA, with user identity and roles propagated all the way to the Python MCP layer. The PostgreSQL write path is designed for a clean future swap to SAP HANA.
-
----
-
-## Context
-
-| Dimension | Detail |
-|---|---|
-| **Existing backend** | Python + Google ADK + PostgreSQL (already running) |
-| **New frontend** | SAP Fiori UI5 chat app on SAP BTP Cloud Foundry |
-| **Auth target** | SAP XSUAA (OAuth2 / JWT) with role scopes |
-| **Future DB** | PostgreSQL write path → SAP HANA (no structural refactor needed) |
-| **Target runtime** | SAP BTP Cloud Foundry |
-| **Deployment model** | Multi-Target Application (MTA) |
+> **Audience:** developers implementing this system. For product requirements and "why" reasoning, see `doc/PRD/agent-control-plane.md`.
+> Last updated: 2026-03-28.
 
 ---
 
-## System Components
+## 1. Overview
 
-### 1. SAP Fiori UI5 App (`app/`)
-The chat frontend. A single-page UI5 application rendered in the browser. Implements a modern chat window (message bubbles, streaming text, agent selector, session history) similar to ADK Web UI but with Fiori design system (SAP Horizon theme). No login screen is coded here — XSUAA + App Router handle it transparently.
+Agent Control Plane is a governance and chat product running on SAP BTP Cloud Foundry. It consists of two SAPUI5 frontend apps (`app/admin/` for Fiori Elements governance screens, `app/chat/` for freestyle streaming chat), an `@sap/approuter` OAuth2 gateway, a CAP Node.js service (`srv/`) that exposes OData V4 endpoints for all governed entities plus custom SSE routes in `server.js`, and a separate FastAPI Python service (`python/`) that runs LLM inference and MCP tool calls. SAP HANA Cloud (HDI container) is the sole datastore. Authentication is XSUAA with four application scopes. All components deploy as a single MTA on Cloud Foundry.
 
-**Responsibilities**
-- Render chat messages (user + agent bubbles) with streaming support via SSE
-- Agent selector dropdown: fetched dynamically from Node.js BFF `/api/agents`
-- Session management (new session, session history)
-- Attach XSUAA Bearer JWT (injected automatically by App Router) to every API call
-- Display user name and active roles from decoded JWT
+---
 
-### 2. SAP App Router (`approuter/`)
-The authentication and routing gateway. An `@sap/approuter` Node.js process that acts as the XSUAA OAuth2 client. All browser traffic enters here. The App Router:
-- Redirects unauthenticated users to XSUAA login page
-- Exchanges authorization codes for JWT access tokens
-- Injects `Authorization: Bearer <JWT>` header into proxied API requests
-- Routes `/` → UI5 static assets, `/api/*` → Node.js BFF, `/backend/*` → Python backend (optional direct path)
+## 2. System Components
 
-### 3. Node.js BFF — Backend for Frontend (`api/`)
-A lightweight Express.js service that sits between the App Router and the Python backend. Acts as a trust boundary and enrichment layer.
+### 1. Admin UI (`app/admin/`)
+**Technology:** Fiori Elements (SAPUI5), UI5 Tooling
 
-**Responsibilities**
-- Validate XSUAA JWT signature using `@sap/xssec` v4 (`createSecurityContext(authService, { req })`) + JWKS auto-fetch
-- Read XSUAA credentials from `VCAP_SERVICES` via `@sap/xsenv`
-- Extract user identity: `{ userId, email, fullName, scopes, roles }` from `SecurityContext`
-- Enforce coarse-grained access: `secContext.checkLocalScope('Agent.User')` → 403 if false
-- Proxy REST calls to Python backend with enriched `X-User-Info` header
-- Handle SSE streaming: open SSE connection to Python, pipe to browser
-- Expose `/api/agents` and `/api/chat` endpoints
+**Responsibilities:**
+1. List Report + Object Page for `McpServer` — register, test connection, sync tools, disable.
+2. List Report + Object Page for `Tool` — review Draft tools, set risk level and elevated flag, activate, run test.
+3. List Report + Object Page for `Agent` — create agents, assign tools, set system prompt, model profile, identity mode.
+4. List Report + Object Page for `AgentGroup` — map JWT claim keys/values to agent bundles.
+5. All pages driven by OData V4 annotations in `app/admin/annotations/annotations.cds`; no custom controller logic for CRUD.
 
-**Key v4 API pattern (verified against `@sap/xssec@4.12.2`):**
-```js
-const { createSecurityContext, XsuaaService, SECURITY_CONTEXT,
-        errors: { ValidationError } } = require("@sap/xssec");
-const xsenv = require("@sap/xsenv");
+### 2. Chat UI (`app/chat/`)
+**Technology:** Freestyle SAPUI5 (no Fiori Elements)
 
-// Read XSUAA credentials from bound service (VCAP_SERVICES)
-const { xsuaa } = xsenv.getServices({ xsuaa: { tag: "xsuaa" } });
-const authService = new XsuaaService(xsuaa);
+**Responsibilities:**
+1. Fetch agent list from `GET /api/agents` and render agent selector dropdown (only agents the user's groups permit).
+2. Display three-panel layout: session list (left), message thread (center), input bar (bottom).
+3. Open SSE connection to `POST /api/chat`; render tokens incrementally as they arrive.
+4. Render collapsible tool trace (`ToolTrace.fragment.xml`) below each assistant message.
+5. Load session history via `GET /odata/v4/chat/ChatSessions` and `GET /odata/v4/chat/ChatMessages`.
 
-async function authMiddleware(req, res, next) {
-  try {
-    req[SECURITY_CONTEXT] = await createSecurityContext(authService, { req });
-    next();
-  } catch (e) {
-    res.sendStatus(e instanceof ValidationError ? 401 : 500);
-  }
+### 3. App Router (`approuter/`)
+**Technology:** `@sap/approuter` ^21.x
+
+**Responsibilities:**
+1. Act as XSUAA OAuth2 client: redirect unauthenticated requests to XSUAA login, exchange code for JWT, store session cookie.
+2. Inject `Authorization: Bearer <JWT>` into every proxied request.
+3. Route `/admin*` → CAP OData + Admin UI static assets.
+4. Route `/chat*` → CAP OData + Chat UI static assets.
+5. Route `/api/*` → CAP `server.js` custom routes.
+6. Enforce that all routes require authentication via `xs-app.json` `authenticationType: "xsuaa"`.
+
+### 4. CAP Service (`srv/`)
+**Technology:** SAP CAP (Node.js), CDS, `@sap/xssec` v4
+
+**Responsibilities:**
+1. Serve `GovernanceService` OData V4 at `/odata/v4/governance` for `McpServer`, `Tool`, `Agent`, `AgentGroup` and their compositions.
+2. Serve `ChatService` OData V4 at `/odata/v4/chat` for `ChatSession`, `ChatMessage`, `ToolCallRecord`.
+3. Implement bound actions: `testConnection`, `syncTools` on `McpServer`; `runTest` on `Tool`.
+4. `server.js` custom route `GET /api/agents`: resolve agent list from JWT claims → group lookup in HANA.
+5. `server.js` custom route `POST /api/chat`: validate JWT, build effective tool list, proxy to Python as SSE, persist `ChatMessage` and `ToolCallRecord` on completion.
+6. Enforce all role restrictions declared in CDS `@requires` and `@restrict` annotations.
+
+### 5. Python Executor (`python/`)
+**Technology:** FastAPI, uvicorn, httpx, Anthropic/OpenAI SDK, MCP client
+
+**Responsibilities:**
+1. Accept `POST /chat` from CAP `server.js`; run LLM inference loop; stream SSE back.
+2. Accept `POST /tool-test` from CAP `runTest` action; invoke a single MCP tool and return result.
+3. Use the `effectiveTools` list provided by CAP — never decide its own tool list.
+4. Call MCP servers via HTTP streamable transport; use `userToken` for delegated tools, machine service token for elevated tools (flag communicated by CAP per tool).
+5. Emit structured SSE events: `token`, `tool_call`, `tool_result`, `done`, `error`.
+
+### 6. SAP HANA Cloud
+**Technology:** HDI container, managed by CAP CDS deploy
+
+**Responsibilities:**
+1. Store all governed entities: `McpServer`, `Tool`, `Agent`, `AgentTool`, `AgentGroup`, `AgentGroupClaimValue`, `AgentGroupAgent`.
+2. Store all chat history: `ChatSession`, `ChatMessage`, `ToolCallRecord`.
+3. Schema migrations managed by `cds deploy --to hana` via HDI.
+4. Seed data in `db/data/*.csv` loaded on deploy.
+
+---
+
+## 3. CDS Data Model
+
+File: `db/schema.cds`
+
+```cds
+namespace acp;
+using { cuid, managed } from '@sap/cds/common';
+
+// ─── MCP Server ──────────────────────────────────────────────────────────────
+
+entity McpServer {
+  key ID              : UUID;
+  name                : String(100);
+  description         : String(500);
+  destinationName     : String(200);   // BTP Destination name (preferred)
+  baseUrl             : String(500);   // dev-only fallback
+  authType            : String enum { None; Destination; CredentialStore };
+  transportType       : String enum { HTTP; stdio };
+  environment         : String enum { dev; prod };
+  ownerTeam           : String(100);
+  status              : String(20) enum { Active; Disabled } default 'Active';
+  health              : String(20) enum { OK; FAIL; UNKNOWN } default 'UNKNOWN';
+  lastHealthCheck     : Timestamp;
+  tools               : Composition of many Tool on tools.server = $self;
 }
 
-// Scope check in route handler:
-app.post("/api/chat", authMiddleware, (req, res) => {
-  if (!req[SECURITY_CONTEXT].checkLocalScope("Agent.User")) return res.sendStatus(403);
-  const token = req[SECURITY_CONTEXT].token;
-  const userInfo = { userId: token.payload.sub, email: token.payload.email,
-                     roles: token.scopes };
-  // forward to Python...
-});
-```
+// ─── Tool ─────────────────────────────────────────────────────────────────────
 
-### 4. Python ADK Agent Service (existing, external)
-The existing Python application. Runs independently (on BTP, on-prem, or any reachable host). Exposes a REST API consumed by the Node.js BFF.
+entity Tool {
+  key ID              : UUID;
+  name                : String(200);   // must match MCP server tool name exactly
+  description         : LargeString;  // sent to LLM as-is
+  server              : Association to McpServer;
+  inputSchema         : LargeString;  // JSON Schema of arguments
+  outputSchema        : LargeString;  // optional
+  riskLevel           : String(20) enum { Low; Medium; High } default 'Low';
+  elevated            : Boolean default false;
+  status              : String(20) enum { Draft; Active; Disabled } default 'Draft';
+  modifiedAt          : Timestamp;
+}
 
-**Responsibilities**
-- `GET /agents` — list available agent definitions
-- `POST /chat` — route message to selected agent, stream response
-- Accept `X-User-Info` header and validate roles (currently mock RBAC, upgradeable to `sap-xssec` Python library)
-- MCP server layer for tool calls (RBAC-gated)
-- Read/write to PostgreSQL (write path isolated for future HANA swap)
+// ─── Agent ────────────────────────────────────────────────────────────────────
 
-### 5. SAP BTP Platform Services
+entity Agent {
+  key ID              : UUID;
+  name                : String(100);
+  description         : String(500);
+  systemPrompt        : LargeString;
+  modelProfile        : String(20) enum { Fast; Quality } default 'Fast';
+  identityMode        : String(20) enum { Delegated; Mixed } default 'Delegated';
+  status              : String(20) enum { Draft; Active; Archived } default 'Draft';
+  createdBy           : String(200);
+  tools               : Composition of many AgentTool on tools.agent = $self;
+}
 
-| Service | Plan | Role in System |
-|---|---|---|
-| **XSUAA** (Authorization & Trust Management) | `application` | Issues JWTs, owns role definitions, OAuth2 AS |
-| **Destination Service** | `lite` | Stores Python backend URL + credentials securely |
-| **HTML5 Application Repository** | `app-host` | Hosts built UI5 static assets |
-| **Cloud Foundry Runtime** | — | Runs App Router + Node.js BFF |
-| **SAP Build Work Zone** (optional) | `standard` | Integrate Fiori app into a Launchpad tile |
+// ─── AgentTool (join: Agent ↔ Tool) ──────────────────────────────────────────
 
----
+entity AgentTool {
+  key ID                : UUID;
+  agent                 : Association to Agent;
+  tool                  : Association to Tool;
+  permissionOverride    : String(30) enum { Inherit; ForceDelegated; ForceElevated } default 'Inherit';
+}
 
-## Data Flow
+// ─── AgentGroup ───────────────────────────────────────────────────────────────
 
-### Authentication Flow (First Visit)
+entity AgentGroup {
+  key ID              : UUID;
+  name                : String(100);
+  description         : String(500);
+  claimKey            : String(100);   // JWT attribute name e.g. "dept"
+  status              : String(20) enum { Active; Disabled } default 'Active';
+  claimValues         : Composition of many AgentGroupClaimValue on claimValues.group = $self;
+  agents              : Composition of many AgentGroupAgent on agents.group = $self;
+}
 
-```mermaid
-sequenceDiagram
-    participant Browser
-    participant AppRouter
-    participant XSUAA
-    participant UI5App
+// ─── AgentGroupClaimValue (one row per matching value) ───────────────────────
 
-    Browser->>AppRouter: GET / (no session)
-    AppRouter->>XSUAA: Redirect to OAuth2 /authorize (PKCE)
-    XSUAA->>Browser: Login page
-    Browser->>XSUAA: Credentials submitted
-    XSUAA->>AppRouter: Authorization code callback
-    AppRouter->>XSUAA: Exchange code → access_token (JWT) + refresh_token
-    AppRouter->>Browser: Set session cookie, serve index.html
-    Browser->>AppRouter: GET /webapp/* (static assets)
-    AppRouter->>UI5App: Serve UI5 bundle
-```
+entity AgentGroupClaimValue {
+  key ID              : UUID;
+  group               : Association to AgentGroup;
+  value               : String(200);   // e.g. "procurement"
+}
 
-### Chat Request Flow (Authenticated User)
+// ─── AgentGroupAgent (join: AgentGroup ↔ Agent) ──────────────────────────────
 
-```mermaid
-sequenceDiagram
-    participant Browser as UI5 Browser
-    participant AppRouter as App Router
-    participant BFF as Node.js BFF
-    participant Python as Python ADK Service
+entity AgentGroupAgent {
+  key ID              : UUID;
+  group               : Association to AgentGroup;
+  agent               : Association to Agent;
+}
 
-    Browser->>AppRouter: POST /api/chat {agentId, message, sessionId}
-    AppRouter->>AppRouter: Inject Authorization: Bearer <JWT>
-    AppRouter->>BFF: Forward request + JWT
+// ─── ChatSession ──────────────────────────────────────────────────────────────
 
-    BFF->>BFF: Validate JWT via XSUAA JWKS
-    BFF->>BFF: Extract {userId, email, roles}
-    BFF->>BFF: Check Agent.User scope (403 if missing)
+entity ChatSession {
+  key ID              : UUID;
+  agentId             : UUID;
+  userId              : String(200);
+  title               : String(200);
+  createdAt           : Timestamp;
+  updatedAt           : Timestamp;
+  messages            : Composition of many ChatMessage on messages.session = $self;
+}
 
-    BFF->>Python: POST /chat {agentId, message, sessionId}\n  X-User-Info: {userId,email,roles}
-    Python->>Python: Validate X-User-Info roles (mock/XSUAA)
-    Python->>Python: Route to selected ADK agent
-    Python-->>BFF: SSE stream (text/event-stream)
-    BFF-->>AppRouter: SSE piped through
-    AppRouter-->>Browser: Streaming response rendered in chat window
-```
+// ─── ChatMessage ──────────────────────────────────────────────────────────────
 
-### Role Propagation Flow
+entity ChatMessage {
+  key ID              : UUID;
+  session             : Association to ChatSession;
+  role                : String(20) enum { user; assistant };
+  content             : LargeString;
+  timestamp           : Timestamp;
+  toolCalls           : Composition of many ToolCallRecord on toolCalls.message = $self;
+}
 
-```mermaid
-flowchart LR
-    BTPCockpit["BTP Cockpit\nRole Assignment"] -->|Role Collection| XSUAA
-    XSUAA -->|JWT with scopes| AppRouter
-    AppRouter -->|Bearer JWT header| BFF
-    BFF -->|X-User-Info JSON| Python
-    Python -->|Role check| MCPServer["MCP Server\n(RBAC Gate)"]
-    MCPServer -->|If authorized| AgentTool["Agent Tool\nExecution"]
-```
+// ─── ToolCallRecord ───────────────────────────────────────────────────────────
 
----
-
-## Project File & Folder Structure
-
-```
-fiori-app/
-│
-├── app/                                  # SAP Fiori UI5 Application
-│   ├── webapp/
-│   │   ├── controller/
-│   │   │   ├── App.controller.js         # Root app controller
-│   │   │   ├── Chat.controller.js        # Chat logic: send, receive, stream
-│   │   │   └── AgentSelector.controller.js
-│   │   ├── view/
-│   │   │   ├── App.view.xml              # Shell + navigation container
-│   │   │   ├── Chat.view.xml             # Chat window: message list + input bar
-│   │   │   └── AgentSelector.view.xml    # Agent picker fragment/dialog
-│   │   ├── model/
-│   │   │   ├── models.js                 # JSONModel factory, user model
-│   │   │   └── formatter.js             # Date/role display formatters
-│   │   ├── fragment/
-│   │   │   └── UserInfo.fragment.xml     # Avatar + name + roles display
-│   │   ├── css/
-│   │   │   └── style.css                 # Chat bubble overrides, streaming cursor
-│   │   ├── i18n/
-│   │   │   └── i18n.properties           # All UI strings (no hardcoded text)
-│   │   ├── Component.js                  # UI5 component bootstrap
-│   │   ├── index.html                    # Entry point (loads UI5 bootstrap)
-│   │   └── manifest.json                 # App descriptor: routes, models, XSUAA OAuth config
-│   ├── ui5.yaml                          # UI5 Tooling config (build + serve)
-│   └── package.json
-│
-├── approuter/                            # SAP App Router (auth gateway)
-│   ├── xs-app.json                       # Route table: / → UI5, /api → BFF
-│   ├── default-env.json                  # Local dev: VCAP_SERVICES mock
-│   └── package.json                      # @sap/approuter dependency
-│
-├── api/                                  # Node.js BFF (Backend for Frontend)
-│   ├── src/
-│   │   ├── routes/
-│   │   │   ├── agents.js                 # GET /api/agents → proxy to Python
-│   │   │   └── chat.js                   # POST /api/chat → proxy + SSE pipe
-│   │   ├── middleware/
-│   │   │   ├── auth.js                   # @sap/xssec JWT validation
-│   │   │   └── rbac.js                   # Scope enforcement (Agent.User etc.)
-│   │   ├── services/
-│   │   │   ├── pythonProxy.js            # HTTP client to Python backend (via Destination)
-│   │   │   └── destinationService.js     # Reads Python URL from BTP Destination
-│   │   ├── config/
-│   │   │   └── index.js                  # Env var config (VCAP_SERVICES parser)
-│   │   └── app.js                        # Express app setup
-│   ├── package.json
-│   └── Dockerfile                        # (optional) containerized deployment
-│
-├── xs-security.json                      # XSUAA app security descriptor (shared)
-├── mta.yaml                              # MTA build & deploy descriptor
-├── .env.example                          # Local dev env vars template
-│
-└── doc/
-    ├── Architecture/
-    │   └── fiori-adk-playground.md       # ← THIS FILE
-    └── Action-Plan/
-        └── (to be created)
+entity ToolCallRecord {
+  key ID              : UUID;
+  message             : Association to ChatMessage;
+  toolName            : String(200);
+  arguments           : LargeString;   // JSON
+  resultSummary       : LargeString;
+  durationMs          : Integer;
+  elevatedUsed        : Boolean default false;
+  timestamp           : Timestamp;
+}
 ```
 
 ---
 
-## Interfaces & API Contracts
+## 4. CAP Service Definitions
 
-### Node.js BFF — Exposed Endpoints
+### GovernanceService (`srv/governance-service.cds`)
+
+```cds
+using acp from '../db/schema';
+
+service GovernanceService @(path: '/odata/v4/governance') {
+
+  // ── McpServer ────────────────────────────────────────────────────────────
+  @(restrict: [
+    { grant: ['READ'],              to: ['Agent.Author', 'Agent.Admin', 'Agent.Audit'] },
+    { grant: ['WRITE', 'CREATE', 'UPDATE', 'DELETE'], to: ['Agent.Admin'] }
+  ])
+  entity McpServers as projection on acp.McpServer actions {
+    action testConnection()                     returns String;  // pings server, updates health + lastHealthCheck
+    action syncTools()                          returns String;  // discovers tools, creates Draft Tool records
+  };
+
+  // ── Tool ─────────────────────────────────────────────────────────────────
+  @(restrict: [
+    { grant: ['READ'],              to: ['Agent.Author', 'Agent.Admin', 'Agent.Audit'] },
+    { grant: ['WRITE', 'CREATE', 'UPDATE', 'DELETE'], to: ['Agent.Admin'] }
+  ])
+  entity Tools as projection on acp.Tool actions {
+    @(requires: 'Agent.Admin')
+    action runTest(args: LargeString)           returns LargeString;  // calls Python /tool-test
+  };
+
+  // ── Agent ─────────────────────────────────────────────────────────────────
+  @(restrict: [
+    { grant: ['READ'],              to: ['Agent.Author', 'Agent.Admin', 'Agent.Audit'] },
+    { grant: ['WRITE', 'CREATE', 'UPDATE', 'DELETE'], to: ['Agent.Author', 'Agent.Admin'] }
+  ])
+  entity Agents as projection on acp.Agent;
+
+  entity AgentTools as projection on acp.AgentTool;
+
+  // ── AgentGroup ───────────────────────────────────────────────────────────
+  @(restrict: [
+    { grant: ['READ'],              to: ['Agent.Admin', 'Agent.Audit'] },
+    { grant: ['WRITE', 'CREATE', 'UPDATE', 'DELETE'], to: ['Agent.Admin'] }
+  ])
+  entity AgentGroups as projection on acp.AgentGroup;
+
+  entity AgentGroupClaimValues as projection on acp.AgentGroupClaimValue;
+  entity AgentGroupAgents       as projection on acp.AgentGroupAgent;
+}
+```
+
+**Handler responsibilities (`srv/governance-service.js`):**
+- `testConnection`: resolves the server's base URL (via `@sap-cloud-sdk/connectivity` `getDestination()` if `destinationName` is set, else uses `baseUrl`); calls `GET <resolvedBaseUrl>/health`; treats HTTP 200 as `OK`, any error as `FAIL`; writes result to `health` and `lastHealthCheck`.
+- `syncTools`: calls `POST <resolvedBaseUrl>/mcp/tools/list` on the MCP server; upserts `Tool` records with `status = 'Draft'`. Duplicate tool names for the same server are updated, not inserted.
+- `runTest`: requires `Agent.Admin` scope; calls `POST <python_url>/tool-test` with the tool's MCP server URL, name, and caller-supplied `args`; returns raw result string.
+- Elevated flag write guard: a `before UPDATE Tools` handler rejects changes to the `elevated` field unless the requester holds `Agent.Admin`.
+
+---
+
+### ChatService (`srv/chat-service.cds`)
+
+```cds
+using acp from '../db/schema';
+
+service ChatService @(path: '/odata/v4/chat') {
+
+  // Agent.User sees only their own sessions; Agent.Audit sees all.
+  @(restrict: [
+    { grant: ['READ'],   to: ['Agent.User'],  where: 'userId = $user' },
+    { grant: ['READ'],   to: ['Agent.Audit'] },
+    { grant: ['CREATE'], to: ['Agent.User'] },
+    { grant: ['UPDATE'], to: ['Agent.User'],  where: 'userId = $user' }
+  ])
+  entity ChatSessions as projection on acp.ChatSession;
+
+  @(restrict: [
+    { grant: ['READ'],   to: ['Agent.User', 'Agent.Audit'] },
+    { grant: ['CREATE'], to: ['Agent.User'] }
+  ])
+  entity ChatMessages as projection on acp.ChatMessage;
+
+  // ToolCallRecord rows are created by server.js only; no direct client writes.
+  @(restrict: [
+    { grant: ['READ'],   to: ['Agent.User', 'Agent.Audit'] }
+  ])
+  entity ToolCallRecords as projection on acp.ToolCallRecord;
+}
+```
+
+**Handler notes (`srv/chat-service.js`):**
+- `ChatSession` reads are automatically filtered to `userId = req.user.id` for `Agent.User` via the `@restrict` `where` clause.
+- `ChatMessage` creates from the client create a message row; the server also creates rows programmatically from `server.js` on SSE completion.
+- `ToolCallRecord` has no `CREATE` grant for any client scope — only `server.js` inserts these rows via `cds.run(INSERT.into(...))`.
+
+---
+
+### server.js custom routes (`srv/server.js`)
+
+Runs in the same CAP Node process. Registered via `cds.on('bootstrap', app => { ... })`.
+
+**`GET /api/agents`**
+
+1. Validate JWT via `@sap/xssec` `createSecurityContext`.
+2. Require `Agent.User` scope; return 403 otherwise.
+3. Read JWT claims from `SecurityContext` (e.g. `token.payload.dept`).
+4. Query HANA:
+   ```sql
+   SELECT DISTINCT a.ID, a.name, a.description, a.modelProfile
+   FROM acp_AgentGroupAgent aga
+   JOIN acp_AgentGroup g ON aga.group_ID = g.ID
+   JOIN acp_AgentGroupClaimValue v ON v.group_ID = g.ID
+   JOIN acp_Agent a ON aga.agent_ID = a.ID
+   WHERE v.value = <claim_value>
+     AND g.claimKey = <claim_key>
+     AND g.status = 'Active'
+     AND a.status = 'Active'
+   ```
+5. Return JSON array (see Section 5).
+
+**`POST /api/chat`**
+
+1. Validate JWT; require `Agent.User`; return 403 otherwise.
+2. Parse body: `{ agentId, message, sessionId }`.
+3. Verify user's groups include this agent (same query as above); return 403 if not.
+4. Load agent config from HANA: `Agent` row + `AgentTool` rows with joined `Tool` rows (status `Active` only).
+5. Apply `permissionOverride` logic per `AgentTool`:
+   - `Inherit` → use tool's own `elevated` flag and agent's `identityMode`.
+   - `ForceDelegated` → always delegated regardless of `elevated`.
+   - `ForceElevated` → only allowed if agent `identityMode = 'Mixed'` AND tool `elevated = true`; otherwise reject.
+6. Load conversation history: if `sessionId` is not null, query all `ChatMessage` rows for that session ordered by `timestamp ASC`; map to `{ role, content }` array. Pass as `history` in the Python payload. If `sessionId` is null, `history = []`.
+7. Extract `userToken` from `req.headers.authorization`; extract `userId` and `email` from `SecurityContext` for `userInfo`.
+8. Set `Content-Type: text/event-stream`; POST to Python `/chat` with full payload: `{ agentConfig, effectiveTools, message, history, userInfo, userToken }`.
+9. Pipe Python SSE stream to browser.
+10. On `done` event from Python: write `ChatMessage` (user role, original message) + `ChatMessage` (assistant role, accumulated tokens) + all `ToolCallRecord` rows to HANA. Update `ChatSession.updatedAt`. If `sessionId` was null, create new `ChatSession` (title = first 40 chars of user message) and return its ID in the forwarded `done` event.
+
+---
+
+## 5. API Contracts
+
+### OData V4 endpoints (auto-generated by CAP)
+
+| Method | URL | Notes |
+|--------|-----|-------|
+| `GET` | `/odata/v4/governance/McpServers` | List all; requires Author/Admin/Audit |
+| `POST` | `/odata/v4/governance/McpServers` | Create; requires Admin |
+| `PATCH` | `/odata/v4/governance/McpServers(ID)` | Update; requires Admin |
+| `DELETE` | `/odata/v4/governance/McpServers(ID)` | Delete; requires Admin |
+| `POST` | `/odata/v4/governance/McpServers(ID)/acp.testConnection` | Ping + update health |
+| `POST` | `/odata/v4/governance/McpServers(ID)/acp.syncTools` | Discover + create Draft tools |
+| `GET` | `/odata/v4/governance/Tools` | List all; requires Author/Admin/Audit |
+| `POST` | `/odata/v4/governance/Tools(ID)/acp.runTest` | Admin only; invoke tool via Python |
+| `GET` | `/odata/v4/governance/Agents` | List all; requires Author/Admin/Audit |
+| `POST` | `/odata/v4/governance/Agents` | Create; requires Author/Admin |
+| `GET` | `/odata/v4/governance/AgentGroups` | List all; requires Admin/Audit |
+| `POST` | `/odata/v4/governance/AgentGroups` | Create; requires Admin |
+| `GET` | `/odata/v4/chat/ChatSessions` | Filtered to own sessions for User; all for Audit |
+| `GET` | `/odata/v4/chat/ChatMessages` | Filtered via association to session |
+
+---
+
+### REST/SSE endpoints (`server.js`)
 
 #### `GET /api/agents`
-Returns list of available agents from Python backend.
 
-**Response**
+**Response:**
 ```json
 {
   "agents": [
     {
-      "id": "research-agent",
-      "name": "Research Agent",
-      "description": "Answers questions using web search",
-      "requiredRole": "Agent.User"
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "name": "Invoice Analyst",
+      "description": "Answers questions about open invoices and POs.",
+      "modelProfile": "Fast"
     }
   ]
 }
 ```
 
+---
+
 #### `POST /api/chat`
-Sends a message to the selected agent. Returns Server-Sent Events stream.
 
-**Request**
+**Request body:**
 ```json
 {
-  "agentId": "research-agent",
-  "message": "What is SAP BTP?",
-  "sessionId": "uuid-v4-session-id"
+  "agentId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "message": "What are my open invoices?",
+  "sessionId": "uuid-or-null"
 }
 ```
 
-**Response** — `Content-Type: text/event-stream`
+**Response:** `Content-Type: text/event-stream`
 ```
-data: {"type":"token","content":"SAP BTP "}
-data: {"type":"token","content":"(Business Technology Platform) is..."}
-data: {"type":"done","sessionId":"uuid-v4-session-id"}
-```
-
-**Headers sent to Python backend**
-```
-Authorization: Bearer <XSUAA JWT>      # original JWT (optional — for Python-side XSUAA validation)
-X-User-Info: {"userId":"...","email":"...","fullName":"...","roles":["Agent.User"]}
+data: {"type":"token","content":"Here are "}
+data: {"type":"token","content":"your open invoices:"}
+data: {"type":"tool_call","toolName":"query_invoices","args":{"status":"open"}}
+data: {"type":"tool_result","toolName":"query_invoices","summary":"Found 3 invoices","durationMs":342}
+data: {"type":"token","content":"I found 3 open invoices..."}
+data: {"type":"done","sessionId":"uuid","messageId":"uuid"}
 ```
 
-### Python Backend — Expected Endpoints
-
-#### `GET /agents`
-Returns agent registry. Python already has this or it can be added.
-
-#### `POST /chat`
-```json
-{
-  "agentId": "research-agent",
-  "message": "...",
-  "sessionId": "..."
-}
+**Error event:**
 ```
-Headers: `X-User-Info` (JSON), optionally `Authorization: Bearer <JWT>`
+data: {"type":"error","message":"Agent not accessible for this user"}
+```
 
 ---
 
-## XSUAA Security Model (`xs-security.json`)
+### Python service endpoints (internal — called by CAP `server.js` only)
+
+#### `POST /chat`
+
+**Request:**
+```json
+{
+  "agentConfig": {
+    "systemPrompt": "You are an invoice analyst. Answer only questions about invoices and POs.",
+    "modelProfile": "Fast",
+    "identityMode": "Delegated"
+  },
+  "effectiveTools": [
+    {
+      "name": "query_invoices",
+      "description": "Queries open invoices from S/4HANA. Returns a list of invoice objects.",
+      "inputSchema": { "type": "object", "properties": { "status": { "type": "string" } } },
+      "mcpServerUrl": "https://mcp-server.cfapps.eu10.hana.ondemand.com",
+      "elevated": false
+    }
+  ],
+  "message": "What are my open invoices?",
+  "history": [
+    { "role": "user", "content": "Hello" },
+    { "role": "assistant", "content": "Hi! How can I help you?" }
+  ],
+  "userInfo": {
+    "userId": "john.doe@example.com",
+    "email": "john.doe@example.com",
+    "groups": ["Procurement Group"]
+  },
+  "userToken": "Bearer eyJhbGciOiJSUzI1NiJ9..."
+}
+```
+
+**Response:** SSE stream (same format as `POST /api/chat` above).
+
+---
+
+#### `POST /tool-test`
+
+Admin-only. Called by CAP `runTest` action.
+
+**Request:**
+```json
+{
+  "mcpServerUrl": "https://mcp-server.cfapps.eu10.hana.ondemand.com",
+  "toolName": "query_invoices",
+  "args": { "status": "open" }
+}
+```
+
+**Response:**
+```json
+{
+  "result": "[{\"id\":\"INV-001\",\"amount\":1234.50,\"status\":\"open\"}]"
+}
+```
+
+---
+
+## 6. Auth Flow
+
+### Mermaid Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant AppRouter as App Router
+    participant XSUAA
+    participant CAP as CAP server.js
+    participant Python as Python Executor
+    participant MCP as MCP Server
+
+    %% ── First visit ────────────────────────────────────────────────────────
+    Browser->>AppRouter: GET /chat (no session)
+    AppRouter->>XSUAA: Redirect → /authorize (OAuth2 PKCE)
+    XSUAA->>Browser: Login page
+    Browser->>XSUAA: Credentials
+    XSUAA->>AppRouter: Authorization code callback
+    AppRouter->>XSUAA: Exchange code → JWT + refresh_token
+    AppRouter->>Browser: Session cookie + serve index.html
+
+    %% ── Chat request ───────────────────────────────────────────────────────
+    Browser->>AppRouter: POST /api/chat {agentId, message, sessionId}
+    AppRouter->>AppRouter: Inject Authorization: Bearer <JWT>
+    AppRouter->>CAP: POST /api/chat + JWT
+
+    CAP->>CAP: createSecurityContext(authService, {req})
+    CAP->>CAP: checkLocalScope("Agent.User") → 403 if false
+    CAP->>CAP: Read JWT claims (dept, role, etc.)
+    CAP->>CAP: Query HANA: resolve AgentGroups → verify agent access
+    CAP->>CAP: Load agent config + build effectiveTools list
+    CAP->>CAP: Set Content-Type: text/event-stream
+
+    CAP->>Python: POST /chat {agentConfig, effectiveTools, message, history, userInfo, userToken}
+    Python->>Python: LLM call with system prompt + history
+    Python->>Python: LLM returns tool_call decision
+    Python->>MCP: HTTP POST /tools/call {name, arguments} + userToken (or machine token if elevated)
+    MCP-->>Python: Tool result
+    Python-->>CAP: SSE stream (token, tool_call, tool_result, done)
+    CAP-->>AppRouter: SSE piped through
+    AppRouter-->>Browser: Streaming tokens rendered
+
+    CAP->>CAP: On "done": INSERT ChatMessage + ToolCallRecords into HANA
+```
+
+### Agent Group Resolution (plain text)
+
+1. CAP reads the validated `SecurityContext` from the request.
+2. Extracts all JWT claim key/value pairs from `token.payload` (e.g. `dept: "procurement"`, `costCenter: "SCM"`).
+3. For each claim pair, queries HANA:
+   ```sql
+   SELECT DISTINCT aga.agent_ID
+   FROM   acp_AgentGroupClaimValue v
+   JOIN   acp_AgentGroup g      ON v.group_ID  = g.ID
+   JOIN   acp_AgentGroupAgent aga ON aga.group_ID = g.ID
+   WHERE  v.value    = '<claim_value>'
+     AND  g.claimKey = '<claim_key>'
+     AND  g.status   = 'Active'
+   ```
+4. Unions results across all claim pairs to get the full set of agent IDs the user may access.
+5. For `POST /api/chat`: confirms the requested `agentId` is in that set; returns 403 otherwise.
+6. Loads `AgentTool` rows for the agent where `Tool.status = 'Active'`.
+7. Applies `permissionOverride` per `AgentTool` row to determine effective `elevated` flag per tool.
+8. Constructs the `effectiveTools` array forwarded to Python — Python receives only this list and cannot add to it.
+
+---
+
+## 7. Repository Folder Structure
+
+```
+fiori-agent-platform/
+├── app/
+│   ├── admin/                              # Fiori Elements admin app
+│   │   ├── annotations/
+│   │   │   └── annotations.cds             # LR/OP annotations for McpServer, Tool, Agent, AgentGroup
+│   │   ├── webapp/
+│   │   │   ├── manifest.json               # App descriptor (OData service binding, routes)
+│   │   │   └── index.html                  # Bootstrap entry point
+│   │   └── ui5.yaml                        # UI5 Tooling config (serve + build)
+│   └── chat/                               # Freestyle SAPUI5 chat app
+│       ├── webapp/
+│       │   ├── controller/
+│       │   │   ├── App.controller.js        # Root controller: auth state, shell nav
+│       │   │   └── Chat.controller.js       # Chat logic: send, SSE stream, session load/save
+│       │   ├── view/
+│       │   │   ├── App.view.xml             # Shell + layout container
+│       │   │   └── Chat.view.xml            # Three-panel: session list, thread, input bar
+│       │   ├── fragment/
+│       │   │   └── ToolTrace.fragment.xml   # Collapsible tool call detail panel
+│       │   ├── css/
+│       │   │   └── style.css               # Chat bubble styles, streaming cursor animation
+│       │   ├── i18n/
+│       │   │   └── i18n.properties         # All UI text strings (no hardcoded text in views)
+│       │   ├── Component.js                # UI5 component bootstrap
+│       │   ├── manifest.json               # App descriptor (OData + REST service config)
+│       │   └── index.html
+│       └── ui5.yaml
+│
+├── srv/                                    # CAP service layer
+│   ├── governance-service.cds              # OData V4: McpServer, Tool, Agent, AgentGroup
+│   ├── governance-service.js               # Handlers: testConnection, syncTools, runTest; role guards
+│   ├── chat-service.cds                    # OData V4: ChatSession, ChatMessage, ToolCallRecord
+│   ├── chat-service.js                     # Handlers: user-scoped session reads, message writes
+│   └── server.js                           # Custom HTTP: GET /api/agents, POST /api/chat (SSE)
+│
+├── db/
+│   ├── schema.cds                          # Platform entity definitions (namespace acp)
+│   ├── demo-schema.cds                     # ERP demo entity definitions (namespace acp.demo)
+│   └── data/                               # CSV seed rows loaded on cds deploy
+│       ├── acp-McpServer.csv
+│       ├── acp-Tool.csv
+│       ├── acp-Agent.csv
+│       ├── acp-AgentTool.csv
+│       ├── acp-AgentGroup.csv
+│       ├── acp-AgentGroupClaimValue.csv
+│       ├── acp-AgentGroupAgent.csv
+│       ├── acp.demo-Vendor.csv
+│       ├── acp.demo-PurchaseOrder.csv
+│       ├── acp.demo-POItem.csv
+│       ├── acp.demo-InvoiceHeader.csv
+│       └── acp.demo-InvoiceItem.csv
+│
+├── python/                                 # Python AI executor + MCP server (separate CF app)
+│   ├── app/
+│   │   ├── main.py                         # FastAPI app; mounts /chat, /tool-test, and /mcp routers
+│   │   ├── executor.py                     # LLM orchestration: prompt build, tool loop, SSE streaming
+│   │   ├── mcp_server.py                   # FastAPI router: POST /mcp/tools/list, POST /mcp/tools/call
+│   │   ├── mcp_client.py                   # MCP HTTP client; dispatches tool calls to MCP servers
+│   │   ├── db.py                           # HANA connection (hdbcli); SQLite fallback for local dev
+│   │   ├── config.py                       # Env vars: LLM_PROVIDER, LLM_API_KEY, GOOGLE_API_KEY, LLM_MODEL
+│   │   └── tools/
+│   │       ├── __init__.py
+│   │       ├── procurement.py              # get_vendors, get_purchase_orders, get_po_detail
+│   │       ├── finance.py                  # get_invoices, get_invoice_detail, match_invoice_to_po, get_spend_summary
+│   │       └── registry.py                 # Dict: tool name → handler function + JSON Schema
+│   ├── db/
+│   │   └── seed_local.sql                  # DDL + INSERT statements for local SQLite dev fallback
+│   ├── requirements.txt                    # fastapi, uvicorn, httpx, anthropic, openai, google-generativeai, google-adk, hdbcli
+│   ├── Procfile                            # web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+│   └── manifest.yml                        # CF push manifest for Python app
+│
+├── approuter/                              # @sap/approuter gateway
+│   ├── xs-app.json                         # Route table: /admin→CAP, /chat→CAP, /api→CAP server.js
+│   ├── default-env.json                    # Local dev: mock VCAP_SERVICES for XSUAA + Destination
+│   └── package.json                        # { "dependencies": { "@sap/approuter": "^21.x" } }
+│
+├── xs-security.json                        # XSUAA app security descriptor (scopes, role-templates, role-collections)
+├── mta.yaml                                # MTA build + deploy descriptor (all modules + resources)
+├── package.json                            # Root: workspaces, cds dependency, shared scripts
+├── .cdsrc.json                             # CAP config: db (hana/sqlite), auth (xsuaa/dummy)
+├── .env.example                            # Local dev env var template
+└── doc/
+    ├── Architecture/
+    │   └── fiori-agent-platform.md         # THIS FILE
+    ├── PRD/
+    │   └── agent-control-plane.md          # Product requirements
+    └── .manifest.json                      # Doc artifact registry
+```
+
+---
+
+## 8. BTP Services
+
+| Service | Plan | Role in this system | Bound to |
+|---------|------|---------------------|----------|
+| Authorization & Trust Management (XSUAA) | `application` | JWT issuer, OAuth2 AS, scope and role definitions | `acp-approuter`, `acp-cap` |
+| SAP HANA Cloud | `hdi-shared` | Primary database via HDI container; all entities + chat history | `acp-cap` |
+| Destination Service | `lite` | Stores MCP server URLs + credentials; read by CAP `governance-service.js` for tool calls | `acp-cap` |
+| Cloud Foundry Runtime | — | Runs `acp-approuter`, `acp-cap`, `acp-python` as CF apps | — |
+| HTML5 Application Repository | `app-host` | (Optional) hosts built UI5 bundles; CAP can also serve static files directly in dev | `acp-approuter` |
+| SAP Build Work Zone | `standard` | (Later) Fiori Launchpad tile for Work Zone integration | — |
+
+---
+
+## 9. Local Development Setup
+
+### Topology
+
+```
+Browser
+  └── localhost:5001  (approuter — default-env.json mocks VCAP_SERVICES)
+        ├── /admin  →  ui5 serve app/admin   (localhost:3001)
+        ├── /chat   →  ui5 serve app/chat    (localhost:3002)
+        └── /api    →  cds watch srv/        (localhost:4004)
+                          └── POST /chat  →  uvicorn python/app/main:app  (localhost:8000)
+```
+
+### Start commands
+
+```bash
+# Terminal 1 — CAP
+cds watch
+
+# Terminal 2 — Admin UI
+cd app/admin && ui5 serve --port 3001
+
+# Terminal 3 — Chat UI
+cd app/chat && ui5 serve --port 3002
+
+# Terminal 4 — App Router
+cd approuter && npm start
+
+# Terminal 5 — Python
+cd python && uvicorn app.main:app --reload --port 8000
+```
+
+### `.cdsrc.json` for local dev
 
 ```json
 {
-  "xsappname": "fiori-adk-playground",
+  "requires": {
+    "db": {
+      "kind": "sqlite",
+      "credentials": { "database": ":memory:" }
+    },
+    "auth": {
+      "kind": "dummy"
+    }
+  }
+}
+```
+
+With `auth.kind = "dummy"`, CAP injects a mock user. Set `cds.env.requires.auth.users` in `package.json` to simulate different roles during local testing.
+
+### `approuter/default-env.json` (minimal shape)
+
+```json
+{
+  "VCAP_SERVICES": {
+    "xsuaa": [{
+      "name": "acp-xsuaa",
+      "credentials": {
+        "clientid": "sb-agent-control-plane!t1",
+        "clientsecret": "...",
+        "url": "https://<subdomain>.authentication.eu10.hana.ondemand.com",
+        "uaadomain": "authentication.eu10.hana.ondemand.com",
+        "verificationkey": "-----BEGIN PUBLIC KEY-----\n..."
+      }
+    }]
+  }
+}
+```
+
+---
+
+## 10. MTA Deployment
+
+### `mta.yaml` key structure
+
+```yaml
+_schema-version: "3.1"
+ID: agent-control-plane
+version: 1.0.0
+
+modules:
+
+  - name: acp-approuter
+    type: approuter.nodejs
+    path: approuter/
+    requires:
+      - name: acp-xsuaa
+      - name: acp-html5-host
+    properties:
+      TENANT_HOST_PATTERN: "^(.*)-${default-domain}"
+
+  - name: acp-cap
+    type: nodejs
+    path: .
+    build-parameters:
+      build-result: gen/
+      builder: custom
+      commands:
+        - npx cds build --production
+    requires:
+      - name: acp-xsuaa
+        auth-type: xsuaa
+      - name: acp-hana
+      - name: acp-destination
+    provides:
+      - name: acp-cap-api
+        properties:
+          url: ${default-url}
+
+  - name: acp-python
+    type: python
+    path: python/
+    requires:
+      - name: acp-xsuaa
+      - name: acp-hana          # Required: Python SQL tools query HANA directly via hdbcli
+    properties:
+      LLM_PROVIDER: google-genai           # Change to anthropic or openai as needed
+      LLM_MODEL: gemini-2.0-flash          # Model name for the chosen provider
+      # LLM_API_KEY / GOOGLE_API_KEY must be injected via: cf set-env acp-python <KEY> <VALUE>
+
+  - name: acp-db-deployer
+    type: hdb
+    path: gen/db
+    requires:
+      - name: acp-hana
+
+resources:
+
+  - name: acp-xsuaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+
+  - name: acp-hana
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+
+  - name: acp-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+
+  - name: acp-html5-host
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-host
+```
+
+### Deploy commands
+
+```bash
+# Build MTA archive
+mbt build
+
+# Deploy to Cloud Foundry
+cf deploy mta_archives/agent-control-plane_*.mtar
+
+# Monitor
+cf mta agent-control-plane
+cf logs acp-cap --recent
+```
+
+---
+
+## 11. xs-security.json (complete)
+
+```json
+{
+  "xsappname": "agent-control-plane",
   "tenant-mode": "dedicated",
   "scopes": [
     {
       "name": "$XSAPPNAME.Agent.User",
-      "description": "Basic access: can chat with agents"
+      "description": "Open chat; use agents assigned to user's groups."
+    },
+    {
+      "name": "$XSAPPNAME.Agent.Author",
+      "description": "Create and edit agents within policy."
     },
     {
       "name": "$XSAPPNAME.Agent.Admin",
-      "description": "Admin access: manage agents, view all sessions"
+      "description": "Manage MCP servers, tools, groups, policies, elevated flags."
+    },
+    {
+      "name": "$XSAPPNAME.Agent.Audit",
+      "description": "Read-only access to all records, sessions, and tool-call logs."
     }
   ],
   "role-templates": [
     {
       "name": "AgentUser",
-      "description": "Standard user role",
-      "scope-references": ["$XSAPPNAME.Agent.User"]
+      "description": "Standard chat user.",
+      "scope-references": [
+        "$XSAPPNAME.Agent.User"
+      ]
+    },
+    {
+      "name": "AgentAuthor",
+      "description": "Agent designer.",
+      "scope-references": [
+        "$XSAPPNAME.Agent.User",
+        "$XSAPPNAME.Agent.Author"
+      ]
     },
     {
       "name": "AgentAdmin",
-      "description": "Administrator role",
-      "scope-references": ["$XSAPPNAME.Agent.User", "$XSAPPNAME.Agent.Admin"]
+      "description": "Platform administrator.",
+      "scope-references": [
+        "$XSAPPNAME.Agent.User",
+        "$XSAPPNAME.Agent.Author",
+        "$XSAPPNAME.Agent.Admin"
+      ]
+    },
+    {
+      "name": "AgentAudit",
+      "description": "Read-only auditor.",
+      "scope-references": [
+        "$XSAPPNAME.Agent.Audit"
+      ]
     }
   ],
   "role-collections": [
     {
-      "name": "ADK Playground User",
-      "role-template-references": ["$XSAPPNAME.AgentUser"]
+      "name": "ACP Chat User",
+      "description": "Can open chat and use assigned agents.",
+      "role-template-references": [
+        "$XSAPPNAME.AgentUser"
+      ]
     },
     {
-      "name": "ADK Playground Admin",
-      "role-template-references": ["$XSAPPNAME.AgentAdmin"]
+      "name": "ACP Agent Author",
+      "description": "Can create and edit agents.",
+      "role-template-references": [
+        "$XSAPPNAME.AgentAuthor"
+      ]
+    },
+    {
+      "name": "ACP Platform Admin",
+      "description": "Full platform governance access.",
+      "role-template-references": [
+        "$XSAPPNAME.AgentAdmin"
+      ]
+    },
+    {
+      "name": "ACP Auditor",
+      "description": "Read-only audit access.",
+      "role-template-references": [
+        "$XSAPPNAME.AgentAudit"
+      ]
     }
   ]
 }
@@ -333,240 +912,50 @@ Headers: `X-User-Info` (JSON), optionally `Authorization: Bearer <JWT>`
 
 ---
 
-## SAP BTP Account Setup — Step-by-Step
+## 12. Architecture Decision Records
 
-These are the manual steps the **account owner/developer** must perform in the SAP BTP Cockpit and CLI before or during deployment.
+### ADR-1: CAP + server.js over standalone Express BFF
 
-### Step 1 — BTP Account & Subaccount
-- [ ] Have an active SAP BTP Global Account (trial or enterprise)
-- [ ] Create or use existing **Subaccount** (e.g., `fiori-adk-dev`)
-- [ ] Note: subaccount region determines CF API endpoint (e.g., `cf.eu10.hana.ondemand.com`)
+**Decision:** All server-side logic lives in a single CAP Node.js process. Custom SSE routes are registered in `srv/server.js` via `cds.on('bootstrap', ...)`.
 
-### Step 2 — Enable Cloud Foundry Environment
-- [ ] In subaccount → **Enable Cloud Foundry**
-- [ ] Create a **Space** (e.g., `dev`)
-- [ ] Assign yourself **Space Developer** role
-
-### Step 3 — Enable Required BTP Services (Entitlements)
-
-**Cockpit navigation (verified current UI):**
-
-1. Open [BTP Cockpit](https://cockpit.btp.cloud.sap) and navigate to your **Global Account**
-2. In left sidebar go to **Entitlements → Entity Assignments**
-3. In the dropdowns choose **Show: Subaccounts** and select your subaccount, then click **Go**
-4. Click **Configure Entitlements** (enters edit mode)
-5. Click **Add Service Plans**, then search and enable each service below
-6. Click **Save** when done
-
-| Service | Plan | Required |
-|---|---|---|
-| Authorization and Trust Management Service | `application` | Yes |
-| Destination Service | `lite` | Yes |
-| HTML5 Application Repository | `app-host` | Yes |
-| Cloud Foundry Runtime | standard | Yes |
-| SAP Build Work Zone | `standard` (optional) | No |
-
-> **Trial accounts**: The default `trial` subaccount usually has all trial entitlements pre-assigned. You only need to do this step if you created a fresh subaccount or if a service plan is missing.
-
-### Step 4 — Create Service Instances (via CLI or Cockpit)
-
-> **Prerequisite**: CF CLI must be installed and you must be logged in (`cf login`). See Step 7 first if not done yet.
-> MTA deployment in Step 8 can also create these automatically from `mta.yaml` resources — this step is only needed for manual/dev setup.
-
-```bash
-# XSUAA instance — xs-security.json is passed as inline parameter
-cf create-service xsuaa application fiori-adk-xsuaa -c xs-security.json
-
-# Destination service instance (no config file needed)
-cf create-service destination lite fiori-adk-destination
-
-# HTML5 App Repository host (no config file needed)
-cf create-service html5-apps-repo app-host fiori-adk-html5-host
-```
-
-**Verify instances are created:**
-```bash
-cf services
-# Should show all 3 services with status "create succeeded"
-```
-
-> **Note**: `cf create-service <service> <plan> <instance-name> -c <file>` is the current syntax. The `-c` flag accepts a JSON file path or an inline JSON string.
-
-### Step 5 — Configure Destination for Python Backend
-
-**Cockpit navigation:** Subaccount → **Connectivity → Destinations** → **New Destination**
-
-| Field | Value |
-|---|---|
-| Name | `PYTHON_ADK_BACKEND` |
-| Type | `HTTP` |
-| URL | `https://your-python-backend-url` |
-| Proxy Type | `Internet` |
-| Authentication | `NoAuthentication` |
-
-**Add these Additional Properties** (click "New Property" for each):
-
-| Property | Value |
-|---|---|
-| `HTML5.DynamicDestination` | `true` |
-| `WebIDEEnabled` | `false` |
-
-> **Important `forwardAuthToken` caveat**: SAP's `forwardAuthToken=true` property in Destinations can fail with a `ServiceInstanceName` required error when used with `NoAuthentication`. Instead, the **Node.js BFF** in this architecture reads the destination URL via `@sap/xsenv` and manually adds the `Authorization: Bearer <JWT>` and `X-User-Info` headers when calling the Python backend. This is more reliable and gives full control. Do **not** set `forwardAuthToken` in the destination config — the BFF handles token forwarding in code.
-
-### Step 6 — Assign Role Collections to Users
-In BTP Cockpit → Subaccount → **Security → Role Collections**:
-- [ ] Assign **ADK Playground User** role collection to developer/test users
-- [ ] Assign **ADK Playground Admin** role collection to admin users
-
-### Step 7 — CF CLI Setup & Login
-
-1. **Download CF CLI v8+** from [cloudfoundry.github.io/cli](https://github.com/cloudfoundry/cli/releases)
-2. Find your **API endpoint** in BTP Cockpit → Subaccount → Overview → Cloud Foundry Environment section
-
-```bash
-cf api https://api.cf.eu10.hana.ondemand.com   # replace eu10 with your region
-cf login                                        # prompts for email + password + org + space
-# OR: cf login -u <email> --sso  (if using SSO/IDP)
-
-cf target -o <your-org> -s <your-space>         # confirm target
-cf target                                       # verify
-```
-
-> **Find your region**: In BTP Cockpit → Subaccount → Overview, you'll see "API Endpoint" under Cloud Foundry Environment. Common regions: `eu10`, `us10`, `ap10`.
-
-### Step 8 — Install MTA Build Tool & CF Multiapps Plugin
-
-```bash
-# Install MTA Build Tool globally
-npm install -g mbt
-mbt --version   # verify
-
-# Install CF Multiapps plugin (required for cf deploy with .mtar)
-# Windows (PowerShell):
-cf install-plugin -f https://github.com/cloudfoundry-incubator/multiapps-cli-plugin/releases/latest/download/multiapps-plugin.win64.exe
-
-# macOS:
-# cf install-plugin -f https://github.com/cloudfoundry-incubator/multiapps-cli-plugin/releases/latest/download/multiapps-plugin.osx
-
-# Linux 64-bit:
-# cf install-plugin -f https://github.com/cloudfoundry-incubator/multiapps-cli-plugin/releases/latest/download/multiapps-plugin.linux64
-
-# Verify plugin is installed:
-cf plugins | grep multiapps
-# Should show: multiapps  <version>  bg-deploy, deploy, mta, mta-ops, mtas, purge-mta-results, undeploy
-```
-
-### Step 9 — Build and Deploy
-
-```bash
-# From the repo root (where mta.yaml lives):
-mbt build
-# Produces: mta_archives/fiori-adk-playground_<version>.mtar
-
-# Deploy to Cloud Foundry:
-cf deploy mta_archives/fiori-adk-playground_*.mtar
-
-# Monitor deployment logs in real time:
-cf deploy mta_archives/fiori-adk-playground_*.mtar --retries 1
-
-# If deploy fails, check logs:
-cf mta fiori-adk-playground     # shows MTA state
-cf logs <app-name> --recent      # shows app startup logs
-```
+**Rationale:** CAP provides OData V4, HANA HDI binding, CDS annotations, and `@sap/xssec` integration with no boilerplate. Adding `server.js` custom routes in the same process avoids a second CF app, second service binding, and second deployment unit. The `cds watch` development loop still works for both OData and SSE routes.
 
 ---
 
-## Key Architectural Decisions
+### ADR-2: Two SAPUI5 apps (admin + chat) over a single app
 
-### ADR-0: XSUAA vs SAP Cloud Identity Services (IAS)
-**Decision**: Use XSUAA for this project.
-**Rationale**: As of 2025, SAP officially recommends **SAP Cloud Identity Services (IAS) with Authorization Policies** for *new* BTP applications, as major new features will only be added to IAS going forward. However, XSUAA is **fully supported**, simpler to set up for BTP CF apps, and has a well-known migration path to IAS when needed. Given the project's scope (internal tool, known team, BTP CF deployment), XSUAA is the right pragmatic choice now. The `@sap/xssec` v4 library supports both XSUAA and IAS with the same API surface, so migration later is straightforward.
+**Decision:** `app/admin/` is a Fiori Elements app; `app/chat/` is a freestyle SAPUI5 app. They are separate UI5 projects with separate `manifest.json` and `ui5.yaml`.
 
-### ADR-1: Node.js BFF vs Direct Python Access
-**Decision**: Use Node.js BFF between App Router and Python backend.
-**Rationale**: `@sap/xssec` v4 (Node.js) has the most mature XSUAA JWT validation library with `XsuaaService` + `createSecurityContext` API. The BFF also allows clean SSE streaming handling, request enrichment, and protects the Python service from direct public exposure. Python XSUAA lib (`sap-xssec`) can still be used on the Python side as an upgrade path.
-
-### ADR-2: SSE over WebSocket for Streaming
-**Decision**: Use Server-Sent Events (SSE) for token streaming.
-**Rationale**: SSE is simpler to proxy through App Router (standard HTTP), works on CF without WebSocket upgrade negotiation, and is already used by ADK web. WebSocket can be added later for bidirectional use cases.
-
-### ADR-3: `X-User-Info` Header for Role Propagation
-**Decision**: BFF extracts user info from validated JWT and passes as `X-User-Info` JSON header to Python.
-**Rationale**: Decouples Python from XSUAA JWT validation complexity. Python trusts the BFF (internal network). Future upgrade: pass the raw JWT and let Python validate independently using the SAP Python XSUAA library.
-
-### ADR-4: PostgreSQL Write Path Isolation
-**Decision**: Python code isolates all write operations behind a `db.write(...)` abstraction layer / repository pattern.
-**Rationale**: When switching to HANA, only the repository implementation changes. The ADK agent logic, MCP tools, and API surface remain untouched.
-
-### ADR-5: MTA for Deployment
-**Decision**: Use Multi-Target Application (MTA) descriptor to deploy all components atomically.
-**Rationale**: MTA handles service binding, environment variable injection, build order, and CF app push in a single `cf deploy` command. This is the SAP-recommended approach for multi-component BTP apps.
+**Rationale:** Fiori Elements apps require `@ui5/webcomponents-fiori` and CDS annotation-driven metadata; freestyle apps require custom XML views and controllers. Mixing them in one project creates conflicting build configurations and annotation scopes. Separate projects allow independent versioning and deployment.
 
 ---
 
-## Future State — SAP HANA Integration
+### ADR-3: SAP HANA Cloud over PostgreSQL
 
-When ready to swap PostgreSQL:
+**Decision:** HANA Cloud via CAP HDI container is the sole database. No PostgreSQL.
 
-1. **Add HANA Cloud service instance** to `mta.yaml` resources
-2. **Create HANA repository class** in Python: `HanaRepository(BaseRepository)`
-3. **Swap** `PostgresRepository` → `HanaRepository` via environment variable or config flag
-4. **No changes needed** to: ADK agents, MCP tools, API routes, Fiori UI, Node.js BFF, XSUAA model
-
-This is a single-file swap thanks to ADR-4.
+**Rationale:** A single BTP-native database eliminates a second infrastructure dependency. CAP's `cds deploy --to hana` handles schema migration via HDI. The CAP ORM (CQL) abstracts SQL dialects, so entity definitions are database-agnostic by design.
 
 ---
 
-## Local Development Setup
+### ADR-4: XSUAA over SAP Cloud Identity Services (IAS) for v1
 
-```
-Browser
-  └─► localhost:5001 (approuter, default-env.json mocks XSUAA)
-        ├─► localhost:3000 (UI5 Tooling serve: `ui5 serve`)
-        └─► localhost:4000 (Node.js BFF: `npm run dev`)
-              └─► http://localhost:8000 (Python ADK service)
-```
+**Decision:** XSUAA is used for JWT issuance, scope definitions, and role collections.
 
-`.env.example` will contain all required local env vars.
-`default-env.json` in the approuter will mock `VCAP_SERVICES` for XSUAA and Destination.
+**Rationale:** XSUAA has the most mature CAP integration (`cds.env.requires.auth.kind = "xsuaa"`) and the `@sap/xssec` v4 library validates XSUAA tokens with a single `createSecurityContext` call. The same `@sap/xssec` v4 library supports IAS tokens with the same API, so migrating later requires only a service binding swap.
 
 ---
 
-## Appendix
+### ADR-5: SSE over WebSocket for token streaming
 
-### Technology Versions (Verified March 2026)
+**Decision:** `POST /api/chat` returns `Content-Type: text/event-stream`. No WebSocket upgrade.
 
-| Technology | Version | Verified Source |
-|---|---|---|
-| @sap/approuter | ^21.x | npm registry (v21.0.0 latest) |
-| @sap/xssec | ^4.x | npm registry (v4.12.2 latest) |
-| UI5 (SAPUI5) | 1.120.x (LTS) | SAP UI5 release notes |
-| Node.js | 20 LTS | Minimum is 18; 20 LTS recommended |
-| Python | 3.11+ | — |
-| Cloud Foundry CLI | v8+ | — |
-| MTA Build Tool (`mbt`) | ^1.2.x | — |
-| CF Multiapps Plugin | latest | github.com/cloudfoundry-incubator/multiapps-cli-plugin |
+**Rationale:** SSE is a standard HTTP response and proxies transparently through `@sap/approuter` without any special configuration. WebSocket requires an `Upgrade` negotiation that App Router must explicitly support. Chat output is unidirectional (server → browser), so SSE is sufficient.
 
-### Glossary
+---
 
-| Term | Meaning |
-|---|---|
-| XSUAA | SAP's OAuth2 Authorization Server (based on Cloud Foundry UAA) |
-| JWT | JSON Web Token — signed bearer token carrying user identity + scopes |
-| MTA | Multi-Target Application — SAP's multi-module deployment unit |
-| BFF | Backend for Frontend — dedicated API layer per frontend client |
-| App Router | SAP's OAuth2-aware reverse proxy (`@sap/approuter`) |
-| ADK | Google Agent Development Kit — Python framework for AI agents |
-| MCP | Model Context Protocol — tool-calling standard used by the Python agents |
-| SSE | Server-Sent Events — HTTP streaming for token-by-token AI responses |
-| HANA | SAP HANA Cloud — in-memory columnar database |
-| CF | Cloud Foundry — the PaaS runtime on SAP BTP |
+### ADR-6: Agent group resolution in CAP, not Python
 
-### References
-- [SAP BTP Documentation](https://help.sap.com/docs/btp)
-- [SAP App Router on npm](https://www.npmjs.com/package/@sap/approuter) — v21.0.0 current
-- [@sap/xssec v4 README](https://unpkg.com/@sap/xssec@4.12.2/README.md) — v4.12.2 current
-- [CF Multiapps Plugin (GitHub)](https://github.com/cloudfoundry-incubator/multiapps-cli-plugin) — Windows/Linux/macOS binaries
-- [UI5 Tooling](https://sap.github.io/ui5-tooling/)
-- [MTA Build Tool](https://github.com/SAP/cloud-mta-build-tool)
-- [Google ADK Documentation](https://google.github.io/adk-docs/)
+**Decision:** CAP `server.js` is the sole component that resolves which agents and tools a user may access. Python receives a fully computed `effectiveTools` list and cannot add to or override it.
+
+**Rationale:** Python is an AI executor, not a policy engine. Allowing Python to query HANA directly or decide its own tool list would make the governance model unenforceable — a compromised Python process could call any registered tool. CAP is the trust boundary: it holds the XSUAA binding, the HANA binding, and the role-enforcement annotations. All policy decisions happen before the request reaches Python.
