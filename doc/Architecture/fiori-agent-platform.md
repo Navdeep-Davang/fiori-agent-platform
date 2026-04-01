@@ -822,6 +822,8 @@ cf logs acp-cap --recent
 
 ## 11. xs-security.json (complete)
 
+Canonical copy: repo root **`xs-security.json`**. Attribute **`dept`** is filled from IAS **`customAttribute1`** via BTP **Security → Roles** (Identity Provider mapping) after XSUAA deploy — see **Action Plan 02** Phase 5.
+
 ```json
 {
   "xsappname": "agent-control-plane",
@@ -844,13 +846,19 @@ cf logs acp-cap --recent
       "description": "Read-only access to all records, sessions, and tool-call logs."
     }
   ],
+  "attributes": [
+    {
+      "name": "dept",
+      "description": "Department code for agent resolution (e.g. it, procurement, finance). Mapped from IAS customAttribute1.",
+      "valueType": "string"
+    }
+  ],
   "role-templates": [
     {
       "name": "AgentUser",
       "description": "Standard chat user.",
-      "scope-references": [
-        "$XSAPPNAME.Agent.User"
-      ]
+      "scope-references": ["$XSAPPNAME.Agent.User"],
+      "attribute-references": ["dept"]
     },
     {
       "name": "AgentAuthor",
@@ -858,7 +866,8 @@ cf logs acp-cap --recent
       "scope-references": [
         "$XSAPPNAME.Agent.User",
         "$XSAPPNAME.Agent.Author"
-      ]
+      ],
+      "attribute-references": ["dept"]
     },
     {
       "name": "AgentAdmin",
@@ -867,44 +876,35 @@ cf logs acp-cap --recent
         "$XSAPPNAME.Agent.User",
         "$XSAPPNAME.Agent.Author",
         "$XSAPPNAME.Agent.Admin"
-      ]
+      ],
+      "attribute-references": ["dept"]
     },
     {
       "name": "AgentAudit",
       "description": "Read-only auditor.",
-      "scope-references": [
-        "$XSAPPNAME.Agent.Audit"
-      ]
+      "scope-references": ["$XSAPPNAME.Agent.Audit"]
     }
   ],
   "role-collections": [
     {
       "name": "ACP Chat User",
       "description": "Can open chat and use assigned agents.",
-      "role-template-references": [
-        "$XSAPPNAME.AgentUser"
-      ]
+      "role-template-references": ["$XSAPPNAME.AgentUser"]
     },
     {
       "name": "ACP Agent Author",
       "description": "Can create and edit agents.",
-      "role-template-references": [
-        "$XSAPPNAME.AgentAuthor"
-      ]
+      "role-template-references": ["$XSAPPNAME.AgentAuthor"]
     },
     {
       "name": "ACP Platform Admin",
       "description": "Full platform governance access.",
-      "role-template-references": [
-        "$XSAPPNAME.AgentAdmin"
-      ]
+      "role-template-references": ["$XSAPPNAME.AgentAdmin"]
     },
     {
       "name": "ACP Auditor",
       "description": "Read-only audit access.",
-      "role-template-references": [
-        "$XSAPPNAME.AgentAudit"
-      ]
+      "role-template-references": ["$XSAPPNAME.AgentAudit"]
     }
   ]
 }

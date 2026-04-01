@@ -1,0 +1,61 @@
+{
+  "xsappname": "agent-control-plane",
+  "tenant-mode": "dedicated",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.Agent.User",
+      "description": "Open chat; use agents assigned to user's groups."
+    },
+    {
+      "name": "$XSAPPNAME.Agent.Author",
+      "description": "Create and edit agents within policy."
+    },
+    {
+      "name": "$XSAPPNAME.Agent.Admin",
+      "description": "Manage MCP servers, tools, groups, policies, elevated flags."
+    },
+    {
+      "name": "$XSAPPNAME.Agent.Audit",
+      "description": "Read-only access to all records, sessions, and tool-call logs."
+    }
+  ],
+  "attributes": [
+    {
+      "name": "dept",
+      "description": "Department code for agent resolution (e.g. it, procurement, finance). Mapped from IAS customAttribute1.",
+      "valueType": "string"
+    }
+  ],
+  "role-templates": [
+    {
+      "name": "AgentUserV2",
+      "description": "Standard chat user.",
+      "scope-references": ["$XSAPPNAME.Agent.User"],
+      "attribute-references": ["dept"]
+    },
+    {
+      "name": "AgentAuthorV2",
+      "description": "Agent designer.",
+      "scope-references": [
+        "$XSAPPNAME.Agent.User",
+        "$XSAPPNAME.Agent.Author"
+      ],
+      "attribute-references": ["dept"]
+    },
+    {
+      "name": "AgentAdminV2",
+      "description": "Platform administrator.",
+      "scope-references": [
+        "$XSAPPNAME.Agent.User",
+        "$XSAPPNAME.Agent.Author",
+        "$XSAPPNAME.Agent.Admin"
+      ],
+      "attribute-references": ["dept"]
+    },
+    {
+      "name": "AgentAuditV2",
+      "description": "Read-only auditor.",
+      "scope-references": ["$XSAPPNAME.Agent.Audit"]
+    }
+  ]
+}

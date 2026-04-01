@@ -1,234 +1,331 @@
-# Action Plan 02 — BTP Cockpit & Infrastructure Setup
+# Action Plan 02 — BTP Infrastructure Setup
 
-> **Goal:** Provision every BTP service the app needs, configure JWT claim mapping for demo users, and verify the platform is ready for deploy.
-> **Audience:** The person with access to the BTP Cockpit (web UI) and a terminal. No SAP ABAP knowledge needed.
-> **Prerequisite:** A BTP Trial account. Sign up free at https://www.sap.com/products/technology-platform/trial.html if not done.
-> Last updated: 2026-03-28.
+> **Goal:** Provision every BTP service the app needs and verify each gate before advancing.
+> **Prerequisite:** Action Plan 01 Phases 1–8 (local code + mta.yaml) should be ready
+> before Phase 7 (deploy) of this plan. Phases 1–6 here are pure infrastructure and can
+> run in parallel with code development.
+>
+> **⚠ Chronology warning:** Do NOT set up IAS users, trust mappings, or role collections
+> (Phases 8–9) before Phase 7 (deploy). There is no way to end-to-end verify them without
+> a live approuter URL. Doing so wastes significant time (lesson learned).
+>
+> Last updated: 2026-04-01.
 
 ---
 
 ## Phase 1: Install Local Development Tools
 
-These tools must be installed on your machine before you can build and deploy the app. Run all commands in your terminal.
+> Run all commands in your terminal. Verify each before proceeding.
 
-> **Windows:** After `npm install -g …`, if `cds`, `ui5`, or `mbt` are not recognized, add the directory printed by `npm prefix -g` to your user **PATH** (this often happens when the global prefix is a pnpm folder). For CF CLI v8 without a manual MSI, run: `winget install CloudFoundry.CLI.v8`.
+- [x] **Task 1.1:** Node.js LTS (v20 or v22) — `node --version`
+- [x] **Task 1.2:** SAP CDS DK — `npm install -g @sap/cds-dk` → `cds version` (must be ≥ 8.x)
+- [x] **Task 1.3:** UI5 Tooling — `npm install -g @ui5/cli` → `ui5 --version`
+- [x] **Task 1.4:** MBT — `npm install -g mbt` → `mbt --version`
+- [x] **Task 1.5:** CF CLI v8 — `winget install CloudFoundry.CLI.v8` → `cf --version`
+- [x] **Task 1.6:** Python 3.11+ — `python --version`
+- [ ] **Task 1.7:** LLM API key (Google AI Studio or Anthropic/OpenAI). Store in `.env` only.
 
-- [x] **Task 1.1:** Install Node.js LTS (v20 or v22).
-  - Download from https://nodejs.org — use the LTS installer.
-  - Verify: `node --version` and `npm --version`.
-- [x] **Task 1.2:** Install SAP CDS DK globally.
-  - `npm install -g @sap/cds-dk`
-  - Verify: `cds version` — must show version 8.x or higher.
-- [x] **Task 1.3:** Install UI5 Tooling globally.
-  - `npm install -g @ui5/cli`
-  - Verify: `ui5 --version`.
-- [x] **Task 1.4:** Install MBT (MTA Build Tool) globally.
-  - `npm install -g mbt`
-  - Verify: `mbt --version`.
-- [x] **Task 1.5:** Install Cloud Foundry CLI (CF CLI v8).
-  - Download from https://github.com/cloudfoundry/cli/releases — pick the v8 installer for your OS (on Windows, `winget install CloudFoundry.CLI.v8` is equivalent).
-  - Verify: `cf --version`.
-- [x] **Task 1.6:** Install Python 3.11 or higher.
-  - Download from https://python.org/downloads — check "Add to PATH" on Windows.
-  - Verify: `python --version` and `pip --version`.
-- [ ] **Task 1.7:** Obtain a Google AI Studio API key (if using `google-genai` as the LLM provider).
-  - Visit https://aistudio.google.com/apikey → Generate API key → copy and store it securely.
-  - This key is injected into CF via `cf set-env acp-python GOOGLE_API_KEY <key>` after deploy and stored in `.env` locally. Never commit it to the repo.
-- [ ] **Task 1.8:** SAP Business Application Studio (BAS) — **optional.**
-  - [x] **Local alternative (Cursor / VS Code):** Workspace recommends **SAP CDS Language Support** (`SAPSE.vscode-cds`) via `.vscode/extensions.json` — install the extension when the editor prompts.
-  - [ ] **BAS only if needed:** For SAP-hosted annotation wizards and Fiori generators: BTP Cockpit → Services → Service Marketplace → **SAP Business Application Studio** → Subscribe (free dev plan).
+> **Windows PATH tip:** If `cds` or `mbt` are not found after install, add `npm prefix -g`
+> output directory to user PATH and restart terminal.
 
 ---
 
 ## Phase 2: BTP Trial Account and Cloud Foundry Space
 
-- [x] **Task 2.1:** Sign in to the BTP Cockpit.
-  - Open **https://cockpit.hanatrial.ondemand.com/trial/** and log in with your SAP universal ID. (Note: Generic cockpit URLs may redirect to a regional cockpit with no global account shown for trial users).
-- [x] **Task 2.2:** Verify your trial subaccount exists.
-  - You should see a tile named something like `trial` on the Global Account overview.
-  - Click it to enter the subaccount.
-- [x] **Task 2.3:** Enable Cloud Foundry environment (if not already done).
-  - In the subaccount overview, click **Enable Cloud Foundry** if you see that button.
-  - Accept the default org name (usually `<your-trial-id>trial`) and click **Create**.
-  - This creates the CF environment with one `dev` space automatically.
-- [x] **Task 2.4:** Note your CF API endpoint.
-  - In the subaccount overview → Cloud Foundry Environment section → API Endpoint.
-  - It looks like `https://api.cf.eu10.hana.ondemand.com` (region may differ).
-- [x] **Task 2.5:** Log in to CF from your terminal.
-  - `cf login -a <CF_API_ENDPOINT>`
-  - Enter your SAP Universal ID email and password.
-  - Select the org and space when prompted (usually org = `<your-id>trial`, space = `dev`).
-  - Verify: `cf target` shows the right org and space.
+- [x] **Task 2.1:** Sign in to trial cockpit at **`https://cockpit.hanatrial.ondemand.com/trial/`**
+  > Do NOT use `cockpit.btp.cloud.sap` — trial users get an empty APAC cockpit with
+  > "no global accounts". Always use the trial-specific URL above.
+- [x] **Task 2.2:** Verify `trial` subaccount exists; click into it.
+- [x] **Task 2.3:** Enable Cloud Foundry (if not already): Subaccount → Enable Cloud Foundry.
+- [x] **Task 2.4:** Note CF API endpoint from subaccount overview.
+- [x] **Task 2.5:** Log in from terminal: `cf login -a <CF_API_ENDPOINT>` → paste `cf target`.
+
+**Gate:** `cf target` shows org, space `dev`, and your user email.
 
 ---
 
 ## Phase 3: Enable Service Entitlements
 
-BTP trial accounts come with a set of default entitlements. Verify all required services are available; add them if missing.
-
-- [x] **Task 3.1:** Open entitlements page.
-  - In BTP Cockpit → Subaccount → **Entitlements** → **Edit**.
-- [x] **Task 3.2:** Confirm or add the following entitlements (all free on trial):
-  - [x] **Authorization and Trust Management Service** → plan `application` (for XSUAA).
-  - [x] **SAP HANA Cloud** → plan `hana` (one instance allowed on trial).
-  - [x] **SAP HANA Schemas & HDI Containers** → plan `hdi-shared` (schemas inside the HANA instance).
-  - [x] **Destination Service** → plan `lite`.
-  - [x] **HTML5 Application Repository** → plans `app-host` and `app-runtime`.
-  - [x] **SAP Identity Authentication** → plan `default` (needed for custom JWT claims; also free on trial).
+- [x] **Task 3.1:** BTP Cockpit → Subaccount → Entitlements → Edit.
+- [x] **Task 3.2:** Confirm or add all required plans:
+  - [x] Authorization and Trust Management (`xsuaa`) → plan `application`
+  - [x] SAP HANA Cloud → plan `hana`
+  - [x] SAP HANA Schemas & HDI Containers → plan `hdi-shared`
+  - [x] Destination Service → plan `lite`
+  - [x] HTML5 Application Repository → plans `app-host` and `app-runtime`
+  - [x] Cloud Identity Services → plan `default`
 - [x] **Task 3.3:** Save entitlements.
-- [x] **Task 3.4:** Verify in CF marketplace: `cf marketplace` in terminal — all services above should appear.
+- [x] **Task 3.4:** Verify: `cf marketplace | grep -E "xsuaa|hana|destination|html5|identity"`
+
+**Gate:** All 6 service families visible in `cf marketplace`.
 
 ---
 
 ## Phase 4: Create SAP HANA Cloud Instance
 
-This is the most time-consuming step. The HANA instance takes ~10 minutes to provision.
+> This phase takes 5–15 min and can run in parallel with Phase 5–6.
 
-- [x] **Task 4.1:** Open SAP HANA Cloud tool.
-  - Subscribe to **SAP HANA Cloud** plan **`tools`** if not already (this is HANA Cloud Central).
-  - **Subaccount → Security → Users** → your user → **Assign Role Collection** → **`SAP HANA Cloud Administrator`** (without this, **Go to Application** may show *Not authorized*). Sign out and reopen after assigning.
-  - **Services → Instances and Subscriptions** → **SAP HANA Cloud** (`tools`) → **Go to Application**.
-  - Reference: [SAP Developers — Start Using SAP HANA Cloud Free Tier](https://developers.sap.com/tutorials/hana-cloud-mission-trial-2.html) (Step 2).
-- [x] **Task 4.2:** Create a new SAP HANA Database instance.
-  - Click **Create** → **SAP HANA Database**.
-  - Instance name: `acp-hana` (or any name you prefer).
-  - Administrator password: set a strong password and note it (you will not need it directly, but it is good to record).
-  - Allowed connections: select **Allow all IP addresses** if you need laptop access; CF-only is enough if you only deploy to CF in-region.
-  - Click **Create**.
-- [x] **Task 4.3:** Wait for provisioning — status changes from `Creating` to `Running`. This takes 5–15 minutes.
-- [x] **Task 4.4:** Verify the instance is running.
-  - In SAP HANA Cloud tool — status dot is green, instance is `Running`.
-- [ ] **Task 4.5:** Note: HANA Cloud trial instances are stopped automatically every night and are deleted if not started within 30 days. Before each work session, check and start the instance here if it is stopped.
+- [x] **Task 4.1:** Assign role before accessing HANA tool.
+  - BTP Cockpit → Security → Users → your user → Assign Role Collection →
+    **`SAP HANA Cloud Administrator`**. Sign out and reopen Cockpit after assignment.
+    > Without this role, "Go to Application" shows *Not authorized* (SAP KBA 3428857).
+- [x] **Task 4.2:** Open HANA Cloud Central.
+  - Instances and Subscriptions → SAP HANA Cloud (`tools`) → Go to Application.
+  - If not subscribed: Service Marketplace → SAP HANA Cloud → Subscribe (plan `tools`).
+- [x] **Task 4.3:** Create instance.
+  - Create → **SAP HANA Database** (choose "Configure manually", NOT "Cloned").
+  - Instance name: `acp-hana`. Strong password. Allowed connections: **Allow all IP addresses**.
+  - Click Create; wait for **Running** status (5–15 min).
+- [x] **Task 4.4:** Verify: status dot is green, instance is **Running**.
+
+**Gate:** HANA instance status = **Running**.
 
 ---
 
-## Phase 5: Configure SAP Identity Authentication (IAS) for JWT Claims
+## Phase 5: Create XSUAA Service Instance
 
-> This phase sets up the `dept` JWT claim that the agent group resolution logic reads. Without this, the chat UI cannot determine which agents each user may access.
+> The `xs-security.json` at repo root must exist first (it defines scopes, role templates,
+> and the `dept` attribute).
 
-> **Email / activation:** After IAS provisioning or **Establish Trust**, SAP may send an **activation or invitation** message to your BTP user’s mailbox (check spam). **Complete that link** before relying on **Administration Console** sign-in; skipping it often causes *Sorry, we could not authenticate you*, wrong password, or an IAS user row with **no Login Name** until activation is done.
+- [x] **Task 5.1:** From repo root:
+  ```bash
+  cf create-service xsuaa application acp-xsuaa -c xs-security.json
+  ```
+- [x] **Task 5.2:** Verify: `cf service acp-xsuaa` → last operation: **create succeeded**.
 
-- [x] **Task 5.1:** Provision SAP Identity Authentication (IAS) via **Cloud Identity Services** (cockpit often shows **Create**, not **Subscribe**).
-  - **Entitlements first:** Subaccount → **Entitlements** → **Edit** → **Add Service Plans** → **Cloud Identity Services** → add **Application plan `default`** → **Save** (if **Create** is disabled or provisioning fails, quota is usually missing here).
-  - **Service Marketplace** → **Cloud Identity Services** → **Create** → choose **Application plan `default`** (tab *Application Plans*). **Do not** pick **Service plan `application`** — that plan fails with *OIDC Trust missing* until trust exists; it is for registering an app in an **existing** IAS tenant. Runtime: **Cloud Foundry**; instance name: e.g. `acp-ias` (delete any **Creation Failed** row first if the cockpit allows). Finish the wizard.
-  - After success: **Instances and Subscriptions** → open the instance → **Go to Application** / admin URL for the **IAS admin console**. Reference: [Creating and Accessing an IAS Tenant on SAP BTP (Part 2)](https://community.sap.com/t5/technology-blog-posts-by-sap/creating-and-accessing-an-ias-tenant-on-sap-btp-part-2/ba-p/14302873); [Cloud Identity Services help](https://help.sap.com/docs/cloud-identity-services).
-- [ ] **Task 5.2:** Create demo users in IAS admin console.
-  - In IAS admin console → **Users & Authorizations** → **User Management** → **Add User**.
-  - Create four users:
-    - Alice Admin — email: `alice@yourdomain.com` (or any email you can receive)
-    - Bob Procurement — email: `bob@yourdomain.com`
-    - Carol Finance — email: `carol@yourdomain.com`
-    - Dave Auditor — email: `dave@yourdomain.com`
-  - Set passwords for each.
-- [ ] **Task 5.3:** Add `dept` custom attribute values to each user.
-  - In IAS → **Users & Authorizations** → open each user → **User Attributes** tab → Add custom attribute:
-    - Alice: `dept = it`
-    - Bob: `dept = procurement`
-    - Carol: `dept = finance`
-    - Dave: (no dept — Dave uses read-only Auditor role only)
-- [x] **Task 5.4:** Configure trust between BTP XSUAA and IAS.
-  - BTP Cockpit → Subaccount → **Security** → **Trust Configuration** → **Establish Trust**.
-  - Select the IAS tenant you just configured (it should appear in the list).
-  - Finish the wizard — the custom IdP should show **Active** (e.g. `*.trial-accounts.ondemand.com (business users)`).
-- [ ] **Task 5.5:** Configure attribute propagation in the trust configuration.
-  - Open the **custom** IAS trust (not *Default identity provider*) → **Attribute Mappings** tab (cockpit label; may appear as **Attributes** in older UI).
-  - Add a mapping: Source `Custom Attribute`, Source Value `dept` → Target `dept` (this passes the IAS `dept` attribute into the XSUAA JWT claim).
+**Gate:** `cf service acp-xsuaa` shows `create succeeded`.
+
+> **Do NOT** create roles or role collections in the Cockpit at this stage. Creating them
+> before the app is deployed leads to locked "Managed by Application" roles that cannot
+> be edited or deleted (no Source dropdown, no trash icon). Configure roles AFTER deploy
+> in Phase 9.
+
+---
+
+## Phase 6: Create Destination and HTML5 Service Instances
+
+- [x] **Task 6.1:**
+  ```bash
+  cf create-service destination lite acp-destination
+  cf create-service html5-apps-repo app-host acp-html5-host
+  ```
+- [x] **Task 6.2:** Verify: `cf services` → both show **create succeeded**.
+
+**Gate:** `cf services` shows `acp-xsuaa`, `acp-destination`, `acp-html5-host` all created.
+
+---
+
+## Phase 7: Build and Deploy the MTA
+
+> **Prerequisite:** Action Plan 01 Phases 1–9 must be complete (mta.yaml, codebase,
+> seed CSVs exist). HANA must be Running (Phase 4 gate).
+
+- [ ] **Task 7.1:** Build MTA archive.
+  ```bash
+  mbt build
+  ```
+  Expected: `mta_archives/agent-control-plane_<version>.mtar` created.
+
+- [ ] **Task 7.2:** Deploy to Cloud Foundry.
+  ```bash
+  cf deploy mta_archives/agent-control-plane_*.mtar
+  ```
+  Expected: all modules succeed; deployer lifecycle apps finish and stop.
+
+- [ ] **Task 7.3:** Verify all apps are running.
+  ```bash
+  cf apps
+  # Expected: acp-approuter, acp-cap, acp-python all show "running"
+  cf services
+  # Expected: acp-xsuaa, acp-hana, acp-destination all "create succeeded" and bound
+  ```
+
+- [ ] **Task 7.4:** Note the approuter URL.
+  ```bash
+  cf app acp-approuter | grep routes
+  # e.g. https://xxx.cfapps.eu10.hana.ondemand.com
+  ```
+  **Save this URL** — it is required for Phase 8 (IAS trust redirect URI) and Phase 9
+  (testing user login).
+
+**Gate:** All 3 CF apps running, approuter URL noted.
+
+---
+
+## Phase 8: IAS Trust and `dept` JWT Claim
+
+> **Only start this phase after Phase 7 gate is green.**
+>
+> Reason: IAS trust is meaningless to test without a live approuter URL. The redirect
+> URI that XSUAA registers in IAS requires the deployed app. Setting up IAS users and
+> trust before deploy is the #1 time-wasting mistake in this project.
+
+### 8.1 — Provision IAS tenant
+
+- [ ] **Task 8.1:** Check if already provisioned: `cf service acp-ias` (OK to skip if
+  status is already `create succeeded`).
+- [ ] **Task 8.2:** If not provisioned:
+  - BTP Cockpit → Service Marketplace → **Cloud Identity Services** (NOT "SAP Identity
+    Authentication" — it was renamed).
+  - Create → Application plan **`default`** → name `acp-ias`.
+  - > **Wrong plan warning:** `Service plan application` ≠ IAS tenant. It registers an
+    > app client. Using it gives "OIDC Trust missing". Use plan `default` only.
+
+### 8.2 — Establish trust
+
+- [ ] **Task 8.3:** BTP Cockpit → Security → Trust Configuration → **Establish Trust** →
+  select your IAS tenant (`*.trial-accounts.ondemand.com`) → Finish.
+- [ ] **Task 8.4:** Check email and spam for activation/invitation from SAP. Complete it.
+  > Without activation, IAS Administration Console login gives "Sorry, we could not
+  > authenticate you" or "incorrect password" regardless of what password you use.
+
+### 8.3 — Configure `dept` attribute to flow from IAS to XSUAA JWT
+
+- [ ] **Task 8.5:** Open IAS Administration Console (`<tenant>.accounts.ondemand.com`).
+- [ ] **Task 8.6:** Applications & Resources → Applications → **SAP BTP subaccount trial** →
+  Trust → **Attributes** → Add:
+  - **Name:** `dept`
+  - **Source:** Identity Directory
+  - **Value:** Application Custom Attribute 1
   - Save.
-- [ ] **Task 5.6:** Verify the setup.
-  - In a browser, try accessing the BTP app (after deploy) and logging in via IAS as Bob — his JWT should contain `dept: procurement`.
-  - You can decode the JWT at https://jwt.io after capturing it from the browser's developer tools.
+
+### 8.4 — Create BTP roles with IdP attribute mapping
+
+> **Root cause of the "Source not editable" trap:** When `xs-security.json` defines
+> `role-collections`, BTP creates "Managed by Application" placeholder roles. These cannot
+> be edited (no Source dropdown) or deleted (no trash icon) from the Cockpit. The fix:
+
+- [ ] **Task 8.7:** Temporarily remove `role-collections` from `xs-security.json`, rename
+  role templates to `AgentUserV2`, `AgentAuthorV2`, `AgentAdminV2`, `AgentAuditV2`.
+  ```bash
+  cf update-service acp-xsuaa -c xs-security.json
+  ```
+
+- [ ] **Task 8.8:** In BTP Cockpit → Security → Roles, use **Create Role** on each `V2`
+  template:
+  - Role Name: `AgentAdmin` (same name as old template for clarity)
+  - Source: **Identity Provider**
+  - Values: **`dept`**
+  - Repeat for `AgentAuthor`, `AgentUser` (all templates with `attribute-references: [dept]`).
+  - `AgentAudit` has no `dept` attribute — BTP auto-creates it; skip.
+
+- [ ] **Task 8.9:** In BTP Cockpit → Security → Role Collections, create manually:
+  - `ACP Platform Admin` → add role `AgentAdmin`
+  - `ACP Agent Author` → add role `AgentAuthor`
+  - `ACP Chat User` → add role `AgentUser`
+  - `ACP Auditor` → add role `AgentAuditV2`
+
+**Gate:** All 4 role collections exist with roles assigned and `+` icon is active (not blurry).
 
 ---
 
-## Phase 6: Create CF Service Instances
+## Phase 9: Role Collection Mappings and User Verification
 
-> The MTA deploy (Action Plan 01, Phase 9) creates these automatically from `mta.yaml`. This phase is only needed if you want to pre-create them or if a deploy fails and you need to debug service creation manually.
+> Trust attribute mappings automatically assign role collections to users on login based on
+> their `dept` claim. No per-user manual assignment needed.
 
-- [ ] **Task 6.1:** Create XSUAA service instance manually (only if MTA deploy fails on XSUAA step).
-  - From the repo root: `cf create-service xsuaa application acp-xsuaa -c xs-security.json`
-  - Verify: `cf service acp-xsuaa` → status `create succeeded`.
-- [ ] **Task 6.2:** Create Destination service instance.
-  - `cf create-service destination lite acp-destination`
-- [ ] **Task 6.3:** Create HTML5 App Repository host instance.
-  - `cf create-service html5-apps-repo app-host acp-html5-host`
-- [ ] **Task 6.4:** HANA HDI container (`acp-hana` service instance) is created by the `acp-db-deployer` MTA module. Do not create it manually — let MTA handle it to ensure the HDI container is properly linked to the HANA instance.
+- [ ] **Task 9.1:** BTP Cockpit → Security → Trust Configuration → your IAS trust →
+  open it → **Attribute Mappings** tab → add rows:
 
----
+  | Role Collection | Attribute | Operator | Value |
+  |----------------|-----------|----------|-------|
+  | ACP Platform Admin | `dept` | equals | `it` |
+  | ACP Agent Author | `dept` | equals | `procurement` |
+  | ACP Chat User | `dept` | equals | `finance` |
+  | ACP Chat User | `dept` | equals | `it` |
+  | ACP Chat User | `dept` | equals | `procurement` |
 
-## Phase 7: Configure BTP Destination for Python MCP Service
+  > Value = actual department code (e.g. `it`), NOT the word `dept`.
 
-> This step is done AFTER the Python app is deployed, because you need the Python app's CF URL.
+- [ ] **Task 9.2:** Create IAS demo users (only after Phase 8 gate is green).
+  - IAS Administration Console → Users & Authorizations → User Management → Add:
+  
+  | User | Email | Custom Attribute 1 |
+  |------|-------|-------------------|
+  | Alice Admin | alice@yourdomain.com | `it` |
+  | Bob Procurement | bob@yourdomain.com | `procurement` |
+  | Carol Finance | carol@yourdomain.com | `finance` |
+  | Dave Auditor | dave@yourdomain.com | (empty) |
 
-- [ ] **Task 7.1:** Get the Python app URL after deploy.
-  - `cf app acp-python` → look at the `routes` line. Note the full URL, e.g. `acp-python.cfapps.eu10.hana.ondemand.com`.
-- [ ] **Task 7.2:** Create the `PYTHON_MCP_SERVICE` destination in BTP Cockpit.
-  - BTP Cockpit → Subaccount → **Connectivity** → **Destinations** → **New Destination**.
-  - Fill in:
-    - **Name:** `PYTHON_MCP_SERVICE`
-    - **Type:** `HTTP`
-    - **URL:** `https://acp-python.cfapps.eu10.hana.ondemand.com` (use your actual URL from Task 7.1)
-    - **Proxy type:** `Internet`
-    - **Authentication:** `NoAuthentication` (CAP forwards the user's JWT in the Authorization header separately)
-  - Additional properties (click **+ New Property** for each):
-    - `HTML5.DynamicDestination` = `true`
-    - `WebIDEEnabled` = `true`
-  - Click **Save**.
-- [ ] **Task 7.3:** Test the destination.
-  - On the Destinations page, click the **Check Connection** button next to `PYTHON_MCP_SERVICE`.
-  - Expected: green check, response code 200 (the Python `/health` endpoint responds).
-  - If you get a 404, verify the Python app is started and the URL is correct.
+  > Set a password via Authentication → Password Details → Set Initial.
 
----
+- [ ] **Task 9.3:** Test login as Alice using the **approuter URL** (NOT the BTP Cockpit).
+  > The BTP Cockpit login always uses SAP ID service (`accounts.sap.com`). IAS users
+  > are NOT on `accounts.sap.com`. To test IAS users you MUST use the approuter URL.
+  - Open approuter URL in Incognito.
+  - On the XSUAA login page, select the **custom identity provider / business users** option.
+  - Log in as alice@yourdomain.com.
 
-## Phase 8: Assign Role Collections to Demo Users
+- [ ] **Task 9.4:** Verify Alice appears in BTP Cockpit → Security → Users with IAS origin
+  and `ACP Platform Admin` role collection assigned (auto-assigned by trust mapping).
 
-> After MTA deploy, the role collections defined in `xs-security.json` will appear in BTP Cockpit. Assign them to your demo users.
+- [ ] **Task 9.5:** Verify JWT.
+  - Decode the XSUAA access token (from browser DevTools → Network → Authorization header).
+  - Paste at https://jwt.io.
+  - Confirm: `xs.user.attributes.dept` = `["it"]` for Alice.
 
-- [ ] **Task 8.1:** Open Security → Users in BTP Cockpit.
-  - BTP Cockpit → Subaccount → **Security** → **Users**.
-- [ ] **Task 8.2:** Find or create shadow user for each demo persona.
-  - If your demo users already signed in via IAS, they should appear here automatically as shadow users.
-  - If not, click **Create** to add shadow users manually using their email addresses.
-- [ ] **Task 8.3:** Assign role collections.
-  - Open Alice's user → **Role Collections** → Assign **ACP Platform Admin**.
-  - Open Bob's user → **Role Collections** → Assign **ACP Chat User**.
-  - Open Carol's user → **Role Collections** → Assign **ACP Chat User**.
-  - Open Dave's user → **Role Collections** → Assign **ACP Auditor**.
-  - (Alice already has Admin, which inherits User and Author scopes from the role template.)
-- [ ] **Task 8.4:** Assign your own user the **ACP Platform Admin** role collection so you can do end-to-end testing with full access.
+**Gate:** Alice JWT contains `xs.user.attributes.dept = ["it"]` and `ACP Platform Admin`
+role collection is visible in BTP Cockpit under her user.
 
 ---
 
-## Phase 9: Start HANA Cloud Before Each Session
+## Phase 10: Configure BTP Destination for Python Service
 
-> BTP trial HANA Cloud stops nightly. Before any development or testing session:
+> After deploy, the Python app has a public CF URL. Register it as a BTP Destination so
+> CAP can resolve it via the Destination Service (required by `testConnection` handler).
 
-- [ ] **Task 9.1:** Open SAP HANA Cloud tool → verify instance status.
-  - If status is **Stopped**: click the `...` menu → **Start** → confirm. Wait ~3 minutes.
-  - If status is **Running**: proceed.
-- [ ] **Task 9.2:** After redeploy (following a trial reset): re-run seed data.
-  - `cf deploy mta_archives/agent-control-plane_*.mtar` re-runs the `acp-db-deployer` module which re-applies all CSV seed files.
-  - Alternatively, run `cds deploy --to hana --profile production` from the repo root after setting HANA credentials locally.
-  - Also re-inject the LLM API key: `cf set-env acp-python GOOGLE_API_KEY <key>` (or `LLM_API_KEY` for Anthropic/OpenAI) then `cf restart acp-python`.
-
----
-
-## Phase 10: Post-Deploy Smoke Test Checklist
-
-Run through this checklist after every fresh deploy to confirm everything is working end to end.
-
-- [ ] **Task 10.1:** `cf apps` — all four modules `acp-approuter`, `acp-cap`, `acp-python`, `acp-db-deployer` show state `started` (deployer will show `stopped` after it finishes, that is normal).
-- [ ] **Task 10.2:** `cf services` — `acp-xsuaa`, `acp-hana`, `acp-destination`, `acp-html5-host` all show `create succeeded`.
-- [ ] **Task 10.3:** Open admin URL in browser → login redirects to IAS → sign in as Alice.
-  - Admin UI loads → McpServer list shows 2 rows.
-- [ ] **Task 10.4:** Click "Test connection" on `Procurement Data MCP` → health turns green.
-- [ ] **Task 10.5:** Open chat URL → sign in as Bob (procurement) → agent selector shows "Procurement Assistant" and "General Assistant".
-- [ ] **Task 10.6:** Send "Show me all open purchase orders" → response streams with tool trace.
-- [ ] **Task 10.7:** Sign in as Carol (finance) → agent selector shows "Invoice Analyst" and "General Assistant".
-- [ ] **Task 10.8:** Run invoice mismatch demo (Conversation 3 from `doc/SeedData/scenario.md`) → EUR 300 discrepancy surfaced.
-- [ ] **Task 10.9:** Sign in as Dave (auditor) → navigates to admin URL → read-only view shows all chat sessions.
-- [ ] **Task 10.10:** Confirm Bob cannot access admin URL (gets 403).
+- [ ] **Task 10.1:** Get Python app URL: `cf app acp-python | grep routes`
+- [ ] **Task 10.2:** BTP Cockpit → Connectivity → Destinations → New Destination:
+  - **Name:** `PYTHON_MCP_SERVICE`
+  - **Type:** HTTP
+  - **URL:** `https://<python-app-url>`
+  - **Authentication:** NoAuthentication
+  - **Properties:** `HTML5.DynamicDestination = true`, `WebIDEEnabled = true`
+- [ ] **Task 10.3:** Check Connection in Cockpit → expect HTTP 200 from `/health`.
 
 ---
 
-*End of BTP Cockpit Setup Action Plan — for codebase implementation, see `doc/Action-Plan/01-developer-build.md`.*
+## Phase 11: LLM API Keys and Smoke Test
+
+- [ ] **Task 11.1:** Set LLM environment variables on CF.
+  ```bash
+  cf set-env acp-python LLM_PROVIDER google-genai
+  cf set-env acp-python GOOGLE_API_KEY <your-key>
+  cf set-env acp-python LLM_MODEL gemini-2.0-flash
+  cf restart acp-python
+  ```
+
+- [ ] **Task 11.2:** Smoke test.
+  1. Log in as Bob (IAS, `dept=procurement`) via approuter URL in Incognito.
+  2. Open Chat UI → select Procurement Assistant.
+  3. Send: "List open purchase orders."
+  4. Expected: streamed response with PO data from HANA.
+
+- [ ] **Task 11.3:** Verify RBAC: log in as Dave (no `dept`) → Auditor should see all
+  sessions but cannot start a new chat (no `Agent.User` scope).
+
+**Gate:** End-to-end chat works for Bob; Dave is read-only.
+
+---
+
+## Trial Maintenance Reference
+
+> BTP trial HANA instances stop nightly. After every restart:
+
+1. Start HANA instance in HANA Cloud Central.
+2. Re-deploy MTA if needed: `cf deploy mta_archives/agent-control-plane_*.mtar`
+3. Re-set LLM key: `cf set-env acp-python GOOGLE_API_KEY <key> && cf restart acp-python`
+4. IAS users and trust configuration survive trial restarts (they live in the IAS tenant).
+
+---
+
+## Lessons Learned (do not repeat)
+
+| Mistake | What happened | Rule |
+|---------|--------------|------|
+| IAS setup before deploy | Spent a week on dummy users that could not be verified end-to-end | **Deploy first (Phase 7), then IAS (Phase 8)** |
+| Wrong cockpit URL | "No global accounts" on `btp.cloud.sap` for trial | **Always use `cockpit.hanatrial.ondemand.com/trial/`** |
+| IAS plan `application` | "OIDC Trust missing" error | **Always use Application plan `default`** |
+| Skipped activation email | "Sorry, we could not authenticate" in IAS console | **Complete activation email after Establish Trust** |
+| Created roles before deploy | Source field locked, no delete icon, blurry `+` | **Create roles AFTER deploy using `V2` template workaround** |
+| Testing IAS login on BTP Cockpit | Redirected to `accounts.sap.com`, wrong IdP | **Use approuter URL, not Cockpit, to test IAS users** |
