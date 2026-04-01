@@ -76,6 +76,8 @@ const mockedUsers = require('@sap/cds/lib/srv/middlewares/auth/mocked-users')
 
 cds.on('bootstrap', app => {
   const userStore = mockedUsers(cds.env.requires.auth)
+  const express = require('express')
+  app.use('/api', express.json())
   app.use('/api', (req, res, next) => {
     const auth = req.headers.authorization
     if (!auth?.match(/^basic/i)) {
@@ -187,7 +189,9 @@ cds.on('bootstrap', app => {
       })
 
       if (py.status >= 400) {
-        return res.status(502).json({ error: 'Python error', status: py.status })
+        res.setHeader('Content-Type', 'text/event-stream')
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Python service returned ' + py.status })}\n\n`)
+        return res.end()
       }
 
       res.setHeader('Content-Type', 'text/event-stream')

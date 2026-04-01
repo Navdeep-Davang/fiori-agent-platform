@@ -1,0 +1,106 @@
+_schema-version: "3.1"
+ID: agent-control-plane
+version: 1.0.0
+description: "Fiori Agent Platform — CAP, UI5, Python executor"
+parameters:
+  enable-parallel-deployments: true
+
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm install
+        - npx cds build --production
+
+modules:
+  # ─── App Router ──────────────────────────────────────────────────────────────
+  - name: acp-approuter
+    type: approuter.nodejs
+    path: approuter
+    parameters:
+      keep-existing-routes: true
+      disk-quota: 256M
+      memory: 256M
+    requires:
+      - name: acp-xsuaa
+      - name: acp-cap-api
+        group: destinations
+        properties:
+          name: cap
+          url: "~{url}"
+          forwardAuthToken: true
+
+  # ─── CAP Service ─────────────────────────────────────────────────────────────
+  - name: acp-cap
+    type: nodejs
+    path: gen/srv
+    parameters:
+      buildpack: nodejs_buildpack
+      readiness-health-check-type: http
+      readiness-health-check-http-endpoint: /health
+    build-parameters:
+      builder: npm
+    provides:
+      - name: acp-cap-api
+        properties:
+          url: ${default-url}
+    requires:
+      - name: acp-xsuaa
+      - name: acp-hana
+      - name: acp-destination
+      - name: acp-python-api
+        properties:
+          PYTHON_URL: "~{url}"
+
+  # ─── Python Executor ─────────────────────────────────────────────────────────
+  - name: acp-python
+    type: python
+    path: python
+    parameters:
+      buildpack: python_buildpack
+      memory: 512M
+      disk-quota: 512M
+    provides:
+      - name: acp-python-api
+        properties:
+          url: ${default-url}
+    requires:
+      - name: acp-hana
+    properties:
+      LLM_PROVIDER: google-genai
+      LLM_MODEL: gemini-2.0-flash
+
+  # ─── Database Deployer ───────────────────────────────────────────────────────
+  - name: acp-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    requires:
+      - name: acp-hana
+
+resources:
+  # ─── XSUAA ───────────────────────────────────────────────────────────────────
+  - name: acp-xsuaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: agent-control-plane
+        tenant-mode: dedicated
+
+  # ─── HANA ────────────────────────────────────────────────────────────────────
+  - name: acp-hana
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+
+  # ─── Destination ──────────────────────────────────────────────────────────────
+  - name: acp-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite

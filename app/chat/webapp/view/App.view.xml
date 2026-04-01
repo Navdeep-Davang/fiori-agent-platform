@@ -1,0 +1,9 @@
+<mvc:View
+    controllerName="acp.chat.controller.App"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f"
+    xmlns="sap.m"
+    displayBlock="true"
+    height="100%">
+    <App id="app" />
+</mvc:View>

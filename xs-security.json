@@ -28,13 +28,13 @@
   ],
   "role-templates": [
     {
-      "name": "AgentUserV2",
+      "name": "AgentUser",
       "description": "Standard chat user.",
       "scope-references": ["$XSAPPNAME.Agent.User"],
       "attribute-references": ["dept"]
     },
     {
-      "name": "AgentAuthorV2",
+      "name": "AgentAuthor",
       "description": "Agent designer.",
       "scope-references": [
         "$XSAPPNAME.Agent.User",
@@ -43,7 +43,7 @@
       "attribute-references": ["dept"]
     },
     {
-      "name": "AgentAdminV2",
+      "name": "AgentAdmin",
       "description": "Platform administrator.",
       "scope-references": [
         "$XSAPPNAME.Agent.User",
@@ -53,9 +53,31 @@
       "attribute-references": ["dept"]
     },
     {
-      "name": "AgentAuditV2",
+      "name": "AgentAudit",
       "description": "Read-only auditor.",
       "scope-references": ["$XSAPPNAME.Agent.Audit"]
+    }
+  ],
+  "role-collections": [
+    {
+      "name": "ACP Chat User",
+      "description": "Can open chat and use assigned agents.",
+      "role-template-references": ["$XSAPPNAME.AgentUser"]
+    },
+    {
+      "name": "ACP Agent Author",
+      "description": "Can create and edit agents.",
+      "role-template-references": ["$XSAPPNAME.AgentAuthor"]
+    },
+    {
+      "name": "ACP Platform Admin",
+      "description": "Full platform governance access.",
+      "role-template-references": ["$XSAPPNAME.AgentAdmin"]
+    },
+    {
+      "name": "ACP Auditor",
+      "description": "Read-only audit access.",
+      "role-template-references": ["$XSAPPNAME.AgentAudit"]
     }
   ]
 }

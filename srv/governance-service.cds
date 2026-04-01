@@ -37,3 +37,5 @@ service GovernanceService @(path: '/odata/v4/governance') {
   entity AgentGroupClaimValues as projection on acp.AgentGroupClaimValue;
   entity AgentGroupAgents       as projection on acp.AgentGroupAgent;
 }
+
+using from '../app/admin/annotations';

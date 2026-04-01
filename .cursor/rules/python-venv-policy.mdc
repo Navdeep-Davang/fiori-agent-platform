@@ -1,0 +1,26 @@
+---
+description: Mandatory use of Python Virtual Environment (venv) for all Python-related tasks.
+globs: python/**
+---
+
+# Python Venv Policy
+
+To ensure all Python dependencies and commands are executed within a virtual environment and not globally, the following rules are MANDATORY:
+
+1.  **Virtual Environment Scope**: All Python operations (scripts, `pip`, `uvicorn`, etc.) MUST be performed within a virtual environment located at `python/venv`.
+2.  **Activation**: Before running any `python` or `pip` command, you MUST ensure the virtual environment is active.
+    - On Windows (PowerShell/CMD): Use `.\\python\\venv\\Scripts\\activate` or use the direct path to the executable: `python/venv/Scripts/python.exe`.
+    - On Unix/Linux/macOS: Use `source python/venv/bin/activate`.
+3.  **Strict No Global Installs**: NEVER run `pip install` or `pip uninstall` without a virtual environment being active or by targeting the specific venv pip executable (e.g., `python/venv/Scripts/pip.exe`).
+4.  **Creation and Verification**:
+    - If the `python/venv` directory is missing, you MUST create it immediately: `python -m venv venv` inside the `python/` directory.
+    - Always verify the venv is active before proceeding with any Python tasks.
+5.  **User Review for Global Changes**: Any attempt to perform a global Python package change requires explicit user approval.
+6.  **Subagent Coordination**: When spawning subagents (like `btp-expert` or `generalPurpose`) for Python tasks, explicitly instruct them to use the virtual environment.
+
+### Example Correct Command Usage (Windows):
+- `.\\python\\venv\\Scripts\\pip.exe install -r python/requirements.txt`
+- `.\\python\\venv\\Scripts\\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000`
+
+### Example Correct Command Usage (Generic):
+- `cd python && .\\venv\\Scripts\\activate && pip install <package>`

@@ -2,8 +2,14 @@
   "name": "@acp/admin",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "start": "ui5 serve --port 3001"
+  },
   "devDependencies": {
-    "@ui5/cli": "^4.0.0",
-    "@sap/ux-specification": "^1.0.0"
+    "@sap/ux-specification": "^1.0.0",
+    "@ui5/cli": "^4.0.0"
+  },
+  "dependencies": {
+    "agent-control-plane": "file:../.."
   }
 }

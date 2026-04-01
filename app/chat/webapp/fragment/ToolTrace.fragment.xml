@@ -1,0 +1,22 @@
+<core:FragmentDefinition
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core">
+    <Panel expandable="true" expanded="false" headerText="{i18n>toolCalls}">
+        <Table items="{chatModel>toolCalls}" alternateRowColors="true">
+            <columns>
+                <Column><Text text="{i18n>toolName}" /></Column>
+                <Column><Text text="{i18n>duration}" /></Column>
+                <Column hAlign="End"><Text text="{i18n>result}" /></Column>
+            </columns>
+            <items>
+                <ColumnListItem>
+                    <cells>
+                        <Text text="{chatModel>toolName}" />
+                        <Text text="{chatModel>durationMs} ms" />
+                        <Text text="{chatModel>resultSummary}" />
+                    </cells>
+                </ColumnListItem>
+            </items>
+        </Table>
+    </Panel>
+</core:FragmentDefinition>

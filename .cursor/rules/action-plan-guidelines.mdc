@@ -1,6 +1,6 @@
 ---
 title: Action Plan Generation and Management Guidelines
-description:
+description: Mandatory checkbox sync for doc/Action-Plan — applies to every agent turn that implements or verifies work tied to an action plan.
 globs:
 alwaysApply: true
 ---
@@ -57,3 +57,24 @@ Once the plan is approved, begin executing the tasks in the specified order.
 
 This tracking mechanism is the single source of truth for the project's progress. It allows both you and the user to know exactly what has been done and what is pending, and it enables you to pause and resume work seamlessly.
 
+## 5. Mandatory action-plan sync (non-negotiable)
+
+This section applies to **every** session that implements code, runs verification, or delegates work that maps to tasks in `doc/Action-Plan/*.md` (including **Developer Build**: `doc/Action-Plan/01-application-implementation.md`).
+
+1. **Same turn as verified work**  
+   If you (or a subagent you spawned) completed or verified work that satisfies one or more checkboxes, you **must** in the **same turn** edit the relevant action plan markdown and set `[X]` for those items. Leaving the plan stale while claiming completion is not allowed.
+
+2. **Subagents do not replace the orchestrator**  
+   Task/subagent runs may not have the action plan file in context or may not edit the repo. The **primary agent** (or master orchestrator) that receives the subagent report **must** verify the work (trust-but-verify), then **apply the checkbox edits** to the action plan before telling the user the work is done.
+
+3. **Partial completion**  
+   If only part of a task is done, leave the parent `[ ]` and mark only the finished subtasks `[X]`, or add a short italic note on the line explaining the gap.
+
+4. **Nothing completed**  
+   If no plan items were finished this turn, you do not need to edit the plan; optionally state that no checkbox updates apply.
+
+5. **Spawning `Task` / subagents**  
+   Include in the subagent prompt: *"Return a **Checkbox sync** section: list each action-plan task/subtask ID or line you believe is satisfied, so the orchestrator can mark `[X]` after verification."* The orchestrator still performs the file edit.
+
+6. **Using skills**  
+   When using `master-orchestrator` or `project-orchestrator`, treat **action plan file edits** as part of the **Complete** step, not optional documentation.

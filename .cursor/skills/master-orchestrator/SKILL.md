@@ -15,7 +15,7 @@ When orchestrating an action plan:
 2. **Analyze**: Parse tasks, build dependency graph, assess complexity
 3. **Execute**: Spawn subagents with crafted prompts, track in scratchpad
 4. **Review**: Aggregate reports, validate quality, iterate if needed
-5. **Complete**: Update manifest, mark action plan tasks done, report to user
+5. **Complete**: Update manifest; **edit `doc/Action-Plan/*.md` and set `[X]` on every task/subtask verified this cycle** (subagents rarely do this — you must); report to user. See workspace rule `action-plan-guidelines.mdc` section 5.
 
 ## Task Parsing
 
@@ -152,6 +152,12 @@ From the action plan, each criterion must be verifiable:
 ## Testing Requirements
 - [What tests to write]
 - [How to run verification]
+
+## Action plan checkbox sync (orchestrator — mandatory)
+
+After you accept a subagent report, open the relevant action plan (e.g. `doc/Action-Plan/01-application-implementation.md`) and change `[ ]` → `[X]` for every item whose acceptance criteria are met in the repo. If the subagent did not edit the plan, **you** must. Partial work → partial checkboxes + italic note.
+
+Subagent prompts must ask for a final **Checkbox sync** section listing which plan lines to mark complete.
 
 ## Report Instructions
 When complete, write your report to:

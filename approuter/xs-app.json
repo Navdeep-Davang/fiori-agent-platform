@@ -1,0 +1,34 @@
+{
+  "welcomeFile": "/chat/webapp/index.html",
+  "authenticationMethod": "route",
+  "routes": [
+    {
+      "source": "^/admin/(.*)",
+      "target": "/admin/$1",
+      "destination": "cap",
+      "authenticationType": "xsuaa",
+      "csrfProtection": true
+    },
+    {
+      "source": "^/chat/(.*)",
+      "target": "/chat/$1",
+      "destination": "cap",
+      "authenticationType": "xsuaa",
+      "csrfProtection": true
+    },
+    {
+      "source": "^/api/(.*)",
+      "target": "/api/$1",
+      "destination": "cap",
+      "authenticationType": "xsuaa",
+      "csrfProtection": false
+    },
+    {
+      "source": "^/odata/(.*)",
+      "target": "/odata/$1",
+      "destination": "cap",
+      "authenticationType": "xsuaa",
+      "csrfProtection": true
+    }
+  ]
+}

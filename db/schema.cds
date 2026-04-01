@@ -45,6 +45,7 @@ entity Agent {
   status              : String(20) enum { Draft; Active; Archived } default 'Draft';
   createdBy           : String(200);
   tools               : Composition of many AgentTool on tools.agent = $self;
+  groups              : Association to many AgentGroupAgent on groups.agent = $self;
 }
 
 entity AgentTool {

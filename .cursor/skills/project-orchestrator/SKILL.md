@@ -63,10 +63,12 @@ Template location: `~/.cursor/doc/templates/action-plan-template.md`
 
 After completing a task:
 
-1. Update the checkbox in the action plan markdown: `- [ ]` → `- [X]`
+1. Update the checkbox in the action plan markdown: `- [ ]` → `- [X]` (**required in the same turn as the implementation**; if work was done by a subagent, the primary agent must still edit the plan after verification).
 2. If all tasks in phase complete, update phase status
 3. Update manifest `phases` array with new status
 4. Update `last_updated` timestamp
+
+**Gap that caused drift:** Delegation without a follow-up edit to `doc/Action-Plan/...` — always pair subagent completion with orchestrator checkbox updates (see `action-plan-guidelines.mdc` §5).
 
 ### Mark Plan as Synced
 

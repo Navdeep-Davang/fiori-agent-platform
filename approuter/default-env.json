@@ -1,0 +1,25 @@
+{
+  "VCAP_SERVICES": {
+    "xsuaa": [
+      {
+        "name": "acp-xsuaa",
+        "label": "xsuaa",
+        "tags": ["xsuaa"],
+        "credentials": {
+          "clientid": "sb-agent-control-plane!t1",
+          "clientsecret": "secret",
+          "url": "http://localhost:8080/uaa",
+          "uaadomain": "localhost",
+          "verificationkey": "key"
+        }
+      }
+    ]
+  },
+  "destinations": [
+    {
+      "name": "cap",
+      "url": "http://localhost:4004",
+      "forwardAuthToken": true
+    }
+  ]
+}
