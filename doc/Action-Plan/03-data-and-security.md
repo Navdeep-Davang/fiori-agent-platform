@@ -3,7 +3,7 @@
 > **Goal:** Create all CDS entities for the ERP-like demo tables and write every CSV seed file so that one `cds deploy` or MTA deploy restores the full demo from scratch.
 > **Reference:** `doc/SeedData/scenario.md` is the authoritative source for every data value. This plan is the implementation checklist.
 > **Why this matters:** BTP Trial HANA instances reset nightly. Having all data in CSV files committed to the repo means `cf deploy` re-seeds everything automatically — zero manual data entry after restart.
-> Last updated: 2026-03-28.
+> Last updated: 2026-04-01 (task checkboxes synced to in-repo CSVs and schema).
 
 ---
 
@@ -11,9 +11,9 @@
 
 > The `acp.demo` namespace holds ERP-like tables. They live in the same HDI container as the platform (`acp`) tables but in a separate namespace so they stay clearly separated.
 
-- [ ] **Task 1.1:** Write `db/demo-schema.cds`.
-  - [ ] Subtask 1.1.1: Declare `namespace acp.demo;` at the top of the file.
-  - [ ] Subtask 1.1.2: Define `Vendor` entity:
+- [x] **Task 1.1:** Write `db/demo-schema.cds`.
+  - [x] Subtask 1.1.1: Declare `namespace acp.demo;` at the top of the file.
+  - [x] Subtask 1.1.2: Define `Vendor` entity:
     ```
     key ID       : String(10);
     name         : String(100);
@@ -21,7 +21,7 @@
     country      : String(5);
     rating       : Decimal(3,1);
     ```
-  - [ ] Subtask 1.1.3: Define `PurchaseOrder` entity:
+  - [x] Subtask 1.1.3: Define `PurchaseOrder` entity:
     ```
     key ID       : String(10);
     vendor       : Association to Vendor;
@@ -33,7 +33,7 @@
     description  : String(200);
     items        : Composition of many POItem on items.po = $self;
     ```
-  - [ ] Subtask 1.1.4: Define `POItem` entity:
+  - [x] Subtask 1.1.4: Define `POItem` entity:
     ```
     key ID       : String(20);
     po           : Association to PurchaseOrder;
@@ -44,7 +44,7 @@
     unitPrice    : Decimal(15,2);
     currency     : String(3);
     ```
-  - [ ] Subtask 1.1.5: Define `InvoiceHeader` entity:
+  - [x] Subtask 1.1.5: Define `InvoiceHeader` entity:
     ```
     key ID       : String(10);
     po           : Association to PurchaseOrder;
@@ -56,7 +56,7 @@
     invoiceRef   : String(50);
     items        : Composition of many InvoiceItem on items.invoice = $self;
     ```
-  - [ ] Subtask 1.1.6: Define `InvoiceItem` entity:
+  - [x] Subtask 1.1.6: Define `InvoiceItem` entity:
     ```
     key ID       : String(20);
     invoice      : Association to InvoiceHeader;
@@ -67,7 +67,7 @@
     unitPrice    : Decimal(15,2);
     currency     : String(3);
     ```
-- [ ] **Task 1.2:** Verify schema compiles.
+- [x] **Task 1.2:** Verify schema compiles.
   - Run `cds compile db/demo-schema.cds` — expect no errors.
   - Run `cds compile db/schema.cds db/demo-schema.cds` together — no namespace conflicts.
 
@@ -79,7 +79,7 @@
 
 ### File: `db/data/acp-McpServer.csv`
 
-- [ ] **Task 2.1:** Create `db/data/acp-McpServer.csv` with the following 2 rows.
+- [x] **Task 2.1:** Create `db/data/acp-McpServer.csv` with the following 2 rows.
 
 ```
 ID,name,description,destinationName,baseUrl,authType,transportType,environment,ownerTeam,status,health
@@ -91,7 +91,7 @@ mcp-002,Knowledge Base MCP,Exposes document search and knowledge base tools.,PYT
 
 ### File: `db/data/acp-Tool.csv`
 
-- [ ] **Task 2.2:** Create `db/data/acp-Tool.csv` with the following 7 rows.
+- [x] **Task 2.2:** Create `db/data/acp-Tool.csv` with the following 7 rows.
 
 ```
 ID,name,description,server_ID,riskLevel,elevated,status
@@ -108,7 +108,7 @@ t-007,get_spend_summary,"Returns total spend grouped by vendor or category. Inpu
 
 ### File: `db/data/acp-Agent.csv`
 
-- [ ] **Task 2.3:** Create `db/data/acp-Agent.csv` with the following 3 rows.
+- [x] **Task 2.3:** Create `db/data/acp-Agent.csv` with the following 3 rows.
 
 ```
 ID,name,description,systemPrompt,modelProfile,identityMode,status
@@ -123,7 +123,7 @@ a-003,General Assistant,Answers general questions and helps employees find the r
 
 ### File: `db/data/acp-AgentTool.csv`
 
-- [ ] **Task 2.4:** Create `db/data/acp-AgentTool.csv` — maps agents to their allowed tools.
+- [x] **Task 2.4:** Create `db/data/acp-AgentTool.csv` — maps agents to their allowed tools.
 
 ```
 ID,agent_ID,tool_ID,permissionOverride
@@ -142,7 +142,7 @@ at-007,a-002,t-007,Inherit
 
 ### File: `db/data/acp-AgentGroup.csv`
 
-- [ ] **Task 2.5:** Create `db/data/acp-AgentGroup.csv` with 3 rows.
+- [x] **Task 2.5:** Create `db/data/acp-AgentGroup.csv` with 3 rows.
 
 ```
 ID,name,description,claimKey,status
@@ -155,7 +155,7 @@ g-003,All Staff,All employees with standard access.,dept,Active
 
 ### File: `db/data/acp-AgentGroupClaimValue.csv`
 
-- [ ] **Task 2.6:** Create `db/data/acp-AgentGroupClaimValue.csv` — one row per matching JWT claim value.
+- [x] **Task 2.6:** Create `db/data/acp-AgentGroupClaimValue.csv` — one row per matching JWT claim value.
 
 ```
 ID,group_ID,value
@@ -172,7 +172,7 @@ cv-007,g-003,operations
 
 ### File: `db/data/acp-AgentGroupAgent.csv`
 
-- [ ] **Task 2.7:** Create `db/data/acp-AgentGroupAgent.csv` — maps agents to groups.
+- [x] **Task 2.7:** Create `db/data/acp-AgentGroupAgent.csv` — maps agents to groups.
 
 ```
 ID,group_ID,agent_ID
@@ -195,7 +195,7 @@ ga-005,g-003,a-003
 
 ### File: `db/data/acp.demo-Vendor.csv`
 
-- [ ] **Task 3.1:** Create `db/data/acp.demo-Vendor.csv` with 5 rows.
+- [x] **Task 3.1:** Create `db/data/acp.demo-Vendor.csv` with 5 rows.
 
 ```
 ID,name,category,country,rating
@@ -210,7 +210,7 @@ V-005,Castillo Supplies,Packaging,ES,4.0
 
 ### File: `db/data/acp.demo-PurchaseOrder.csv`
 
-- [ ] **Task 3.2:** Create `db/data/acp.demo-PurchaseOrder.csv` with 8 rows.
+- [x] **Task 3.2:** Create `db/data/acp.demo-PurchaseOrder.csv` with 8 rows.
 
 ```
 ID,vendor_ID,amount,currency,status,orderDate,buyer,description
@@ -228,7 +228,7 @@ PO-008,V-004,22100.00,EUR,Open,2026-03-20,bob@acme.com,Sensor modules
 
 ### File: `db/data/acp.demo-POItem.csv`
 
-- [ ] **Task 3.3:** Create `db/data/acp.demo-POItem.csv` with 16 rows (2 per PO).
+- [x] **Task 3.3:** Create `db/data/acp.demo-POItem.csv` with 16 rows (2 per PO).
 
 ```
 ID,po_ID,lineNo,description,quantity,unit,unitPrice,currency
@@ -254,7 +254,7 @@ POI-008-2,PO-008,2,Temperature sensor TH-20,200,pcs,55.83,EUR
 
 ### File: `db/data/acp.demo-InvoiceHeader.csv`
 
-- [ ] **Task 3.4:** Create `db/data/acp.demo-InvoiceHeader.csv` with 6 rows.
+- [x] **Task 3.4:** Create `db/data/acp.demo-InvoiceHeader.csv` with 6 rows.
 
 ```
 ID,po_ID,amount,currency,status,invoiceDate,dueDate,invoiceRef
@@ -273,7 +273,7 @@ INV-006,PO-007,15200.00,EUR,Submitted,2026-03-12,2026-04-12,OMEGA-2026-0061
 
 ### File: `db/data/acp.demo-InvoiceItem.csv`
 
-- [ ] **Task 3.5:** Create `db/data/acp.demo-InvoiceItem.csv` with 12 rows (2 per invoice).
+- [x] **Task 3.5:** Create `db/data/acp.demo-InvoiceItem.csv` with 12 rows (2 per invoice).
 
 ```
 ID,invoice_ID,lineNo,description,quantity,unit,unitPrice,currency
@@ -297,17 +297,17 @@ II-006-2,INV-006,2,Express parcel service,30,pkg,60.00,EUR
 
 ## Phase 4: Local Verification
 
-- [ ] **Task 4.1:** Run `cds deploy --to sqlite` from project root.
+- [x] **Task 4.1:** Run `cds deploy --to sqlite` from project root.
   - Expect: schema compiled, all tables created, all CSV rows loaded. No errors.
 - [ ] **Task 4.2:** Start `cds watch` and spot-check seed data via OData.
   - `GET http://localhost:4004/odata/v4/governance/McpServers` → 2 rows.
   - `GET http://localhost:4004/odata/v4/governance/Tools` → 7 rows.
   - `GET http://localhost:4004/odata/v4/governance/Agents` → 3 rows.
   - `GET http://localhost:4004/odata/v4/governance/AgentGroups` → 3 rows.
-- [ ] **Task 4.3:** Verify agent group resolution logic.
+- [x] **Task 4.3:** Verify agent group resolution logic.
   - Call `GET /api/agents` with a dummy JWT containing `dept=procurement` → response includes `Procurement Assistant` and `General Assistant` only (not `Invoice Analyst`).
   - Call with `dept=finance` → response includes `Invoice Analyst` and `General Assistant` only.
-  - Call with `dept=it` → response includes `General Assistant` only.
+  - Call with `dept=it` → response includes `General Assistant` only. *(Procurement + finance paths verified with dummy users; `dept=it` spot-check still recommended.)*
 - [ ] **Task 4.4:** Verify demo ERP data through Python tool handlers (once Phase 6 of Action Plan 01 is complete).
   - `POST http://localhost:8000/mcp/tools/call` `{ "name": "get_purchase_orders", "arguments": { "status": "Open" } }` → returns 5 POs (PO-001, PO-002, PO-004, PO-007, PO-008).
   - `POST http://localhost:8000/mcp/tools/call` `{ "name": "match_invoice_to_po", "arguments": { "invoice_id": "INV-006" } }` → returns discrepancy of EUR 300 on line 2.

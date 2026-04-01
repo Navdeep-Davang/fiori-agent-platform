@@ -72,7 +72,7 @@ Expect to redo: cockpit login, **`cf login`** with the current API URL, **start 
 
 ### Guided BTP setup in Cursor
 
-The project defines a Cursor subagent that walks through BTP / Cloud Foundry setup **one question at a time**, verifies with **`cf` / `cds` / toolchain** when possible, and aligns with **README** and **`doc/Action-Plan/02-btp-cockpit-setup.md`**. In chat, invoke **`@btp-setup-guide`** or ask to use the **btp-setup-guide** agent (definition: [`.cursor/agents/btp-setup-guide.md`](.cursor/agents/btp-setup-guide.md)). It is written so you do **not** paste database passwords or LLM keys into the thread—use **`.env`** and **`cf set-env`** on your machine instead.
+The project defines a Cursor subagent (**btp-expert**) that walks through BTP / Cloud Foundry setup **one question at a time**, verifies with **`cf` / `cds` / toolchain** when possible, and aligns with **README** and **`doc/Action-Plan/02-btp-cockpit-setup.md`**. In chat, invoke **`@btp-expert`** or ask to use the **btp-expert** agent (definition: [`.cursor/agents/btp-expert.md`](.cursor/agents/btp-expert.md)). It is written so you do **not** paste database passwords or LLM keys into the thread—use **`.env`** and **`cf set-env`** on your machine instead.
 
 ---
 

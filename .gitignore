@@ -62,6 +62,13 @@ MANIFEST
 .cf/
 .sap/
 
+# CAP / local DB
+gen/
+db.sqlite
+sqlite.db
+*.sqlite
+python/local_dev.db
+
 # Project specific
 .cursor/temp/
 .cursor/cache/

@@ -1,0 +1,13 @@
+ID,invoice_ID,lineNo,description,quantity,unit,unitPrice,currency
+II-001-1,INV-001,1,Full-truck-load EU,6,trip,1500.00,EUR
+II-001-2,INV-001,2,Partial-load EU,6,trip,500.00,EUR
+II-002-1,INV-002,1,Hot-rolled steel coil 3mm,50,t,650.00,EUR
+II-002-2,INV-002,2,Cold-rolled steel coil 1.5mm,30,t,583.33,EUR
+II-003-1,INV-003,1,Cardboard box 30x30,10000,pcs,0.55,EUR
+II-003-2,INV-003,2,Stretch film roll,500,pcs,8.30,EUR
+II-004-1,INV-004,1,PCB assembly type A,400,pcs,112.00,EUR
+II-004-2,INV-004,2,PCB assembly type B,200,pcs,112.00,EUR
+II-005-1,INV-005,1,HEA 200 beam,80,t,312.50,EUR
+II-005-2,INV-005,2,IPE 300 beam,20,t,462.50,EUR
+II-006-1,INV-006,1,Full-truck-load EU,8,trip,1500.00,EUR
+II-006-2,INV-006,2,Express parcel service,30,pkg,60.00,EUR

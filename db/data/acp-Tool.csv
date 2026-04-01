@@ -1,0 +1,8 @@
+ID,name,description,server_ID,inputSchema,outputSchema,riskLevel,elevated,status,modifiedAt
+20000000-0000-0000-0000-000000000001,get_vendors,Returns vendors optional filters category country,10000000-0000-0000-0000-000000000001,{},,Low,false,Active,2026-03-01T00:00:00.000Z
+20000000-0000-0000-0000-000000000002,get_purchase_orders,Returns POs filters status vendor_id buyer,10000000-0000-0000-0000-000000000001,{},,Low,false,Active,2026-03-01T00:00:00.000Z
+20000000-0000-0000-0000-000000000003,get_po_detail,Full PO detail and lines input po_id,10000000-0000-0000-0000-000000000001,{},,Low,false,Active,2026-03-01T00:00:00.000Z
+20000000-0000-0000-0000-000000000004,get_invoices,Invoice headers filters status due_before,10000000-0000-0000-0000-000000000001,{},,Low,false,Active,2026-03-01T00:00:00.000Z
+20000000-0000-0000-0000-000000000005,get_invoice_detail,Full invoice detail input invoice_id,10000000-0000-0000-0000-000000000001,{},,Low,false,Active,2026-03-01T00:00:00.000Z
+20000000-0000-0000-0000-000000000006,match_invoice_to_po,Compare invoice to PO amounts,10000000-0000-0000-0000-000000000001,{},,Medium,false,Active,2026-03-01T00:00:00.000Z
+20000000-0000-0000-0000-000000000007,get_spend_summary,Spend grouped by vendor or category,10000000-0000-0000-0000-000000000001,{},,Low,false,Active,2026-03-01T00:00:00.000Z

@@ -1,0 +1,9 @@
+{
+  "name": "@acp/admin",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "@ui5/cli": "^4.0.0",
+    "@sap/ux-specification": "^1.0.0"
+  }
+}

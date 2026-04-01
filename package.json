@@ -1,0 +1,92 @@
+{
+  "name": "agent-control-plane",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fiori Agent Platform — CAP, UI5, Python executor",
+  "workspaces": [
+    "app/admin",
+    "app/chat",
+    "approuter"
+  ],
+  "dependencies": {
+    "@sap-cloud-sdk/connectivity": "^3",
+    "@sap/cds": "^8",
+    "@sap/xssec": "^4",
+    "axios": "^1.7.7",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@sap/eslint-plugin-cds": "^3",
+    "rimraf": "^5.0.10",
+    "sqlite3": "^5.1.7"
+  },
+  "scripts": {
+    "watch": "cds watch",
+    "build:cap": "cds build --production",
+    "start": "cds run",
+    "lint": "eslint ."
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "[development]": {
+          "kind": "sqlite",
+          "credentials": {
+            "database": "sqlite.db"
+          }
+        },
+        "[production]": {
+          "kind": "hana"
+        }
+      },
+      "auth": {
+        "[development]": {
+          "kind": "dummy",
+          "users": {
+            "alice": {
+              "password": "alice",
+              "roles": [
+                "Agent.Admin",
+                "Agent.Author",
+                "Agent.User",
+                "Agent.Audit"
+              ],
+              "attr": { "dept": "it" },
+              "jwt": {
+                "email": "alice@acme.com",
+                "given_name": "Alice",
+                "family_name": "Admin"
+              }
+            },
+            "bob": {
+              "password": "bob",
+              "roles": ["Agent.User"],
+              "attr": { "dept": "procurement" },
+              "jwt": {
+                "email": "bob@acme.com"
+              }
+            },
+            "carol": {
+              "password": "carol",
+              "roles": ["Agent.User"],
+              "attr": { "dept": "finance" },
+              "jwt": {
+                "email": "carol@acme.com"
+              }
+            },
+            "dave": {
+              "password": "dave",
+              "roles": ["Agent.Audit"],
+              "jwt": {
+                "email": "dave@acme.com"
+              }
+            }
+          }
+        },
+        "[production]": {
+          "kind": "xsuaa"
+        }
+      }
+    }
+  }
+}

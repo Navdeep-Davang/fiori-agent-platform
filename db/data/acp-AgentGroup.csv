@@ -1,0 +1,4 @@
+ID,name,description,claimKey,status
+40000000-0000-0000-0000-000000000001,Procurement Team,Procurement and sourcing users,dept,Active
+40000000-0000-0000-0000-000000000002,Finance Team,Finance and AP users,dept,Active
+40000000-0000-0000-0000-000000000003,All Staff,IT HR operations,dept,Active

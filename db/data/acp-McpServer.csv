@@ -1,0 +1,3 @@
+ID,name,description,destinationName,baseUrl,authType,transportType,environment,ownerTeam,status,health,lastHealthCheck
+10000000-0000-0000-0000-000000000001,Procurement Data MCP,Python MCP for procurement and finance data,PYTHON_MCP_SERVICE,http://localhost:8000,Destination,HTTP,dev,IT Platform,Active,UNKNOWN,2026-01-01T00:00:00.000Z
+10000000-0000-0000-0000-000000000002,Knowledge Base MCP,Secondary MCP route on same Python service,PYTHON_MCP_SERVICE,http://localhost:8000,Destination,HTTP,dev,IT Platform,Active,UNKNOWN,2026-01-01T00:00:00.000Z

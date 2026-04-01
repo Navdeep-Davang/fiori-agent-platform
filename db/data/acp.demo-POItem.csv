@@ -1,0 +1,17 @@
+ID,po_ID,lineNo,description,quantity,unit,unitPrice,currency
+POI-001-1,PO-001,1,Hot-rolled steel coil 3mm,50,t,650.00,EUR
+POI-001-2,PO-001,2,Cold-rolled steel coil 1.5mm,30,t,583.33,EUR
+POI-002-1,PO-002,1,HEA 200 beam,80,t,312.50,EUR
+POI-002-2,PO-002,2,IPE 300 beam,20,t,462.50,EUR
+POI-003-1,PO-003,1,Full-truck-load EU,6,trip,1500.00,EUR
+POI-003-2,PO-003,2,Partial-load EU,6,trip,500.00,EUR
+POI-004-1,PO-004,1,PCB assembly type A,400,pcs,112.00,EUR
+POI-004-2,PO-004,2,PCB assembly type B,200,pcs,112.00,EUR
+POI-005-1,PO-005,1,Steel coil Q2 batch,40,t,650.00,EUR
+POI-005-2,PO-005,2,Zinc-coated steel,20,t,700.00,EUR
+POI-006-1,PO-006,1,Cardboard box 30x30,10000,pcs,0.55,EUR
+POI-006-2,PO-006,2,Stretch film roll,500,pcs,8.30,EUR
+POI-007-1,PO-007,1,Full-truck-load EU,8,trip,1500.00,EUR
+POI-007-2,PO-007,2,Express parcel service,30,pkg,83.33,EUR
+POI-008-1,PO-008,1,Proximity sensor model X,300,pcs,49.67,EUR
+POI-008-2,PO-008,2,Temperature sensor TH-20,200,pcs,55.83,EUR

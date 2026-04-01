@@ -1,0 +1,9 @@
+ID,vendor_ID,amount,currency,status,orderDate,buyer,description
+PO-001,V-001,45000.00,EUR,Open,2026-02-10,bob@acme.com,Steel coils Q1
+PO-002,V-002,28500.00,EUR,Open,2026-02-18,bob@acme.com,Structural steel
+PO-003,V-003,12000.00,EUR,Closed,2026-01-05,bob@acme.com,Freight Jan batch
+PO-004,V-004,67200.00,EUR,Open,2026-03-01,bob@acme.com,PCB assemblies
+PO-005,V-001,31000.00,EUR,Pending,2026-03-15,bob@acme.com,Steel coils Q2
+PO-006,V-005,8400.00,EUR,Closed,2026-01-20,bob@acme.com,Packaging March
+PO-007,V-003,15500.00,EUR,Open,2026-03-10,bob@acme.com,Freight Mar batch
+PO-008,V-004,22100.00,EUR,Open,2026-03-20,bob@acme.com,Sensor modules
