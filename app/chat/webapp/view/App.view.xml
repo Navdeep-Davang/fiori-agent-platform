@@ -5,5 +5,5 @@
     xmlns="sap.m"
     displayBlock="true"
     height="100%">
-    <App id="app" />
+    <App id="mainApp" />
 </mvc:View>

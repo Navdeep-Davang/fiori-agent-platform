@@ -12,19 +12,23 @@
             padding: 0;
         }
     </style>
+    <script>
+        window["sap-ui-config"] = { frameOptions: "allow" };
+    </script>
+    <!-- Fiori Elements needs SAPUI5 (sap.fe.*), not OpenUI5. Pin version to match manifest minUI5Version. -->
     <script id="sap-ui-bootstrap"
-        src="https://ui5.sap.com/resources/sap-ui-core.js"
+        src="https://ui5.sap.com/1.120.23/resources/sap-ui-core.js"
         data-sap-ui-theme="sap_horizon"
         data-sap-ui-resourceroots='{
             "acp.admin": "./"
         }'
         data-sap-ui-oninit="module:sap/ui/core/ComponentSupport"
         data-sap-ui-compatVersion="edge"
-        data-sap-ui-async="true"
-        data-sap-ui-frameOptions="trusted">
+        data-sap-ui-async="false"
+        data-sap-ui-libs="sap.m,sap.ui.core,sap.f,sap.fe.core,sap.fe.templates,sap.ushell">
     </script>
 </head>
 <body class="sapUiBody" id="content">
-    <div data-sap-ui-component data-name="acp.admin" data-id="container" data-settings='{"id" : "acp.admin"}'></div>
+    <div data-sap-ui-component data-name="acp.admin" data-id="container" data-sap-ui-async="false" data-settings='{"id" : "acp.admin"}'></div>
 </body>
 </html>

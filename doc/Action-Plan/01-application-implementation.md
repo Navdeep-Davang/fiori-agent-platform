@@ -92,7 +92,7 @@
   - [x] Subtask 3.3.1: Expose `ChatSessions` with user-scoped `where: 'userId = $user'` for `Agent.User` reads.
   - [x] Subtask 3.3.2: Expose `ChatMessages` (read + create for `Agent.User`).
   - [x] Subtask 3.3.3: Expose `ToolCallRecords` as read-only (no `CREATE` grant for any client role — server.js inserts directly).
-- [ ] **Task 3.4:** Write `srv/chat-service.js` — only needed if custom validation beyond CDS `@restrict` is required (session-user mismatch guard on CREATE).
+- [x] **Task 3.4:** Write `srv/chat-service.js` — only needed if custom validation beyond CDS `@restrict` is required (session-user mismatch guard on CREATE). *(Implemented: `before CREATE` on `ChatMessages` ensures `session_ID` belongs to `req.user`.)*
 - [x] **Task 3.5:** Write `srv/server.js` — custom HTTP routes (most critical file).
   - [x] Subtask 3.5.1: Register routes inside `cds.on('bootstrap', app => { ... })`.
   - [x] Subtask 3.5.2: `GET /api/agents` — validate JWT (`createSecurityContext`), check `Agent.User` scope, extract JWT claims, query HANA for allowed agents via the group-resolution SQL (architecture section 5), return JSON array. *(Uses `req.user` + SQLite table names; same logic as HANA.)*
@@ -101,7 +101,7 @@
   - [x] Subtask 3.5.3b: Load conversation history — if `sessionId` is not null, query `SELECT ID, role, content FROM acp_ChatMessage WHERE session_ID = '<sessionId>' ORDER BY timestamp ASC`; map rows to `{ role, content }` objects for the `history` array. If `sessionId` is null, `history` is an empty array.
   - [x] Subtask 3.5.3c: Extract the user's Bearer token from `req.headers.authorization`; include it as `userToken` in the Python payload. Also extract `userId` and `email` from the `SecurityContext` for `userInfo`.
   - [x] Subtask 3.5.3d: Set `Content-Type: text/event-stream`; POST to `<PYTHON_URL>/chat` with the full payload: `{ agentConfig, effectiveTools, message, history, userInfo, userToken }`. Pipe the Python SSE response back to the browser line-by-line using `response.pipe(res)` or manual stream forwarding.
-  - [x] Subtask 3.5.4: On `done` SSE event from Python: create `ChatSession` if `sessionId` was null (`INSERT` with `agentId`, `userId`, `title = first 40 chars of user message`, `createdAt`, `updatedAt`); `INSERT ChatMessage` rows — one `user` role row with the original message and one `assistant` role row with the accumulated token content; `INSERT` all `ToolCallRecord` rows collected during the stream; update `ChatSession.updatedAt`; include `sessionId` and `messageId` in the forwarded `done` event to the browser. *(Persists on `done`; forwarded `done` event not enriched with DB IDs yet.)*
+  - [x] Subtask 3.5.4: On `done` SSE event from Python: create `ChatSession` if `sessionId` was null (`INSERT` with `agentId`, `userId`, `title = first 40 chars of user message`, `createdAt`, `updatedAt`); `INSERT ChatMessage` rows — one `user` role row with the original message and one `assistant` role row with the accumulated token content; `INSERT` all `ToolCallRecord` rows collected during the stream; update `ChatSession.updatedAt`; include `sessionId` and `messageId` in the forwarded `done` event to the browser. *(Python `done` is suppressed; CAP persists then emits one `done` with `sessionId` + `messageId`.)*
   - [x] Subtask 3.5.5: Error handling — on Python connection failure emit `{ type: "error", message: "..." }` event to browser; close stream cleanly. *(HTTP ≥400 from Python: SSE `error` line + `end`; connection errors still JSON 500 if headers not sent.)*
 - [x] **Task 3.6:** Verify CAP layer in isolation.
   - [x] Subtask 3.6.1: Run `cds watch` — confirm OData metadata loads at `http://localhost:4004/odata/v4/governance/$metadata` and `http://localhost:4004/odata/v4/chat/$metadata`.
@@ -180,7 +180,7 @@
     - `tool_result` → update the matching tool row with duration and result summary.
     - `done` → set `sessionId` from event if was null; mark streaming ended; show Stop button → disabled; update session list title (first 40 chars of user message).
     - `error` → show `MessageToast` with error text; end stream.
-  - [ ] Subtask 5.5.8: `onStop` — abort the fetch via `AbortController`; emit partial message to HANA (write current assistant content as a ChatMessage with a `[stopped]` suffix). *(UI appends `[stopped]` locally; **no** OData POST to persist partial assistant message on stop.)*
+  - [x] Subtask 5.5.8: `onStop` — abort the fetch via `AbortController`; emit partial message to HANA (write current assistant content as a ChatMessage with a `[stopped]` suffix). *(UI appends `[stopped]`; `POST /api/chat/save-partial` persists user + assistant rows.)*
 - [x] **Task 5.6:** Write `app/chat/webapp/fragment/ToolTrace.fragment.xml`.
   - [x] Subtask 5.6.1: `Panel` with header title "Tool calls" (collapsed by default, `expandable: true`).
   - [x] Subtask 5.6.2: Inside: `Table` with columns: Tool name, Duration (ms), Result summary. One row per `ToolCallRecord`.
@@ -228,13 +228,13 @@
 - [x] **Task 6.5:** Write `python/app/mcp_client.py` — HTTP client that calls MCP server endpoints.
   - [x] Subtask 6.5.1: `async def list_tools(base_url: str, token: str) -> list` — GET/POST `<base_url>/mcp/tools/list` with `Authorization: Bearer <token>`.
   - [x] Subtask 6.5.2: `async def call_tool(base_url: str, tool_name: str, arguments: dict, token: str) -> str` — POST `<base_url>/mcp/tools/call`; return result JSON string.
-  - [ ] Subtask 6.5.3: For elevated tools (`elevated=true`): receive a machine token (passed by CAP in the `effectiveTools` payload per tool — `machineToken` field) and use that instead of `userToken`. *(Not implemented: client always uses `user_token`.)*
+  - [x] Subtask 6.5.3: For elevated tools (`elevated=true`): receive a machine token (passed by CAP in the `effectiveTools` payload per tool — `machineToken` field) and use that instead of `userToken`. *(CAP sets `machineToken` from env `MCP_MACHINE_TOKEN` when the tool is elevated; executor prefers it over `userToken`.)*
 - [x] **Task 6.6:** Write `python/app/executor.py` — LLM orchestration loop.
   - [x] Subtask 6.6.1: Build messages list: `[{ role: "system", content: systemPrompt }, ...history, { role: "user", content: message }]`.
   - [x] Subtask 6.6.2: Convert `effectiveTools` list from CAP into LLM tool schemas (Anthropic `tools` format or OpenAI `functions`).
-  - [ ] Subtask 6.6.3: Call LLM API — branch on `LLM_PROVIDER`:
+  - [x] Subtask 6.6.3: Call LLM API — branch on `LLM_PROVIDER`:
     - [x] `anthropic`: implemented (async stream + tool loop).
-    - [ ] `openai`: **not implemented** in `executor.py` (falls through to unsupported error).
+    - [x] `openai`: implemented in `executor.py` (`_run_openai`, non-streaming completion + tool loop; token chunks for assistant text).
     - [x] `google-genai`: implemented (`send_message_async`, function calls).
     - [ ] `google-adk` alternative — **not used** (optional).
   - [x] Subtask 6.6.4: If LLM returns a `tool_use` block: yield `{ type: "tool_call", toolName, args }` SSE event; call `mcp_client.call_tool` with the correct base URL and token (from `effectiveTools[tool.name].mcpServerUrl` and appropriate token); yield `{ type: "tool_result", toolName, summary, durationMs }` SSE event; append result to messages; loop back to LLM.
@@ -257,9 +257,9 @@
 - [x] **Task 6.9:** Write `python/Procfile` — required by the CF Python buildpack.
   - [x] Single line: `web: uvicorn app.main:app --host 0.0.0.0 --port $PORT`
   - [x] Note: `$PORT` is injected by Cloud Foundry at runtime. Without this file `cf push` (and `mbt build`) will fail with "no start command found".
-- [ ] **Task 6.10:** Write `python/manifest.yml` for CF push.
-  - [ ] App name: `acp-python`, memory: `512M`, buildpack: `python_buildpack`.
-  - [ ] Env vars: `LLM_PROVIDER`, `LLM_MODEL` (key injected separately via `cf set-env` or Credential Store — do not commit `LLM_API_KEY` / `GOOGLE_API_KEY` here).
+- [x] **Task 6.10:** Write `python/manifest.yml` for CF push.
+  - [x] App name: `acp-python`, memory: `512M`, buildpack: `python_buildpack`.
+  - [x] Env vars: `LLM_PROVIDER`, `LLM_MODEL` (key injected separately via `cf set-env` or Credential Store — do not commit `LLM_API_KEY` / `GOOGLE_API_KEY` here).
 - [x] **Task 6.11:** Implement local SQLite seeding in `python/app/db.py` for local development.
   - [x] Subtask 6.11.1: When `VCAP_SERVICES` is absent (local dev), fall back to a local SQLite file `python/local_dev.db` (not `:memory:` — use a file so it survives hot-reloads).
   - [x] Subtask 6.11.2: On first connection, check if the `acp_demo_Vendor` table exists; if not, run a one-time DDL + INSERT sequence that creates all 5 ERP demo tables using **HANA-compatible names** (`acp_demo_Vendor`, `acp_demo_PurchaseOrder`, `acp_demo_POItem`, `acp_demo_InvoiceHeader`, `acp_demo_InvoiceItem`) and inserts the exact rows from Action Plan 03 Phase 3. Store this SQL in `python/db/seed_local.sql` and execute it at startup. Using the same names as HANA (where CDS deploys `acp.demo.Vendor` as `acp_demo_Vendor`) means the tool handler SQL in `procurement.py` and `finance.py` works unchanged against both SQLite and HANA.

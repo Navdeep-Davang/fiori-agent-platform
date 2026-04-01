@@ -5,6 +5,9 @@ const { randomUUID } = require('crypto')
 
 const PYTHON_URL = () => process.env.PYTHON_URL || 'http://localhost:8000'
 
+/** Bearer token for MCP calls when a tool is elevated (optional; set on CF for delegated-identity servers). */
+const MCP_MACHINE_TOKEN = () => process.env.MCP_MACHINE_TOKEN || ''
+
 function claimPairs(user) {
   const attr = user?.attr || {}
   const out = []
@@ -144,13 +147,14 @@ cds.on('bootstrap', app => {
           }
         }
         if (!mcpServerUrl && row.baseUrl) mcpServerUrl = String(row.baseUrl).replace(/\/$/, '')
+        const machineTok = eff ? MCP_MACHINE_TOKEN() : ''
         effectiveTools.push({
           name: row.name,
           description: row.description || '',
           inputSchema: safeJson(row.inputSchema),
           mcpServerUrl,
           elevated: eff,
-          machineToken: null
+          machineToken: machineTok || null
         })
       }
 
@@ -201,34 +205,38 @@ cds.on('bootstrap', app => {
       const rl = readline.createInterface({ input: py.data })
       let assistantText = ''
       const toolRecords = []
-      let forwardedDone = null
+      let streamCompletedNormally = false
 
       const handleLine = line => {
-        res.write(line + '\n')
-        if (!line.startsWith('data: ')) return
-        try {
-          const evt = JSON.parse(line.slice(6).trim())
-          if (evt.type === 'token' && evt.content) assistantText += evt.content
-          if (evt.type === 'tool_result') {
-            toolRecords.push({
-              toolName: evt.toolName,
-              summary: evt.summary || '',
-              durationMs: evt.durationMs || 0,
-              args: evt.args
-            })
+        if (line.startsWith('data: ')) {
+          try {
+            const evt = JSON.parse(line.slice(6).trim())
+            if (evt.type === 'done') {
+              streamCompletedNormally = true
+              return
+            }
+            if (evt.type === 'token' && evt.content) assistantText += evt.content
+            if (evt.type === 'tool_result') {
+              toolRecords.push({
+                toolName: evt.toolName,
+                summary: evt.summary || '',
+                durationMs: evt.durationMs || 0,
+                args: evt.args
+              })
+            }
+          } catch {
+            /* ignore */
           }
-          if (evt.type === 'done') forwardedDone = evt
-        } catch {
-          /* ignore */
         }
+        res.write(line + '\n')
       }
 
       for await (const line of rl) handleLine(line)
 
-      if (forwardedDone && user?.id) {
+      if (streamCompletedNormally && user?.id) {
         const uid = user.id
         const now = new Date().toISOString()
-        let sid = sessionId || forwardedDone.sessionId
+        let sid = sessionId
         if (!sid) {
           sid = randomUUID()
           await db.run(
@@ -265,6 +273,10 @@ cds.on('bootstrap', app => {
             ]
           )
         }
+
+        res.write(
+          `data: ${JSON.stringify({ type: 'done', sessionId: sid, messageId: asstMsgId })}\n\n`
+        )
       }
 
       res.end()
@@ -272,6 +284,49 @@ cds.on('bootstrap', app => {
       console.error(e)
       if (!res.headersSent) res.status(500).json({ error: e.message })
       else res.end()
+    }
+  })
+
+  /** Persist user + partial assistant turn when the browser aborts the SSE stream (Stop). */
+  app.post('/api/chat/save-partial', async (req, res) => {
+    const user = req.user
+    if (!user?.is?.('Agent.User')) return res.status(403).json({ error: 'Agent.User required' })
+    const { agentId, sessionId, userMessage, assistantContent } = req.body || {}
+    if (!agentId || userMessage == null || userMessage === '') {
+      return res.status(400).json({ error: 'agentId and userMessage required' })
+    }
+    try {
+      if (!(await userMayUseAgent(user, agentId))) return res.status(403).json({ error: 'Agent not accessible' })
+      const db = await cds.connect.to('db')
+      const uid = user.id
+      const now = new Date().toISOString()
+      const assistantText = String(assistantContent ?? '')
+      let sid = sessionId || null
+      if (sid) {
+        const rows = await db.run(`SELECT ID FROM acp_ChatSession WHERE ID = ? AND userId = ?`, [sid, uid])
+        if (!rows?.length) return res.status(403).json({ error: 'Session not found' })
+        await db.run(`UPDATE acp_ChatSession SET updatedAt = ? WHERE ID = ?`, [now, sid])
+      } else {
+        sid = randomUUID()
+        await db.run(
+          `INSERT INTO acp_ChatSession (ID, agentId, userId, title, createdAt, updatedAt) VALUES (?,?,?,?,?,?)`,
+          [sid, agentId, uid, String(userMessage).slice(0, 40), now, now]
+        )
+      }
+      const userMsgId = randomUUID()
+      const asstMsgId = randomUUID()
+      await db.run(
+        `INSERT INTO acp_ChatMessage (ID, session_ID, role, content, timestamp) VALUES (?,?,?,?,?)`,
+        [userMsgId, sid, 'user', String(userMessage), now]
+      )
+      await db.run(
+        `INSERT INTO acp_ChatMessage (ID, session_ID, role, content, timestamp) VALUES (?,?,?,?,?)`,
+        [asstMsgId, sid, 'assistant', assistantText || '[stopped]', new Date().toISOString()]
+      )
+      return res.json({ sessionId: sid, messageId: asstMsgId })
+    } catch (e) {
+      console.error(e)
+      return res.status(500).json({ error: e.message })
     }
   })
 })

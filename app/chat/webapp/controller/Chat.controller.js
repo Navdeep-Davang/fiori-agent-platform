@@ -3,8 +3,10 @@ sap.ui.define([
     "sap/ui/model/json/JSONModel",
     "sap/m/MessageToast",
     "sap/m/MessageBox",
-    "sap/ui/core/Fragment"
-], function (Controller, JSONModel, MessageToast, MessageBox, Fragment) {
+    "sap/ui/core/Fragment",
+    "acp/chat/utils/DevAuth",
+    "sap/ui/core/format/DateFormat"
+], function (Controller, JSONModel, MessageToast, MessageBox, Fragment, DevAuth, DateFormat) {
     "use strict";
 
     return Controller.extend("acp.chat.controller.Chat", {
@@ -19,18 +21,22 @@ sap.ui.define([
             this.getView().setModel(this._oAgentsModel, "agentsModel");
 
             this._sSessionId = null;
+            this._sLastUserMessage = "";
             this._abortController = null;
 
             this._loadAgents();
         },
 
         _loadAgents: function () {
-            fetch("/api/agents")
+            fetch("/api/agents", {
+                headers: { Authorization: DevAuth.basicAuthorizationValue() }
+            })
                 .then(res => res.json())
                 .then(data => {
-                    this._oAgentsModel.setData(data);
-                    if (data.length > 0) {
-                        this.byId("agentSelect").setSelectedKey(data[0].ID);
+                    const list = Array.isArray(data) ? data : (data.agents || []);
+                    this._oAgentsModel.setData(list);
+                    if (list.length > 0) {
+                        this.byId("agentSelect").setSelectedKey(list[0].id);
                     }
                 })
                 .catch(err => {
@@ -128,6 +134,7 @@ sap.ui.define([
             aMessages.push(oAssistantMsg);
             this._oChatModel.setProperty("/messages", aMessages);
 
+            this._sLastUserMessage = sText;
             oInput.setValue("");
             this._oChatModel.setProperty("/isStreaming", true);
             this.byId("sendBtn").setVisible(false);
@@ -143,7 +150,10 @@ sap.ui.define([
             try {
                 const response = await fetch("/api/chat", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: DevAuth.basicAuthorizationValue()
+                    },
                     body: JSON.stringify({
                         agentId: sAgentId,
                         message: sMessage,
@@ -259,22 +269,77 @@ sap.ui.define([
         },
 
         onStop: function () {
-            if (this._abortController) {
-                this._abortController.abort();
-                this._finalizeStream();
-                
-                // Add [stopped] suffix to current message
-                const aMessages = this._oChatModel.getProperty("/messages");
-                const oCurrentMsg = aMessages[aMessages.length - 1];
-                if (oCurrentMsg && oCurrentMsg.role === "assistant") {
-                    oCurrentMsg.content += " [stopped]";
-                    this._oChatModel.setProperty("/messages", aMessages);
-                }
+            if (!this._abortController) {
+                return;
             }
+            this._abortController.abort();
+
+            const aMessages = this._oChatModel.getProperty("/messages");
+            const oCurrentMsg = aMessages[aMessages.length - 1];
+            let sAssistant = "";
+            if (oCurrentMsg && oCurrentMsg.role === "assistant") {
+                oCurrentMsg.content += " [stopped]";
+                sAssistant = oCurrentMsg.content;
+                this._oChatModel.setProperty("/messages", aMessages);
+            }
+
+            const sAgentId = this.byId("agentSelect").getSelectedKey();
+            const oBody = {
+                agentId: sAgentId,
+                sessionId: this._sSessionId,
+                userMessage: this._sLastUserMessage,
+                assistantContent: sAssistant
+            };
+
+            this._finalizeStream();
+
+            fetch("/api/chat/save-partial", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: DevAuth.basicAuthorizationValue()
+                },
+                body: JSON.stringify(oBody)
+            })
+                .then((res) => {
+                    if (!res.ok) {
+                        throw new Error("save-partial " + res.status);
+                    }
+                    return res.json();
+                })
+                .then((data) => {
+                    if (data.sessionId) {
+                        this._sSessionId = data.sessionId;
+                    }
+                    this.getView().getModel().refresh();
+                })
+                .catch((err) => {
+                    console.error(err);
+                    MessageToast.show(this.getResourceBundle().getText("savePartialFailed"));
+                });
         },
 
         getResourceBundle: function () {
             return this.getOwnerComponent().getModel("i18n").getResourceBundle();
+        },
+
+        /** OData V4 / SQLite may expose timestamps UI5 DateTime type cannot parse — avoid console errors. */
+        formatSessionDate: function (v) {
+            if (v == null || v === "") {
+                return "";
+            }
+            var d;
+            if (v instanceof Date) {
+                d = v;
+            } else if (typeof v === "object" && v != null && typeof v.getTime === "function") {
+                d = v;
+            } else {
+                d = new Date(v);
+            }
+            if (isNaN(d.getTime())) {
+                return "";
+            }
+            return DateFormat.getDateTimeInstance({ style: "short" }).format(d);
         }
     });
 });

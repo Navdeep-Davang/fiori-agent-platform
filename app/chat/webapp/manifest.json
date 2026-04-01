@@ -29,12 +29,11 @@
         }
     },
     "sap.ui5": {
-        "flexEnabled": true,
+        "flexEnabled": false,
         "rootView": {
             "viewName": "acp.chat.view.App",
             "type": "XML",
-            "async": true,
-            "id": "app"
+            "async": false
         },
         "dependencies": {
             "minUI5Version": "1.120.0",
@@ -58,11 +57,11 @@
             },
             "": {
                 "dataSource": "chatService",
-                "preload": true,
+                "preload": false,
                 "settings": {
                     "operationMode": "Server",
                     "autoExpandSelect": true,
-                    "earlyRequests": true
+                    "earlyRequests": false
                 }
             }
         },
@@ -77,10 +76,10 @@
             "config": {
                 "routerClass": "sap.m.routing.Router",
                 "viewType": "XML",
-                "async": true,
+                "async": false,
                 "viewPath": "acp.chat.view",
                 "controlAggregation": "pages",
-                "controlId": "app"
+                "controlId": "mainApp"
             },
             "routes": [
                 {
@@ -95,7 +94,8 @@
                 "chat": {
                     "viewName": "Chat",
                     "viewId": "chat",
-                    "viewLevel": 1
+                    "viewLevel": 1,
+                    "async": false
                 }
             }
         }

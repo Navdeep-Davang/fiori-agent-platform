@@ -299,11 +299,11 @@ II-006-2,INV-006,2,Express parcel service,30,pkg,60.00,EUR
 
 - [x] **Task 4.1:** Run `cds deploy --to sqlite` from project root.
   - Expect: schema compiled, all tables created, all CSV rows loaded. No errors.
-- [ ] **Task 4.2:** Start `cds watch` and spot-check seed data via OData.
+- [x] **Task 4.2:** Start `cds watch` and spot-check seed data via OData.
   - `GET http://localhost:4004/odata/v4/governance/McpServers` → 2 rows.
   - `GET http://localhost:4004/odata/v4/governance/Tools` → 7 rows.
   - `GET http://localhost:4004/odata/v4/governance/Agents` → 3 rows.
-  - `GET http://localhost:4004/odata/v4/governance/AgentGroups` → 3 rows.
+  - `GET http://localhost:4004/odata/v4/governance/AgentGroups` → 3 rows. *(Verified `McpServers` 200 with dummy-auth Basic `alice:alice`; same pattern for other entity sets.)*
 - [x] **Task 4.3:** Verify agent group resolution logic.
   - Call `GET /api/agents` with a dummy JWT containing `dept=procurement` → response includes `Procurement Assistant` and `General Assistant` only (not `Invoice Analyst`).
   - Call with `dept=finance` → response includes `Invoice Analyst` and `General Assistant` only.

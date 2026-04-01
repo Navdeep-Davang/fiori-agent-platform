@@ -1,0 +1,11 @@
+# Optional: deploy Python app alone with `cf push -f python/manifest.yml` from repo root
+# (path may need: cd python && cf push -f manifest.yml). Do not commit API keys — use cf set-env.
+---
+applications:
+  - name: acp-python
+    memory: 512M
+    buildpacks:
+      - python_buildpack
+    env:
+      LLM_PROVIDER: google-genai
+      LLM_MODEL: gemini-2.0-flash

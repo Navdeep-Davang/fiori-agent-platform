@@ -6,8 +6,9 @@
     xmlns:l="sap.ui.layout"
     xmlns:core="sap.ui.core"
     displayBlock="true"
-    height="100%">
-    <Page showHeader="false" backgroundDesign="List">
+    height="100%"
+    class="acpChatShell">
+    <Page showHeader="false" backgroundDesign="Solid" class="acpChatPage">
         <content>
             <l:ResponsiveSplitter defaultPane="default">
                 <l:PaneContainer orientation="Horizontal">
@@ -27,7 +28,7 @@
                                       selectionChange=".onSessionSelect">
                                     <StandardListItem
                                         title="{title}"
-                                        description="{path: 'updatedAt', type: 'sap.ui.model.type.DateTime', formatOptions: {style: 'short'}}"
+                                        description="{path: 'updatedAt', formatter: '.formatSessionDate'}"
                                         type="Active"
                                         press=".onSessionSelect" />
                                 </List>
@@ -37,43 +38,54 @@
 
                     <!-- Main Chat Panel -->
                     <l:SplitPane id="default">
-                        <Page backgroundDesign="Solid">
+                        <Page backgroundDesign="Solid" class="acpChatMainPage">
                             <customHeader>
-                                <Bar>
+                                <Bar design="Header">
                                     <contentLeft>
-                                        <Title text="{i18n>chatWith}" />
-                                        <Select id="agentSelect" 
-                                                items="{path: 'agentsModel>/'}" 
-                                                change=".onAgentChange"
-                                                width="200px">
-                                            <core:Item key="{agentsModel>ID}" text="{agentsModel>name}" />
-                                        </Select>
+                                        <Title text="{i18n>chatWith}" class="acpChatTitle" />
                                     </contentLeft>
+                                    <contentRight>
+                                        <Select id="agentSelect"
+                                                items="{path: 'agentsModel>/'}"
+                                                change=".onAgentChange"
+                                                width="14rem">
+                                            <core:Item key="{agentsModel>id}" text="{agentsModel>name}" />
+                                        </Select>
+                                    </contentRight>
                                 </Bar>
                             </customHeader>
                             <content>
-                                <ScrollContainer height="100%" width="100%" vertical="true" focusable="true">
-                                    <VBox id="messageList" class="sapUiSmallMargin" items="{chatModel>/messages}">
-                                        <FlexBox justifyContent="{chatModel>justifyContent}" class="sapUiSmallMarginBottom">
-                                            <VBox class="{chatModel>bubbleClass}" width="fit-content">
-                                                <Text text="{chatModel>content}" class="chatMessageContent" />
-                                                <core:Fragment fragmentName="acp.chat.fragment.ToolTrace" type="XML" 
-                                                               visible="{= !!${chatModel>toolCalls} &amp;&amp; ${chatModel>toolCalls}.length > 0 }" />
-                                            </VBox>
-                                        </FlexBox>
-                                    </VBox>
+                                <ScrollContainer height="100%" width="100%" vertical="true" focusable="true" class="acpChatScroll">
+                                    <List id="messageList"
+                                          mode="None"
+                                          showSeparators="None"
+                                          showNoData="false"
+                                          class="acpMessageList sapUiSmallMargin"
+                                          items="{chatModel>/messages}">
+                                        <CustomListItem type="Inactive" class="acpMessageListItem">
+                                            <FlexBox justifyContent="{chatModel>justifyContent}" width="100%" alignItems="Start" class="sapUiSmallMarginBottom">
+                                                <VBox class="{chatModel>bubbleClass} chatBubbleColumn">
+                                                    <Text text="{chatModel>content}" class="chatMessageContent" />
+                                                    <VBox visible="{= !!${chatModel>toolCalls} &amp;&amp; ${chatModel>toolCalls}.length > 0 }">
+                                                        <core:Fragment fragmentName="acp.chat.fragment.ToolTrace" type="XML" />
+                                                    </VBox>
+                                                </VBox>
+                                            </FlexBox>
+                                        </CustomListItem>
+                                    </List>
                                 </ScrollContainer>
                             </content>
                             <footer>
-                                <Bar>
+                                <Bar design="Footer" class="acpChatComposerBar">
                                     <contentMiddle>
-                                        <TextArea id="messageInput" placeholder="{i18n>messagePlaceholder}" 
-                                                  width="100%" rows="1" growing="true" growingMaxLines="4" 
+                                        <TextArea id="messageInput" placeholder="{i18n>messagePlaceholder}"
+                                                  width="100%" rows="1" growing="true" growingMaxLines="4"
+                                                  class="acpChatInput"
                                                   liveChange=".onInputLiveChange" />
                                     </contentMiddle>
                                     <contentRight>
-                                        <Button id="sendBtn" text="{i18n>sendBtn}" type="Emphasized" press=".onSendMessage" />
-                                        <Button id="stopBtn" text="{i18n>stopBtn}" type="Reject" press=".onStop" visible="false" />
+                                        <Button id="sendBtn" text="{i18n>sendBtn}" type="Emphasized" press=".onSendMessage" class="sapUiTinyMarginBegin" />
+                                        <Button id="stopBtn" text="{i18n>stopBtn}" type="Reject" press=".onStop" visible="false" class="sapUiTinyMarginBegin" />
                                     </contentRight>
                                 </Bar>
                             </footer>

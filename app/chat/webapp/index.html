@@ -3,20 +3,37 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>Agent Chat</title>
+    <style>
+        html, body, body > div, #content {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    <!-- Must be before sap-ui-core: avoids FrameOptions "trusted" block layer / timeout showing as a blank page on some browsers. -->
+    <script>
+        window["sap-ui-config"] = {
+            frameOptions: "allow"
+        };
+    </script>
+    <!-- CAP has no local resources/; use OpenUI5 CDN pinned to manifest minUI5Version. -->
     <script id="sap-ui-bootstrap"
-        src="resources/sap-ui-core.js"
+        src="https://sdk.openui5.org/1.120.23/resources/sap-ui-core.js"
         data-sap-ui-theme="sap_horizon"
         data-sap-ui-resourceroots='{
             "acp.chat": "./"
         }'
         data-sap-ui-oninit="module:sap/ui/core/ComponentSupport"
         data-sap-ui-compatVersion="edge"
-        data-sap-ui-async="true">
+        data-sap-ui-async="false"
+        data-sap-ui-libs="sap.m,sap.ui.core,sap.ui.layout,sap.f">
     </script>
     <link rel="stylesheet" type="text/css" href="css/style.css">
 </head>
 <body class="sapUiBody" id="content">
-    <div data-sap-ui-component data-name="acp.chat" data-id="container" data-settings='{"id" : "chat"}'></div>
+    <!-- async=false: skip Component-preload.js (not built in dev); 404 HTML breaks bootstrap MIME check -->
+    <div data-sap-ui-component data-name="acp.chat" data-id="container" data-sap-ui-async="false" data-settings='{"id" : "chat"}'></div>
 </body>
 </html>

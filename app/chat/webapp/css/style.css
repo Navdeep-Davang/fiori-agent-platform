@@ -1,3 +1,97 @@
+/* ─── Layout: fill viewport below shell ─────────────────────────────────── */
+html.sap-desktop .sapUiBody,
+.sapUiBody {
+    height: 100%;
+}
+
+.acpChatShell {
+    height: 100%;
+}
+
+.acpChatShell .acpChatPage.sapMPage {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.acpChatShell .acpChatPage .sapMPageContent {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0;
+}
+
+.acpChatShell .sapUiResponsiveSplitter {
+    height: 100%;
+    min-height: 0;
+}
+
+.acpChatShell .sapUiRSplitterBar {
+    background-color: var(--sapGroup_ContentBorderColor, #d9d9d9);
+}
+
+.acpChatShell .sapMSplitterPane .sapMPage.sapFShellBar {
+    border-right: 1px solid var(--sapGroup_ContentBorderColor, #e5e5e5);
+}
+
+.acpChatShell .sapMSplitterPane:first-child .sapMPage {
+    background-color: var(--sapList_Background, #fafafa);
+}
+
+.acpChatMainPage.sapMPage .sapMPageContent {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.acpChatScroll.sapMScrollCont {
+    flex: 1 1 auto;
+    min-height: 8rem;
+    background-color: var(--sapBackgroundColor, #fff);
+    border-radius: 0.25rem;
+    margin: 0.5rem 0.75rem;
+    box-sizing: border-box;
+}
+
+/* Message list: use outer ScrollContainer; List is chrome-free */
+.acpMessageList.sapMList {
+    width: 100%;
+    background: transparent;
+}
+
+.acpMessageList.sapMList .sapMListUl {
+    padding: 0;
+}
+
+.acpMessageListItem.sapMLIB {
+    border: none;
+    background: transparent;
+}
+
+.acpMessageListItem.sapMLIB.sapMLIBSelected,
+.acpMessageListItem.sapMLIB:hover {
+    background: transparent;
+}
+
+.acpChatTitle.sapMTitle {
+    font-size: 1rem;
+    line-height: 2.5rem;
+}
+
+.acpChatComposerBar.sapMIBar.sapMTB {
+    padding: 0.5rem 0.75rem;
+    box-shadow: 0 -0.0625rem 0 var(--sapGroup_ContentBorderColor, #e5e5e5);
+}
+
+.acpChatInput.sapMTextArea {
+    min-height: 2.5rem;
+}
+
+/* Bubbles */
+.chatBubbleColumn {
+    width: fit-content;
+    max-width: 100%;
+}
+
 .userBubble {
     background-color: #0a6ed1;
     color: white;
@@ -5,35 +99,37 @@
     border-radius: 1rem 1rem 0 1rem;
     max-width: 80%;
     align-self: flex-end;
+    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.08);
 }
 
 .agentBubble {
-    background-color: #f2f2f2;
-    color: #333;
+    background-color: var(--sapTile_Background, #f2f2f2);
+    color: var(--sapTextColor, #333);
     padding: 0.5rem 1rem;
     border-radius: 1rem 1rem 1rem 0;
     max-width: 80%;
+    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.06);
 }
 
 .chatMessageContent {
     white-space: pre-wrap;
-    line-height: 1.4;
+    line-height: 1.45;
+    word-break: break-word;
 }
 
 .streaming::after {
     content: "▋";
     display: inline-block;
     vertical-align: middle;
-    animation: blink 0.8s infinite;
+    animation: acpBlink 0.8s infinite;
 }
 
-@keyframes blink {
+@keyframes acpBlink {
     0% { opacity: 1; }
     50% { opacity: 0; }
     100% { opacity: 1; }
 }
 
-/* Fix ScrollContainer height */
 .sapMScrollCont {
     overflow-y: auto !important;
 }

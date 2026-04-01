@@ -8,6 +8,16 @@ from . import mcp_client
 
 logger = logging.getLogger(__name__)
 
+
+def _token_for_mcp(tool_meta: dict, user_token: str) -> str:
+    """Use machine token for elevated tools when CAP supplied one; else user JWT (or Basic) string."""
+    if tool_meta.get("elevated"):
+        mt = (tool_meta.get("machineToken") or "").strip()
+        if mt:
+            return mt
+    return user_token or ""
+
+
 async def run(payload: dict) -> AsyncIterator[str]:
     """Orchestrates the LLM inference loop with MCP tool calls."""
     agent_config = payload.get("agentConfig", {})
@@ -36,6 +46,9 @@ async def run(payload: dict) -> AsyncIterator[str]:
     try:
         if LLM_PROVIDER == "anthropic":
             async for event in _run_anthropic(system_prompt, messages, llm_tools, effective_tools, user_token):
+                yield event
+        elif LLM_PROVIDER == "openai":
+            async for event in _run_openai(system_prompt, messages, llm_tools, effective_tools, user_token):
                 yield event
         elif LLM_PROVIDER == "google-genai":
             async for event in _run_google_genai(system_prompt, messages, llm_tools, effective_tools, user_token):
@@ -107,7 +120,7 @@ async def _run_anthropic(system_prompt: str, messages: List[Dict], anthropic_too
                         tool_meta["mcpServerUrl"],
                         tool_name,
                         tool_call["input"],
-                        user_token
+                        _token_for_mcp(tool_meta, user_token),
                     )
                     duration = int((time.time() - start_time) * 1000)
                     yield f'data: {json.dumps({"type": "tool_result", "toolName": tool_name, "summary": "Found data", "durationMs": duration})}\n\n'
@@ -119,6 +132,88 @@ async def _run_anthropic(system_prompt: str, messages: List[Dict], anthropic_too
                 })
             
             current_messages.append({"role": "user", "content": tool_results_content})
+
+
+async def _run_openai(
+    system_prompt: str,
+    messages: List[Dict],
+    tools_schema: List[Dict],
+    effective_tools: List[Dict],
+    user_token: str,
+) -> AsyncIterator[str]:
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key=LLM_API_KEY)
+    oa_messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+    for m in messages:
+        oa_messages.append({"role": m["role"], "content": m["content"]})
+
+    oa_tools = []
+    for t in tools_schema:
+        schema = t.get("input_schema") if isinstance(t.get("input_schema"), dict) else {}
+        oa_tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": (t.get("description") or "")[:1024],
+                    "parameters": schema if schema else {"type": "object", "properties": {}},
+                },
+            }
+        )
+
+    max_turns = 10
+    current = list(oa_messages)
+
+    for _ in range(max_turns):
+        kwargs: Dict[str, Any] = {"model": LLM_MODEL, "messages": current}
+        if oa_tools:
+            kwargs["tools"] = oa_tools
+        resp = await client.chat.completions.create(**kwargs)
+        msg = resp.choices[0].message
+
+        if msg.tool_calls:
+            assistant_msg = {"role": "assistant", "content": msg.content, "tool_calls": []}
+            for tc in msg.tool_calls:
+                assistant_msg["tool_calls"].append(
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"},
+                    }
+                )
+            current.append(assistant_msg)
+
+            for tc in msg.tool_calls:
+                name = tc.function.name
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                yield f'data: {json.dumps({"type": "tool_call", "toolName": name, "args": args})}\n\n'
+
+                tool_meta = next((t for t in effective_tools if t["name"] == name), None)
+                if not tool_meta:
+                    result = json.dumps({"error": f"Tool {name} not allowed"})
+                else:
+                    start_time = time.time()
+                    result = await mcp_client.call_tool(
+                        tool_meta["mcpServerUrl"],
+                        name,
+                        args,
+                        _token_for_mcp(tool_meta, user_token),
+                    )
+                    duration = int((time.time() - start_time) * 1000)
+                    yield f'data: {json.dumps({"type": "tool_result", "toolName": name, "summary": "Found data", "durationMs": duration, "args": args})}\n\n'
+
+                current.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+        else:
+            text = msg.content or ""
+            step = 32
+            for i in range(0, len(text), step):
+                yield f'data: {json.dumps({"type": "token", "content": text[i : i + step]})}\n\n'
+            break
+
 
 async def _run_google_genai(system_prompt: str, messages: List[Dict], tools_schema: List[Dict], effective_tools: List[Dict], user_token: str) -> AsyncIterator[str]:
     # Implementation using google-generativeai SDK
@@ -184,7 +279,7 @@ async def _run_google_genai(system_prompt: str, messages: List[Dict], tools_sche
                             tool_meta["mcpServerUrl"],
                             tool_name,
                             args,
-                            user_token
+                            _token_for_mcp(tool_meta, user_token),
                         )
                         duration = int((time.time() - start_time) * 1000)
                         yield f'data: {json.dumps({"type": "tool_result", "toolName": tool_name, "summary": "Tool called", "durationMs": duration})}\n\n'
