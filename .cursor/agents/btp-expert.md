@@ -349,7 +349,7 @@ Expected: General Assistant (g-003 maps `it` to All Staff group).
 ```bash
 cf set-env acp-python LLM_PROVIDER google-genai
 cf set-env acp-python GOOGLE_API_KEY <your-key>
-cf set-env acp-python LLM_MODEL gemini-2.0-flash
+cf set-env acp-python LLM_MODEL gemini-3.1-flash-lite-preview
 cf restart acp-python
 ```
 

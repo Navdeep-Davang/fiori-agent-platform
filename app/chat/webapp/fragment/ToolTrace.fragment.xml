@@ -1,19 +1,19 @@
 <core:FragmentDefinition
     xmlns="sap.m"
     xmlns:core="sap.ui.core">
-    <Panel expandable="true" expanded="false" headerText="{i18n>toolCalls}">
-        <Table items="{chatModel>toolCalls}" alternateRowColors="true">
+    <Panel expandable="true" expanded="false" headerText="{i18n>toolCalls}" width="100%">
+        <Table items="{chatModel>toolCalls}" alternateRowColors="true" width="100%" class="acpToolTraceTable">
             <columns>
-                <Column><Text text="{i18n>toolName}" /></Column>
-                <Column><Text text="{i18n>duration}" /></Column>
-                <Column hAlign="End"><Text text="{i18n>result}" /></Column>
+                <Column width="7rem"><Text text="{i18n>toolName}" /></Column>
+                <Column width="5rem" hAlign="End"><Text text="{i18n>duration}" /></Column>
+                <Column><Text text="{i18n>result}" /></Column>
             </columns>
             <items>
                 <ColumnListItem>
                     <cells>
-                        <Text text="{chatModel>toolName}" />
+                        <Text text="{chatModel>toolName}" wrapping="true" />
                         <Text text="{chatModel>durationMs} ms" />
-                        <Text text="{chatModel>resultSummary}" />
+                        <Text text="{chatModel>resultSummary}" wrapping="true" />
                     </cells>
                 </ColumnListItem>
             </items>

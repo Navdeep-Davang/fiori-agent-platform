@@ -291,7 +291,7 @@ role collection is visible in BTP Cockpit under her user.
   ```bash
   cf set-env acp-python LLM_PROVIDER google-genai
   cf set-env acp-python GOOGLE_API_KEY <your-key>
-  cf set-env acp-python LLM_MODEL gemini-2.0-flash
+  cf set-env acp-python LLM_MODEL gemini-3.1-flash-lite-preview
   cf restart acp-python
   ```
 

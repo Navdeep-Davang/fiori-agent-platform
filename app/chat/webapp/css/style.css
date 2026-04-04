@@ -1,28 +1,80 @@
-/* ─── Layout: fill viewport below shell ─────────────────────────────────── */
+/* ─── Layout: fill viewport below shell (ChatGPT: shell = fixed viewport, middle scrolls only) ─────────────────────────────────── */
 html.sap-desktop .sapUiBody,
 .sapUiBody {
     height: 100%;
 }
 
 .acpChatShell {
+    display: flex;
+    flex-direction: column;
     height: 100%;
+    min-height: 0;
+    max-width: 100%;
+    overflow: hidden;
+    /*
+     * Message area inset — use padding on .acpChatScroll (not margin): sap.m.ScrollContainer
+     * often applies inline width/height; margin breaks symmetry; padding stays inside the box.
+     * Tweak here: app/chat/webapp/css/style.css
+     */
+    --acp-chat-scroll-padding-top: 0.5rem;
+    --acp-chat-scroll-padding-right: 2rem;
+    --acp-chat-scroll-padding-bottom: 0.5rem;
+    --acp-chat-scroll-padding-left: 1.5rem;
 }
 
 .acpChatShell .acpChatPage.sapMPage {
+    flex: 1 1 auto;
     height: 100%;
+    min-height: 0;
+    max-height: 100%;
     display: flex;
     flex-direction: column;
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
-.acpChatShell .acpChatPage .sapMPageContent {
+/*
+ * sap.m.Page puts aggregations in <section id="…-cont"> — not .sapMPageContent (see PageRenderer).
+ * This section must flex so children (splitter / ScrollContainer) get a real width & height budget.
+ */
+.acpChatShell .acpChatPage.sapMPage > section {
     flex: 1 1 auto;
     min-height: 0;
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
     padding: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .acpChatShell .sapUiResponsiveSplitter {
+    flex: 1 1 auto;
     height: 100%;
     min-height: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+/* Splitter panes must pass min-height:0 so inner Page can shrink (right pane = chat column) */
+.acpChatShell .sapUiResponsiveSplitter .sapMSplitterPane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.acpChatShell .sapUiRSplitterContent {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .acpChatShell .sapUiRSplitterBar {
@@ -35,31 +87,262 @@ html.sap-desktop .sapUiBody,
 
 .acpChatShell .sapMSplitterPane:first-child .sapMPage {
     background-color: var(--sapList_Background, #fafafa);
-}
-
-.acpChatMainPage.sapMPage .sapMPageContent {
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+    height: 100%;
     min-height: 0;
 }
 
-.acpChatScroll.sapMScrollCont {
+.acpChatShell .sapUiResponsiveSplitter .sapMSplitterPane .sapMPage {
     flex: 1 1 auto;
-    min-height: 8rem;
-    background-color: var(--sapBackgroundColor, #fff);
-    border-radius: 0.25rem;
-    margin: 0.5rem 0.75rem;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    max-width: 100%;
     box-sizing: border-box;
 }
 
-/* Message list: use outer ScrollContainer; List is chrome-free */
-.acpMessageList.sapMList {
+/* Sessions pane: list scrolls inside pane, not the window */
+.acpChatShell .sapMSplitterPane:first-child .sapMPage > section {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+}
+
+/*
+ * Main chat Page: showHeader/showFooter false — only <section> wraps acpChatMainColumn VBox.
+ * Parent div.sapMPage is the full-height column; section is a flex pass-through (not the scroll shell).
+ * ACP shell = .acpChatScroll only — sole overflow-y surface for messages (ChatGPT-style).
+ */
+.acpChatMainPage.sapMPage {
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.acpChatMainPage.sapMPage > section {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    max-width: 100%;
     width: 100%;
+    padding: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Full-height column: top bar | flex-1 scroll shell | bottom composer (flex = implicit header/footer “padding”) */
+.acpChatMainColumn.sapMVBox {
+    flex: 1 1 0;
+    width: 100%;
+    min-height: 0;
+    max-height: 100%;
+    padding-left: var(--acp-chat-scroll-padding-left);
+    padding-right: var(--acp-chat-scroll-padding-right);
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.acpChatTopBar.sapMIBar.sapMTB {
+    flex-shrink: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/*
+ * Chat footer: .acpChatComposer = one card (textarea + toolbar); .acpChatFooter__description = credit line.
+ * sap.m.TextArea always renders .sapMInputBaseContentWrapper (framework DOM — not redundant).
+ */
+.acpChatFooter.sapMVBox {
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: 100%;
+    max-width: 100%;
+    padding: 0.5rem 0 8px;
+    box-sizing: border-box;
+    max-height: min(50vh, 22rem);
+    min-height: 0;
+    overflow: visible;
+    border-top: none;
+}
+
+/* VBox injects .sapMFlexItem around each child — stretch composer + description to full width */
+.acpChatFooter.sapMVBox > .sapMFlexItem,
+.acpChatComposer.sapMVBox > .sapMFlexItem {
+    align-self: stretch;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+/* ChatGPT-style unified composer shell (textarea + attach/send live inside one flex item) */
+.acpChatComposer.sapMVBox {
+    flex-shrink: 0;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 0.5rem 0.625rem 0.375rem;
+    box-sizing: border-box;
+    border: 0.0625rem solid var(--sapGroup_ContentBorderColor, #d9d9d9);
+    border-radius: 0.75rem;
+    background-color: var(--sapField_Background, #fff);
+    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.06);
+}
+
+/*
+ * Borderless field inside the shell — no Horizon focus chrome on the wrapper.
+ * Theme uses: inset box-shadow, .sapMFocus … ::before { border }, and outline on .sapMInputBaseInner.
+ */
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea .sapMInputBaseContentWrapper,
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea.sapMInputBaseFocused .sapMInputBaseContentWrapper,
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea:focus-within .sapMInputBaseContentWrapper,
+.acpChatComposer .sapMFocus.sapMInputBase.acpChatFooter__textarea.sapMTextArea .sapMInputBaseContentWrapper:not(.sapMInputBaseDisabledWrapper) {
+    border: none !important;
+    border-bottom: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    /* Horizon uses background linear-gradient at bottom (underline), not border-bottom — clear full background */
+    background: transparent !important;
+    background-image: none !important;
+}
+
+/* Hover/active: theme reapplies bottom gradient + inset shadow on wrapper */
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea .sapMInputBaseContentWrapper:hover,
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea .sapMInputBaseContentWrapper:active,
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea.sapMInputBase:not(.sapMFocus) .sapMInputBaseContentWrapper:not(.sapMInputBaseReadonlyWrapper):not(.sapMInputBaseContentWrapperState):not(.sapMInputBaseDisabledWrapper):hover,
+.acpChatComposer .sapMFocus.sapMInputBase.acpChatFooter__textarea.sapMTextArea .sapMInputBaseContentWrapper:not(.sapMInputBaseDisabledWrapper):hover {
+    background: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    border-color: transparent !important;
+}
+
+/* Focus ring drawn by ::before on wrapper (sap_horizon library.css) */
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea .sapMInputBaseContentWrapper::before,
+.acpChatComposer .sapMFocus.sapMInputBase.acpChatFooter__textarea.sapMTextArea .sapMInputBaseContentWrapper:not(.sapMInputBaseDisabledWrapper)::before {
+    display: none !important;
+    content: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/*
+ * Inner <textarea>: Horizon sets outline on .sapMFocus … .sapMInputBaseInner and
+ * .sapMTextAreaInner.sapMTextAreaGrow { border: 0.0625rem solid transparent } (can read as a focus ring).
+ */
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea .sapMTextAreaInner,
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea .sapMInputBaseInner,
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea textarea.sapMTextAreaInner {
+    background-color: transparent;
+    /* Keep 1px transparent border (UI5 growing TextArea sizing); never switch to theme focus color */
+    border: 0.0625rem solid transparent !important;
+    outline: none !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+}
+
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea .sapMTextAreaInner:focus,
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea .sapMTextAreaInner:focus-visible,
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea textarea.sapMTextAreaInner:focus,
+.acpChatComposer .acpChatFooter__textarea.sapMTextArea textarea.sapMTextAreaInner:focus-visible,
+.acpChatComposer .sapMFocus.sapMInputBase.sapMTextArea.acpChatFooter__textarea .sapMInputBaseContentWrapper .sapMInputBaseInner,
+.acpChatComposer .sapMFocus.sapMInputBase.sapMTextArea.acpChatFooter__textarea .sapMInputBaseContentWrapper .sapMTextAreaInner,
+.acpChatComposer .sapMFocus.sapMInputBase.sapMTextArea.acpChatFooter__textarea .sapMInputBaseContentWrapper .sapMInputBaseInner.sapMTextAreaInner.sapMTextAreaGrow {
+    border: 0.0625rem solid transparent !important;
+    outline: none !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+}
+
+/*
+ * sap.m.VBox wraps the ScrollContainer in a flex item (.sapMFlexBoxScroll). That item was taking
+ * flex space but the ScrollContainer did not stretch — make the item a column flex box and let
+ * .acpChatScroll fill it (height 100% + flex).
+ */
+.acpChatMainColumn.sapMVBox > .sapMFlexItem.sapMFlexBoxScroll,
+.acpChatMainColumn.sapMVBox > .sapMFlexItem:has(> .acpChatScroll.sapMScrollCont) {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    max-width: 100%;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+}
+
+.acpChatMainColumn.sapMVBox > .sapMFlexItem.sapMFlexBoxScroll > .sapMScrollCont.acpChatScroll,
+.acpChatMainColumn.sapMVBox > .sapMFlexItem:has(> .acpChatScroll.sapMScrollCont) > .sapMScrollCont.acpChatScroll {
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: none !important;
+}
+
+/* ACP scroll shell only (inside main column) */
+.acpChatMainColumn .acpChatScroll.sapMScrollCont {
+    align-self: stretch;
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    width: 100% !important;
+    max-width: 100%;
+    background-color: var(--sapBackgroundColor, #fff);
+    border-radius: 0.25rem;
+    margin: 0 !important;
+    padding: var(--acp-chat-scroll-padding-top) 0 var(--acp-chat-scroll-padding-bottom) 0;
+    box-sizing: border-box;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    scroll-padding-top: var(--acp-chat-scroll-padding-top);
+    scroll-padding-bottom: var(--acp-chat-scroll-padding-bottom);
+}
+
+/* Scroll inner: match padded acpChatScroll content box (no extra margin on List) */
+.acpChatShell .acpChatScroll.sapMScrollCont > .sapMScrollContScroll {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+/* Message list: fill parent width; spacing = acpChatScroll padding + ul padding only */
+.acpMessageList.sapMList {
+    width: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0 !important;
     background: transparent;
+    box-sizing: border-box;
 }
 
 .acpMessageList.sapMList .sapMListUl {
-    padding: 0;
+    padding: 0.25rem 0.75rem 1rem;
+    box-sizing: border-box;
+}
+
+/* Row: constrain flex children so long text cannot widen the scroll area */
+.acpMessageRow.sapMFlexBox {
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.acpMessageListItem .sapMLIBContent {
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 .acpMessageListItem.sapMLIB {
@@ -77,44 +360,132 @@ html.sap-desktop .sapUiBody,
     line-height: 2.5rem;
 }
 
-.acpChatComposerBar.sapMIBar.sapMTB {
-    padding: 0.5rem 0.75rem;
-    box-shadow: 0 -0.0625rem 0 var(--sapGroup_ContentBorderColor, #e5e5e5);
+/*
+ * Row 1: textarea grows until max-height, then scrolls inside.
+ * UI5 defaults cols=20 on the inner <textarea>, so the intrinsic width stays ~20ch while
+ * .sapMInputBaseContentWrapper is 100% — force inner + wrapper to track the same width.
+ */
+.acpChatFooter__textarea.sapMTextArea {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-height: 3rem;
+    max-height: 11rem;
+    flex-shrink: 0;
+    /* Compact theme adds vertical margin on InputBase; removes gap vs content wrapper box */
+    margin-top: 0;
+    margin-bottom: 0;
 }
 
-.acpChatInput.sapMTextArea {
-    min-height: 2.5rem;
+.acpChatFooter__textarea.sapMTextArea .sapMInputBaseContentWrapper {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
 }
 
-/* Bubbles */
+.acpChatFooter__textarea.sapMTextArea .sapMTextAreaInner {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-height: 2.75rem;
+    max-height: 10.5rem;
+    overflow-y: auto !important;
+    line-height: 1.4;
+}
+
+/* Toolbar row inside composer (same card as textarea) */
+.acpChatFooter__toolbar.sapMHBox {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 2.25rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+    padding: 0.125rem 0 0;
+    box-sizing: border-box;
+}
+
+.acpChatFooter__attach.sapMBtn {
+    flex-shrink: 0;
+}
+
+.acpChatFooter__actions.sapMHBox {
+    flex-shrink: 0;
+}
+
+/* Credit / disclaimer (outside composer card) */
+.acpChatFooter__description.sapMText {
+    display: block;
+    width: 100%;
+    flex-shrink: 0;
+    margin-top: 0.5rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--sapContent_LabelColor, #6a6d70);
+}
+
+/* Bubbles: box-sizing + wrap so flex-end rows do not overflow horizontally */
 .chatBubbleColumn {
     width: fit-content;
-    max-width: 100%;
+    max-width: min(85%, 100%);
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 .userBubble {
     background-color: #0a6ed1;
     color: white;
-    padding: 0.5rem 1rem;
+    padding: 0.625rem 1rem;
     border-radius: 1rem 1rem 0 1rem;
-    max-width: 80%;
+    max-width: min(85%, 100%);
     align-self: flex-end;
     box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.08);
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .agentBubble {
     background-color: var(--sapTile_Background, #f2f2f2);
     color: var(--sapTextColor, #333);
-    padding: 0.5rem 1rem;
+    padding: 0.625rem 1rem;
     border-radius: 1rem 1rem 1rem 0;
-    max-width: 80%;
+    max-width: min(85%, 100%);
     box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.06);
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
-.chatMessageContent {
+.chatMessageContent.sapMText,
+.chatMessageContent.sapMText .sapMText {
     white-space: pre-wrap;
     line-height: 1.45;
     word-break: break-word;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+}
+
+/* Tool trace table: stay within bubble width */
+.acpToolTraceTable.sapMListTbl {
+    width: 100% !important;
+    max-width: 100%;
+    table-layout: fixed;
+    box-sizing: border-box;
+}
+
+.acpToolTraceTable.sapMListTbl .sapMText {
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .streaming::after {
@@ -130,8 +501,14 @@ html.sap-desktop .sapUiBody,
     100% { opacity: 1; }
 }
 
-.sapMScrollCont {
-    overflow-y: auto !important;
+/* Only chat message scroller: avoid global .sapMScrollCont rules (breaks other pages) */
+.acpChatShell .acpChatScroll.sapMScrollCont {
+    -webkit-overflow-scrolling: touch;
+}
+
+.acpChatShell .sapUiResponsiveSplitter {
+    min-width: 0;
+    max-width: 100%;
 }
 
 .sapMSplitter {

@@ -8,7 +8,7 @@
     displayBlock="true"
     height="100%"
     class="acpChatShell">
-    <Page showHeader="false" backgroundDesign="Solid" class="acpChatPage">
+    <Page showHeader="false" backgroundDesign="Solid" class="acpChatPage" enableScrolling="false">
         <content>
             <l:ResponsiveSplitter defaultPane="default">
                 <l:PaneContainer orientation="Horizontal">
@@ -17,7 +17,7 @@
                         <l:layoutData>
                             <l:SplitterLayoutData size="250px" resizable="true" />
                         </l:layoutData>
-                        <Page title="{i18n>sessionsTitle}">
+                        <Page title="{i18n>sessionsTitle}" enableScrolling="false">
                             <headerContent>
                                 <Button icon="sap-icon://add" text="{i18n>newSessionBtn}" press=".onNewSession" />
                             </headerContent>
@@ -36,59 +36,77 @@
                         </Page>
                     </l:SplitPane>
 
-                    <!-- Main Chat Panel -->
+                    <!-- Main Chat Panel: one column VBox — Page section is not the scroll shell; only ScrollContainer scrolls -->
                     <l:SplitPane id="default">
-                        <Page backgroundDesign="Solid" class="acpChatMainPage">
-                            <customHeader>
-                                <Bar design="Header">
-                                    <contentLeft>
-                                        <Title text="{i18n>chatWith}" class="acpChatTitle" />
-                                    </contentLeft>
-                                    <contentRight>
-                                        <Select id="agentSelect"
-                                                items="{path: 'agentsModel>/'}"
-                                                change=".onAgentChange"
-                                                width="14rem">
-                                            <core:Item key="{agentsModel>id}" text="{agentsModel>name}" />
-                                        </Select>
-                                    </contentRight>
-                                </Bar>
-                            </customHeader>
+                        <Page showHeader="false" showFooter="false" backgroundDesign="Solid" class="acpChatMainPage" enableScrolling="false">
                             <content>
-                                <ScrollContainer height="100%" width="100%" vertical="true" focusable="true" class="acpChatScroll">
-                                    <List id="messageList"
-                                          mode="None"
-                                          showSeparators="None"
-                                          showNoData="false"
-                                          class="acpMessageList sapUiSmallMargin"
-                                          items="{chatModel>/messages}">
-                                        <CustomListItem type="Inactive" class="acpMessageListItem">
-                                            <FlexBox justifyContent="{chatModel>justifyContent}" width="100%" alignItems="Start" class="sapUiSmallMarginBottom">
-                                                <VBox class="{chatModel>bubbleClass} chatBubbleColumn">
-                                                    <Text text="{chatModel>content}" class="chatMessageContent" />
-                                                    <VBox visible="{= !!${chatModel>toolCalls} &amp;&amp; ${chatModel>toolCalls}.length > 0 }">
-                                                        <core:Fragment fragmentName="acp.chat.fragment.ToolTrace" type="XML" />
+                                <VBox width="100%" alignItems="Stretch" class="acpChatMainColumn">
+                                    <Bar design="Header" class="acpChatTopBar">
+                                        <contentLeft>
+                                            <Title text="{i18n>chatWith}" class="acpChatTitle" />
+                                        </contentLeft>
+                                        <contentRight>
+                                            <Select id="agentSelect"
+                                                    items="{path: 'agentsModel>/'}"
+                                                    change=".onAgentChange"
+                                                    width="14rem">
+                                                <core:Item key="{agentsModel>id}" text="{agentsModel>name}" />
+                                            </Select>
+                                        </contentRight>
+                                        <layoutData>
+                                            <FlexItemData growFactor="0" shrinkFactor="0" />
+                                        </layoutData>
+                                    </Bar>
+                                    <ScrollContainer width="100%" vertical="true" horizontal="false" focusable="true"
+                                                     class="acpChatScroll acpChatScrollShell">
+                                        <layoutData>
+                                            <FlexItemData growFactor="1" shrinkFactor="1" baseSize="0" />
+                                        </layoutData>
+                                        <List id="messageList"
+                                              mode="None"
+                                              showSeparators="None"
+                                              showNoData="false"
+                                              class="acpMessageList"
+                                              items="{chatModel>/messages}">
+                                            <CustomListItem type="Inactive" class="acpMessageListItem">
+                                                <FlexBox justifyContent="{chatModel>justifyContent}" width="100%" alignItems="Start"
+                                                        class="acpMessageRow sapUiSmallMarginBottom">
+                                                    <VBox class="{chatModel>bubbleClass} chatBubbleColumn">
+                                                        <Text text="{chatModel>content}" wrapping="true" class="chatMessageContent" />
+                                                        <VBox visible="{= !!${chatModel>toolCalls} &amp;&amp; ${chatModel>toolCalls}.length > 0 }">
+                                                            <core:Fragment fragmentName="acp.chat.fragment.ToolTrace" type="XML" />
+                                                        </VBox>
                                                     </VBox>
-                                                </VBox>
-                                            </FlexBox>
-                                        </CustomListItem>
-                                    </List>
-                                </ScrollContainer>
+                                                </FlexBox>
+                                            </CustomListItem>
+                                        </List>
+                                    </ScrollContainer>
+                                    <!-- Footer: ChatGPT-style single composer card (textarea + toolbar) then credit line -->
+                                    <VBox width="100%" class="acpChatFooter" alignItems="Stretch">
+                                        <layoutData>
+                                            <FlexItemData growFactor="0" shrinkFactor="0" />
+                                        </layoutData>
+                                        <VBox width="100%" class="acpChatComposer" alignItems="Stretch">
+                                            <TextArea id="messageInput" placeholder="{i18n>messagePlaceholder}"
+                                                      width="100%"
+                                                      rows="2" growing="true" growingMaxLines="10"
+                                                      class="acpChatFooter__textarea" />
+                                            <HBox width="100%" alignItems="Center" justifyContent="SpaceBetween" class="acpChatFooter__toolbar">
+                                                <Button type="Transparent"
+                                                        icon="sap-icon://add"
+                                                        tooltip="{i18n>composerAttachTooltip}"
+                                                        press=".onAttachPress"
+                                                        class="acpChatFooter__attach" />
+                                                <HBox alignItems="Center" justifyContent="End" class="acpChatFooter__actions">
+                                                    <Button id="sendBtn" text="{i18n>sendBtn}" type="Emphasized" press=".onSendMessage" />
+                                                    <Button id="stopBtn" text="{i18n>stopBtn}" type="Reject" press=".onStop" visible="false" class="sapUiTinyMarginBegin" />
+                                                </HBox>
+                                            </HBox>
+                                        </VBox>
+                                        <Text text="{i18n>footerCredit}" textAlign="Center" class="acpChatFooter__description" />
+                                    </VBox>
+                                </VBox>
                             </content>
-                            <footer>
-                                <Bar design="Footer" class="acpChatComposerBar">
-                                    <contentMiddle>
-                                        <TextArea id="messageInput" placeholder="{i18n>messagePlaceholder}"
-                                                  width="100%" rows="1" growing="true" growingMaxLines="4"
-                                                  class="acpChatInput"
-                                                  liveChange=".onInputLiveChange" />
-                                    </contentMiddle>
-                                    <contentRight>
-                                        <Button id="sendBtn" text="{i18n>sendBtn}" type="Emphasized" press=".onSendMessage" class="sapUiTinyMarginBegin" />
-                                        <Button id="stopBtn" text="{i18n>stopBtn}" type="Reject" press=".onStop" visible="false" class="sapUiTinyMarginBegin" />
-                                    </contentRight>
-                                </Bar>
-                            </footer>
                         </Page>
                     </l:SplitPane>
                 </l:PaneContainer>

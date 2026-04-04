@@ -22,7 +22,7 @@
   - [x] Subtask 1.4.1: `LLM_PROVIDER` — one of `anthropic` / `openai` / `google-genai`.
   - [x] Subtask 1.4.2: `LLM_API_KEY` — Anthropic or OpenAI secret key (leave blank when using Google).
   - [x] Subtask 1.4.3: `GOOGLE_API_KEY` — Gemini API key (used when `LLM_PROVIDER=google-genai`; alternative to `LLM_API_KEY`).
-  - [x] Subtask 1.4.4: `LLM_MODEL` — model name string, e.g. `claude-3-5-sonnet-20241022` / `gpt-4o` / `gemini-2.0-flash`.
+  - [x] Subtask 1.4.4: `LLM_MODEL` — model name string, e.g. `claude-3-5-sonnet-20241022` / `gpt-4o` / `gemini-3.1-flash-lite-preview`.
   - [x] Subtask 1.4.5: `PYTHON_URL` — the Python app's own base URL (used by CAP to reach `/chat` and `/tool-test`).
   - [x] Subtask 1.4.6: `HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD`, `HANA_SCHEMA` — HANA connection vars for the Python SQL tools (injected automatically via `VCAP_SERVICES` on CF; needed manually for local dev with a remote HANA).
 - [x] **Task 1.5:** Run `npm install` at repo root; verify `cds version` prints a version number.
@@ -299,7 +299,7 @@
   - [x] **Critical fix — Python URL to CAP:** Add a `provides` block to the `acp-python` module exposing its CF URL: `provides: [{name: acp-python-api, properties: {url: "${default-url}"}}]`. Then add `acp-python-api` to `acp-cap`'s `requires` list and inject it as `properties: {PYTHON_URL: "~{acp-python-api/url}"}`. Without this, `server.js` has no Python URL on CF and all chat and tool-test calls fail.
   - [x] **Critical fix — Approuter to CAP destination:** Add `acp-cap-api` to `acp-approuter`'s `requires` list as a destination group entry: `{name: acp-cap-api, group: destinations, properties: {name: cap, url: "~{url}", forwardAuthToken: true}}`. This injects the CAP URL as the `cap` destination that every `xs-app.json` route uses. Without this, the approuter cannot reach CAP on CF.
   - [x] **Remove `CAP_INTERNAL_URL`** from `acp-python` properties. Python does not call CAP — it calls MCP servers using the `mcpServerUrl` values that CAP already resolves and passes in the `effectiveTools` payload.
-  - [x] Make `LLM_PROVIDER` and `LLM_MODEL` configurable properties (keep them in `mta.yaml` as defaults), but do **not** hardcode a vendor-specific model name as the permanent value. Use `LLM_MODEL: gemini-2.0-flash` if Google is the chosen provider, or `LLM_MODEL: claude-3-5-sonnet-20241022` for Anthropic — document the choice clearly.
+  - [x] Make `LLM_PROVIDER` and `LLM_MODEL` configurable properties (keep them in `mta.yaml` as defaults), but do **not** hardcode a vendor-specific model name as the permanent value. Use `LLM_MODEL: gemini-3.1-flash-lite-preview` if Google is the chosen provider, or `LLM_MODEL: claude-3-5-sonnet-20241022` for Anthropic — document the choice clearly.
 
 ---
 

@@ -81,10 +81,11 @@ sap.ui.define([
         _loadSessionHistory: function (sSessionId) {
             const oModel = this.getView().getModel();
             const sPath = `/ChatMessages`;
+            // OData V4 bindList(path, context, sorters, filters, parameters) — order matters.
             const oListBinding = oModel.bindList(sPath, null, [
-                new sap.ui.model.Filter("session_ID", sap.ui.model.FilterOperator.EQ, sSessionId)
-            ], [
                 new sap.ui.model.Sorter("timestamp", false)
+            ], [
+                new sap.ui.model.Filter("session_ID", sap.ui.model.FilterOperator.EQ, sSessionId)
             ]);
 
             oListBinding.requestContexts().then(aContexts => {
@@ -100,6 +101,10 @@ sap.ui.define([
                     };
                 });
                 this._oChatModel.setProperty("/messages", aMessages);
+            }).catch((err) => {
+                console.error("Failed to load session history", err);
+                MessageToast.show("Could not load messages for this session");
+                this._oChatModel.setProperty("/messages", []);
             });
         },
 
@@ -317,6 +322,10 @@ sap.ui.define([
                     console.error(err);
                     MessageToast.show(this.getResourceBundle().getText("savePartialFailed"));
                 });
+        },
+
+        onAttachPress: function () {
+            MessageToast.show(this.getResourceBundle().getText("composerAttachNotImplemented"));
         },
 
         getResourceBundle: function () {

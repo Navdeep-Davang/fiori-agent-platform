@@ -767,7 +767,7 @@ modules:
       - name: acp-hana          # Required: Python SQL tools query HANA directly via hdbcli
     properties:
       LLM_PROVIDER: google-genai           # Change to anthropic or openai as needed
-      LLM_MODEL: gemini-2.0-flash          # Model name for the chosen provider
+      LLM_MODEL: gemini-3.1-flash-lite-preview          # Model name for the chosen provider
       # LLM_API_KEY / GOOGLE_API_KEY must be injected via: cf set-env acp-python <KEY> <VALUE>
 
   - name: acp-db-deployer

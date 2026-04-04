@@ -9,7 +9,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "google-genai")
 LLM_API_KEY = os.getenv("LLM_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.0-flash")
+LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite-preview")
 
 # Python App Config
 PYTHON_INTERNAL_BASE_URL = os.getenv("PYTHON_URL", "http://localhost:8000")
