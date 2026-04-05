@@ -1,18 +1,41 @@
 # Fiori Agent Platform
 
-SAP BTP–based agent control plane: CAP backend, Fiori UIs, Python LLM executor, and MCP tooling. Detailed design lives in [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md). Step-by-step build and cockpit work is tracked in [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md) and [`doc/Action-Plan/02-btp-cockpit-setup.md`](doc/Action-Plan/02-btp-cockpit-setup.md).
+SAP BTP–based agent control plane: CAP backend, Fiori UIs, Python LLM executor, and MCP tooling. Detailed design lives in [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md). **Local development (Spectrum 1)** uses **SAP HANA Cloud** (hybrid `cds bind` + **`npm run deploy:hana`**) and **mock CAP users** — see [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md). Full build history: [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md); cockpit: [`doc/Action-Plan/02-btp-cockpit-setup.md`](doc/Action-Plan/02-btp-cockpit-setup.md).
 
 ---
 
 ## Local environment variables
 
-Copy [`.env.example`](.env.example) to `.env` in the repo root and fill in values for local development. The file is git-ignored. For Cloud Foundry, LLM keys are **not** taken from `.env`; set them on the Python app after deploy (see below).
+Copy [`.env.example`](.env.example) to `.env` in the repo root and fill in values. The file is git-ignored. You **must** set **`HANA_HOST`**, **`HANA_USER`**, **`HANA_PASSWORD`**, and **`HANA_SCHEMA`** for Python (use the same HDI / service-key values as CAP). For Cloud Foundry, LLM keys are **not** taken from `.env`; set them on the Python app after deploy (see below).
+
+---
+
+## HANA Cloud first (Spectrum 1 hybrid)
+
+Before CAP or Python can run against data:
+
+1. **SAP BTP:** HANA Cloud instance **Running**; Cloud Foundry **logged in** (`cf login` / `cf target`).
+2. **Bind CAP to HANA** (creates `.cdsrc-private.json`, git-ignored):
+
+   ```bash
+   cds bind db --to <your-hana-or-hdi-service-instance-name>
+   ```
+
+3. **Deploy schema + CSV seeds** to HDI (once per fresh instance / after model changes):
+
+   ```bash
+   npm run deploy:hana
+   ```
+
+4. Copy **`host` / `port` / `user` / `password` / `schema`** from the **same** service key into **`.env`** as `HANA_*` so Python’s MCP SQL tools hit the same tables as CAP.
+
+Details and verification checklist: [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md).
 
 ---
 
 ## Run the application locally
 
-You need **Node.js** (with `npm`) and **Python 3** with `pip`. From the repo root:
+You need **Node.js** (with `npm`) and **Python 3** with `pip`. CAP hybrid mode requires the **`@sap/hana-client`** package (declared in root `package.json`; installed via `npm install`). From the repo root:
 
 1. **Install Node dependencies** (workspaces include CAP, app router, and UI5 apps):
 
@@ -20,7 +43,7 @@ You need **Node.js** (with `npm`) and **Python 3** with `pip`. From the repo roo
    npm install
    ```
 
-2. **Configure `.env`** as described in the previous section. At minimum, set `LLM_PROVIDER`, the matching API key, `LLM_MODEL`, and `PYTHON_URL=http://localhost:8000` so CAP can reach the Python service.
+2. **Configure `.env`:** LLM vars, `PYTHON_URL=http://localhost:8000`, and **all `HANA_*` fields** (see above).
 
 3. **Start CAP** (OData, REST, chat API, static UI5 from `app/`; default **http://localhost:4004**):
 
@@ -28,7 +51,7 @@ You need **Node.js** (with `npm`) and **Python 3** with `pip`. From the repo roo
    npm run watch
    ```
 
-   (`cds watch` — reloads on change.)
+   This runs **`cds watch --profile hybrid`** (reloads on change). It **requires** a prior **`cds bind db`**.
 
 4. **Start the Python executor** (FastAPI / MCP / LLM; default **http://localhost:8000**). Use a virtual environment so dependencies stay isolated:
 
@@ -59,7 +82,7 @@ You need **Node.js** (with `npm`) and **Python 3** with `pip`. From the repo roo
 - With app router: **http://localhost:5000/chat/webapp/** (welcome file is the chat app; confirm the listen port in the app router console if it differs from **5000**).
 - CAP only (when CAP serves the UI5 resources from `app/`): **http://localhost:4004/chat/webapp/index.html**. If that URL does not resolve, run the chat app with the UI5 CLI instead: `cd app/chat && npx ui5 serve --port 3002` (proxies `/api` and OData to CAP on **4004**; see [`app/chat/ui5.yaml`](app/chat/ui5.yaml)).
 
-Local auth uses **dummy** users from root [`package.json`](package.json) (for example Basic auth `alice` / `alice` for a full-role test user). Deeper verification steps and alternate layouts (separate `ui5 serve` per app) are in [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md) and [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md) (section *Local Development Setup*).
+Local auth uses **dummy** users from root [`package.json`](package.json) under **`cds.requires.auth["[hybrid]"]`** (for example Basic auth `alice` / `alice`). Deeper verification steps are in [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md), [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md), and [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md).
 
 ---
 
@@ -134,6 +157,7 @@ The project defines a Cursor subagent (**btp-expert**) that walks through BTP / 
 | Document | Purpose |
 |----------|---------|
 | [`doc/Action-Plan/02-btp-cockpit-setup.md`](doc/Action-Plan/02-btp-cockpit-setup.md) | Full cockpit checklist (including Phase 1 local tools) |
+| [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md) | Local hybrid: HANA Cloud + mock auth + `cds bind` |
 | [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md) | Codebase and MTA implementation |
 | [`doc/Action-Plan/03-seed-data.md`](doc/Action-Plan/03-seed-data.md) | CSV seed data specification |
 

@@ -52,15 +52,22 @@ sap.ui.define([
             fetch("/api/agents", {
                 headers: { Authorization: DevAuth.basicAuthorizationValue() }
             })
-                .then(res => res.json())
-                .then(data => {
+                .then(function (res) {
+                    return res.json().then(function (body) {
+                        if (!res.ok) {
+                            throw new Error(body && body.error ? body.error : "HTTP " + res.status);
+                        }
+                        return body;
+                    });
+                })
+                .then(function (data) {
                     const list = Array.isArray(data) ? data : (data.agents || []);
                     this._oAgentsModel.setData(list);
                     if (list.length > 0) {
                         this.byId("agentSelect").setSelectedKey(list[0].id);
                     }
-                })
-                .catch(err => {
+                }.bind(this))
+                .catch(function (err) {
                     console.error("Failed to load agents", err);
                     MessageToast.show("Failed to load agents", {
                         at: "center top",
@@ -481,7 +488,7 @@ sap.ui.define([
             return "<div class=\"acpMarkdownBody acpMarkdownBody--plain\"><pre>" + escapeHtml(s) + "</pre></div>";
         },
 
-        /** OData V4 / SQLite may expose timestamps UI5 DateTime type cannot parse — avoid console errors. */
+        /** OData V4 timestamps may not parse as UI5 DateTime — normalize for display. */
         formatSessionDate: function (v) {
             if (v == null || v === "") {
                 return "";

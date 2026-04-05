@@ -36,8 +36,44 @@ async function allowedAgentIdsForUser(user) {
   return ids
 }
 
-async function userMayUseAgent(user, agentId) {
+/** Hybrid local dev: schema + agents often exist without CSV group/claim rows after bind. */
+function hybridDummyAuth() {
+  if (process.env.ACP_STRICT_AGENT_GATING === 'true') return false
+  const profiles = cds.env.profiles || []
+  return profiles.includes('hybrid') && cds.requires.auth?.kind === 'dummy'
+}
+
+let _warnedHybridAgentFallback = false
+
+async function allActiveAgentIds(db) {
+  const rows = await db.run(`SELECT ID FROM acp_Agent WHERE status = 'Active'`)
+  return new Set((rows || []).map(r => r.ID))
+}
+
+/**
+ * Group/claim-based IDs when data is deployed; otherwise in hybrid+dummy only, all Active agents
+ * (so the chat UI works until `npm run deploy:hana` loads CSV seeds).
+ */
+async function resolvedAllowedAgentIdsForUser(user) {
   const ids = await allowedAgentIdsForUser(user)
+  if (ids.size) return ids
+  if (!hybridDummyAuth()) return ids
+  const db = await cds.connect.to('db')
+  const all = await allActiveAgentIds(db)
+  if (!all.size) return ids
+  if (!_warnedHybridAgentFallback) {
+    _warnedHybridAgentFallback = true
+    console.warn(
+      '[acp] hybrid: no AgentGroup match for user attributes; listing all Active agents. ' +
+        'Run `npm run deploy:hana` to load CSV seeds and enforce group-based access. ' +
+        'Set ACP_STRICT_AGENT_GATING=true to disable this fallback.'
+    )
+  }
+  return all
+}
+
+async function userMayUseAgent(user, agentId) {
+  const ids = await resolvedAllowedAgentIdsForUser(user)
   return ids.has(agentId)
 }
 
@@ -97,7 +133,7 @@ cds.on('bootstrap', app => {
     try {
       const user = req.user
       if (!user?.is?.('Agent.User')) return res.status(403).json({ error: 'Agent.User required' })
-      const ids = await allowedAgentIdsForUser(user)
+      const ids = await resolvedAllowedAgentIdsForUser(user)
       if (!ids.size) return res.json({ agents: [] })
       const db = await cds.connect.to('db')
       const placeholders = [...ids].map(() => '?').join(',')

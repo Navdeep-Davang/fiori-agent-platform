@@ -62,12 +62,17 @@ MANIFEST
 .cf/
 .sap/
 
-# CAP / local DB
+# CAP / build
 gen/
-db.sqlite
+
+# Legacy file DB (project is HANA-only; prevents accidental commit if old tooling recreates these)
 sqlite.db
+db.sqlite
 *.sqlite
 python/local_dev.db
+
+# CAP hybrid bindings (machine-specific; credentials resolved from CF at runtime)
+.cdsrc-private.json
 
 # App router local swap backup (scripts/run-local-router.cjs)
 approuter/xs-app.json.prod-backup

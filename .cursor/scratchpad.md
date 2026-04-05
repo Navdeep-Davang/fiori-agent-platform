@@ -1,32 +1,31 @@
 # Orchestration Scratchpad
 
 ## Session Info
-- Action Plan: `doc/Action-Plan/01-application-implementation.md`
-- Started: 2026-04-01
-- Architecture Sync: synced (`doc/.manifest.json`)
+- Action Plan: `doc/Action-Plan/04-hybrid-hana-spectrum-1.md` (Spectrum 1: hybrid HANA + mock auth)
+- Started: 2026-04-05
+- Architecture Sync: updated (`doc/Architecture/fiori-agent-platform.md`, `doc/.manifest.json`)
 
 ## Current Cycle: 1
-## Status: WAVE A+B COMPLETE (master-integrated; see worker report)
+## Status: SPECTRUM 1 CONFIG COMPLETE (repo); Phase 4 [SIMULATED] awaits user BTP
 
 ## Task Analysis
 | ID | Description | Complexity | Model | Deps | Status |
 |----|-------------|------------|-------|------|--------|
-| phase-1-2 | Root package, db schema + demo + CSV seeds | Complex | parent | — | COMPLETE |
-| phase-3-cap | srv/* governance, chat, server.js | Complex | parent | phase-1-2 | COMPLETE |
-| phase-6-py | python stub (health, MCP, SSE chat) | Medium | parent | phase-1-2 | PARTIAL |
+| ap04-p1 | package.json hybrid + deploy:hana scripts | Medium | parent | — | COMPLETE |
+| ap04-p2 | Python seed removal, db.py message, .env.example | Simple | parent | — | COMPLETE |
+| ap04-p3 | Docs: 01/03/architecture/README, gitignore | Medium | parent | ap04-p1 | COMPLETE |
+| ap04-p4 | npm install lockfile refresh | Simple | parent | ap04-p1 | COMPLETE |
 
 ## Parallel Groups
-- **Wave A (sequential first):** phase-1-2 (master)
-- **Wave B (parallel):** phase-3-cap + phase-6-py
+- Single-threaded doc + config pass (master).
 
 ## Spawned Subagents
 | Task | Time | Model | Status | Report |
 |------|------|-------|--------|--------|
-| (none) | — | — | N/A | CAP/Python merged in master session — see `orchestration-master.md` |
+| (none) | — | — | N/A | Work executed in primary session per user request |
 
 ## Review Notes
-- After worker reports: trust-but-verify (compile, file existence, no placeholders).
+- User must run: `cf login`, `cds bind db --to <hana>`, `npm run deploy:hana`, fill `HANA_*` in `.env`, then `npm run watch` + Python.
 
 ## DONE
-- Phase 1–2 foundation + Phase 3 CAP + minimal Python stub verified (`/api/agents` as bob).
-- Next cycle: UI5 apps, approuter, `mta.yaml`, full Python per `01-application-implementation.md`.
+- Action Plan **04** created; Phases 1–3 checkboxes marked complete in **04**; **01** / **03** / **architecture** / **README** aligned for HANA hybrid.

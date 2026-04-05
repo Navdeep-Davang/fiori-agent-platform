@@ -252,12 +252,12 @@ Tool handler mapping (in Python):
 
 ## What gets reset on trial restart
 
-BTP trial HANA Cloud instances are stopped nightly and deleted if not started within 30 days. When the HDI container is re-deployed (via `cds deploy --to hana`), all seed data is re-applied from:
+BTP trial HANA Cloud instances are stopped nightly and deleted if not started within 30 days. When the HDI container is re-deployed (e.g. **`npm run deploy:hana`** from the repo after **`cds bind`**), all seed data is re-applied from:
 
 - `db/data/acp-*.csv` — platform catalog rows
 - `db/data/acp.demo-*.csv` — ERP-like demo rows
 
-Both sets of CSV files must be committed to the repo so a `cds deploy` from scratch restores the full demo in one command.
+Both sets of CSV files must be committed to the repo so a fresh **HANA deploy** restores the full demo in one command.
 
 ---
 

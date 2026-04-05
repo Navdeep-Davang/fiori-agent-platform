@@ -64,7 +64,7 @@ Agent Control Plane is a governance and chat product running on SAP BTP Cloud Fo
 
 **Why ADK as the “engine” for Gemini:** ADK is the supported framework for agents on Gemini — runners, session/event model, SSE streaming, tool orchestration, and hooks for **memory**, **artifacts**, **code execution**, **RAG / Vertex**, **MCP toolsets**, multi-agent flows, and deployment paths (e.g. Agent Engine). We keep CAP as the **source of truth for governance** (which tools exist, URLs, elevation, prompts) and inject that into ADK session state per request.
 
-**Request-scoped ADK sessions (current):** Each `POST /chat` creates an in-memory ADK session, replays CAP `history` into ADK `Event`s, then appends the new user turn. Canonical chat persistence remains **HANA** via CAP after the stream completes. A logical next step for scale is swapping `InMemorySessionService` for a persistent service (e.g. SQLite/Vertex) keyed by `ChatSession` ID so ADK state survives across requests and workers.
+**Request-scoped ADK sessions (current):** Each `POST /chat` creates an in-memory ADK session, replays CAP `history` into ADK `Event`s, then appends the new user turn. Canonical chat persistence remains **HANA** via CAP after the stream completes. A logical next step for scale is swapping `InMemorySessionService` for an external persistent store (e.g. a managed session backend) keyed by `ChatSession` ID so ADK state survives across requests and workers.
 
 ```mermaid
 flowchart LR
@@ -637,15 +637,13 @@ fiori-agent-platform/
 │   │   ├── chat_tooling.py                 # Shared MCP auth helper (delegated vs machine token)
 │   │   ├── mcp_server.py                   # FastAPI router: POST /mcp/tools/list, POST /mcp/tools/call
 │   │   ├── mcp_client.py                   # MCP HTTP client; dispatches tool calls to MCP servers
-│   │   ├── db.py                           # HANA connection (hdbcli); SQLite fallback for local dev
+│   │   ├── db.py                           # HANA connection (hdbcli) only; no local file DB fallback
 │   │   ├── config.py                       # Env vars: LLM_PROVIDER, LLM_API_KEY, GOOGLE_API_KEY, LLM_MODEL
 │   │   └── tools/
 │   │       ├── __init__.py
 │   │       ├── procurement.py              # get_vendors, get_purchase_orders, get_po_detail
 │   │       ├── finance.py                  # get_invoices, get_invoice_detail, match_invoice_to_po, get_spend_summary
 │   │       └── registry.py                 # Dict: tool name → handler function + JSON Schema
-│   ├── db/
-│   │   └── seed_local.sql                  # DDL + INSERT statements for local SQLite dev fallback
 │   ├── requirements.txt                    # fastapi, uvicorn, httpx, anthropic, openai, google-adk (pulls google-genai), hdbcli
 │   ├── Procfile                            # web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 │   └── manifest.yml                        # CF push manifest for Python app
@@ -658,7 +656,7 @@ fiori-agent-platform/
 ├── xs-security.json                        # XSUAA app security descriptor (scopes, role-templates, role-collections)
 ├── mta.yaml                                # MTA build + deploy descriptor (all modules + resources)
 ├── package.json                            # Root: workspaces, cds dependency, shared scripts
-├── .cdsrc.json                             # CAP config: db (hana/sqlite), auth (xsuaa/dummy)
+├── .cdsrc.json                             # CAP overrides (optional); primary `cds.requires` in root `package.json` (`[hybrid]` hana + dummy auth)
 ├── .env.example                            # Local dev env var template
 └── doc/
     ├── Architecture/
@@ -699,8 +697,8 @@ Browser
 ### Start commands
 
 ```bash
-# Terminal 1 — CAP
-cds watch
+# Terminal 1 — CAP (requires `cf login` + `cds bind db --to <hana>` first; see Action Plan 04)
+npm run watch
 
 # Terminal 2 — Admin UI
 cd app/admin && ui5 serve --port 3001
@@ -715,23 +713,11 @@ cd approuter && npm start
 cd python && uvicorn app.main:app --reload --port 8000
 ```
 
-### `.cdsrc.json` for local dev
+### Local dev database + auth (Spectrum 1)
 
-```json
-{
-  "requires": {
-    "db": {
-      "kind": "sqlite",
-      "credentials": { "database": ":memory:" }
-    },
-    "auth": {
-      "kind": "dummy"
-    }
-  }
-}
-```
+Root **`package.json`** defines **`cds.requires.db["[hybrid]"].kind = "hana"`** and **`auth["[hybrid]"].kind = "dummy"`** with mock users (`alice`, `bob`, …). Use **`cds bind db --to <your-hana-instance>`** then **`npm run deploy:hana`** once (schema + CSV seeds), then **`npm run watch`** (runs `cds watch --profile hybrid`). See **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**.
 
-With `auth.kind = "dummy"`, CAP injects a mock user. Set `cds.env.requires.auth.users` in `package.json` to simulate different roles during local testing.
+Python SQL tools need **`.env`** **`HANA_*`** copied from the **same** HDI service key (schema = runtime user schema).
 
 ### `approuter/default-env.json` (minimal shape)
 

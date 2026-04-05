@@ -297,7 +297,7 @@ II-006-2,INV-006,2,Express parcel service,30,pkg,60.00,EUR
 
 ## Phase 4: Local Verification
 
-- [x] **Task 4.1:** Run `cds deploy --to sqlite` from project root.
+- [x] **Task 4.1:** Deploy schema + CSV seeds from project root: **`npm run deploy:hana`** after **`cds bind`** (see `doc/Action-Plan/04-hybrid-hana-spectrum-1.md`).
   - Expect: schema compiled, all tables created, all CSV rows loaded. No errors.
 - [x] **Task 4.2:** Start `cds watch` and spot-check seed data via OData.
   - `GET http://localhost:4004/odata/v4/governance/McpServers` → 2 rows.

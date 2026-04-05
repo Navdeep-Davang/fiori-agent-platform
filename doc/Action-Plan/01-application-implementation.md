@@ -3,7 +3,8 @@
 > **Goal:** Implement the full Agent Control Plane codebase so the app runs locally and deploys to BTP Cloud Foundry out of the box.
 > **Reference:** `doc/Architecture/fiori-agent-platform.md` is the authoritative spec for every file's content.
 > **Prerequisite:** BTP cockpit setup (Action Plan 02) must be complete before Phase 9 (deploy).
-> Last updated: 2026-04-01 — checkboxes synced to **verified repo state**; orchestrators must keep this file current per `.cursor/rules/action-plan-guidelines.mdc` §5.
+> **DB / hybrid dev (Spectrum 1):** Local development uses **SAP HANA Cloud** with **`cds bind`** + **`npm run deploy:hana`** + **`npm run watch`**. Mock auth and full steps: **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**.
+> Last updated: 2026-04-05 — checkboxes synced to **verified repo state**; orchestrators must keep this file current per `.cursor/rules/action-plan-guidelines.mdc` §5.
 
 ---
 
@@ -15,8 +16,8 @@
 - [x] **Task 1.2:** Create folder skeleton matching architecture section 7.
   - [x] Subtask 1.2.1: `mkdir app/admin/webapp app/admin/annotations app/chat/webapp/controller app/chat/webapp/view app/chat/webapp/fragment app/chat/webapp/css app/chat/webapp/i18n srv db/data python/app python/db approuter` *(Present in repo; UI5 and Python trees populated.)*
 - [x] **Task 1.3:** Create `.cdsrc.json` for local development.
-  - [x] Subtask 1.3.1: Set `db.kind = "sqlite"` with `credentials.database = ":memory:"`. *(Effective DB config is in root `package.json` `cds.requires.db` → **`sqlite.db`** for persistent local seed; `.cdsrc.json` exists as minimal `{ "requires": {} }` — not `:memory:`.)*
-  - [x] Subtask 1.3.2: Set `auth.kind = "dummy"`. *(In `package.json` `[development]` auth.)*
+  - [x] Subtask 1.3.1: Root `package.json` **`cds.requires.db`**: **`[hybrid]`** and **`[production]`** use **`kind: "hana"`**; local dev uses **`cds bind db --to <hdi-instance>`** (see Action Plan **04**).
+  - [x] Subtask 1.3.2: Set `auth.kind = "dummy"`. *(**Current:** `dummy` under **`[hybrid]`** for local + HANA Cloud; production remains `xsuaa`.)*
   - [x] Subtask 1.3.3: Add mock users under `auth.users` for each XSUAA role (Agent.Admin, Agent.Author, Agent.User, Agent.Audit) so you can test role enforcement locally without XSUAA. **Critically, include `jwt: { dept: "..." }` on each user** (e.g. alice → `dept: it`, bob → `dept: procurement`, carol → `dept: finance`). The `GET /api/agents` group-resolution SQL filters by this claim — without it every user gets an empty agent list locally. *(Uses top-level **`attr.dept`** per current CDS mock-user shape; `jwt.email` etc. preserved.)*
 - [x] **Task 1.4:** Create `.env.example` listing all environment variables the Python service needs.
   - [x] Subtask 1.4.1: `LLM_PROVIDER` — one of `anthropic` / `openai` / `google-genai`.
@@ -27,7 +28,7 @@
   - [x] Subtask 1.4.6: `HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD`, `HANA_SCHEMA` — HANA connection vars for the Python SQL tools (injected automatically via `VCAP_SERVICES` on CF; needed manually for local dev with a remote HANA).
 - [x] **Task 1.5:** Run `npm install` at repo root; verify `cds version` prints a version number.
 - [x] **Task 1.6:** Create `.gitignore` at repo root.
-  - Include: `node_modules/`, `gen/`, `mta_archives/`, `.env`, `python/local_dev.db`, `**/__pycache__/`, `*.pyc`, `dist/`. *(Also `sqlite.db` / `gen/` added in-repo.)*
+  - Include: `node_modules/`, `gen/`, `mta_archives/`, `.env`, `.cdsrc-private.json`, `**/__pycache__/`, `*.pyc`, `dist/`.
 - [ ] **Task 1.7:** Copy `.env.example` to `.env` (git-ignored) and fill in values for local development.
   - Set `LLM_PROVIDER`, the matching API key (`LLM_API_KEY` or `GOOGLE_API_KEY`), `LLM_MODEL`, and `PYTHON_URL=http://localhost:8000`. This file is read by both the Python service and by `cds watch` (CAP picks it up from the project root). *(Per-developer machine; not tracked.)*
 
@@ -69,7 +70,7 @@
   - [x] `acp.demo-InvoiceHeader.csv`
   - [x] `acp.demo-InvoiceItem.csv`
 - [x] **Task 2.5:** Run `cds compile db/schema.cds db/demo-schema.cds` — verify zero errors.
-- [x] **Task 2.6:** Run `cds deploy --to sqlite` — verify all tables created and seed rows visible in the CDS REPL (`cds repl` → `SELECT * from acp.McpServer`). *(Verified via `cds deploy --to sqlite:sqlite.db` + OData; UUID/string IDs differ from older plan snippets but match `schema.cds`.)*
+- [x] **Task 2.6:** Run **`npm run deploy:hana`** (after **`cds bind`**) — verify tables and CSV seeds in HDI; optional **`cds repl --profile hybrid`** → e.g. `SELECT * FROM ACP_MCPSERVER LIMIT 5` (physical table names in HANA are uppercase).
 
 ---
 
@@ -95,7 +96,7 @@
 - [x] **Task 3.4:** Write `srv/chat-service.js` — only needed if custom validation beyond CDS `@restrict` is required (session-user mismatch guard on CREATE). *(Implemented: `before CREATE` on `ChatMessages` ensures `session_ID` belongs to `req.user`.)*
 - [x] **Task 3.5:** Write `srv/server.js` — custom HTTP routes (most critical file).
   - [x] Subtask 3.5.1: Register routes inside `cds.on('bootstrap', app => { ... })`.
-  - [x] Subtask 3.5.2: `GET /api/agents` — validate JWT (`createSecurityContext`), check `Agent.User` scope, extract JWT claims, query HANA for allowed agents via the group-resolution SQL (architecture section 5), return JSON array. *(Uses `req.user` + SQLite table names; same logic as HANA.)*
+  - [x] Subtask 3.5.2: `GET /api/agents` — validate JWT (`createSecurityContext`), check `Agent.User` scope, extract JWT claims, query HANA for allowed agents via the group-resolution SQL (architecture section 5), return JSON array. *(Uses `req.user` + physical table names; same SQL on HANA.)*
   - [x] Subtask 3.5.3: `POST /api/chat` — validate JWT + scope, parse `{ agentId, message, sessionId }`, verify agent access (same group SQL), load `Agent` + `AgentTool` rows (status `Active` only).
   - [x] Subtask 3.5.3a: Apply `permissionOverride` logic per `AgentTool` row: `Inherit` → use tool's own `elevated` flag; `ForceDelegated` → mark elevated as false; `ForceElevated` → only allowed if agent `identityMode = 'Mixed'` AND tool `elevated = true`, otherwise reject with 400.
   - [x] Subtask 3.5.3b: Load conversation history — if `sessionId` is not null, query `SELECT ID, role, content FROM acp_ChatMessage WHERE session_ID = '<sessionId>' ORDER BY timestamp ASC`; map rows to `{ role, content }` objects for the `history` array. If `sessionId` is null, `history` is an empty array.
@@ -104,7 +105,7 @@
   - [x] Subtask 3.5.4: On `done` SSE event from Python: create `ChatSession` if `sessionId` was null (`INSERT` with `agentId`, `userId`, `title = first 40 chars of user message`, `createdAt`, `updatedAt`); `INSERT ChatMessage` rows — one `user` role row with the original message and one `assistant` role row with the accumulated token content; `INSERT` all `ToolCallRecord` rows collected during the stream; update `ChatSession.updatedAt`; include `sessionId` and `messageId` in the forwarded `done` event to the browser. *(Python `done` is suppressed; CAP persists then emits one `done` with `sessionId` + `messageId`.)*
   - [x] Subtask 3.5.5: Error handling — on Python connection failure emit `{ type: "error", message: "..." }` event to browser; close stream cleanly. *(HTTP ≥400 from Python: SSE `error` line + `end`; connection errors still JSON 500 if headers not sent.)*
 - [x] **Task 3.6:** Verify CAP layer in isolation.
-  - [x] Subtask 3.6.1: Run `cds watch` — confirm OData metadata loads at `http://localhost:4004/odata/v4/governance/$metadata` and `http://localhost:4004/odata/v4/chat/$metadata`.
+  - [x] Subtask 3.6.1: Run **`npm run watch`** (`cds watch --profile hybrid`) — confirm OData metadata loads at `http://localhost:4004/odata/v4/governance/$metadata` and `http://localhost:4004/odata/v4/chat/$metadata`.
   - [x] Subtask 3.6.2: Use dummy-auth mock user with `Agent.Admin` role; call `GET /odata/v4/governance/McpServers` — expect 2 rows from seed. *(Verified with Basic auth `alice:alice`.)*
   - [x] Subtask 3.6.3: Call `GET /api/agents` with a mock JWT claim `dept=procurement` — expect Procurement Assistant and General Assistant in response.
 
@@ -208,7 +209,7 @@
   - [x] Subtask 6.1.3: Load HANA credentials from `VCAP_SERVICES` env var (Cloud Foundry injects this); parse `hana` service binding for host, port, user, password, schema.
 - [x] **Task 6.2:** Write `python/app/db.py` — HANA connection helper.
   - [x] Subtask 6.2.1: Use `hdbcli` (`pip install hdbcli`) to open a connection using config from 6.1.3.
-  - [x] Subtask 6.2.2: Expose a `get_connection()` function that returns a live `dbapi.connect(...)` object. For local dev (no HANA), fall back to **file** SQLite `python/local_dev.db` (not `:memory:`) with seed from `python/db/seed_local.sql`.
+  - [x] Subtask 6.2.2: Expose `get_connection()` returning a live **`hdbcli`** connection to SAP HANA (credentials from `VCAP_SERVICES` or **`HANA_*`** env vars).
 - [x] **Task 6.3:** Write `python/app/tools/` — actual SQL tool handlers.
   - [x] Subtask 6.3.1: Create `python/app/tools/__init__.py`.
   - [x] Subtask 6.3.2: `python/app/tools/procurement.py`:
@@ -258,15 +259,15 @@
 - [x] **Task 6.10:** Write `python/manifest.yml` for CF push.
   - [x] App name: `acp-python`, memory: `512M`, buildpack: `python_buildpack`.
   - [x] Env vars: `LLM_PROVIDER`, `LLM_MODEL` (key injected separately via `cf set-env` or Credential Store — do not commit `LLM_API_KEY` / `GOOGLE_API_KEY` here).
-- [x] **Task 6.11:** Implement local SQLite seeding in `python/app/db.py` for local development.
-  - [x] Subtask 6.11.1: When `VCAP_SERVICES` is absent (local dev), fall back to a local SQLite file `python/local_dev.db` (not `:memory:` — use a file so it survives hot-reloads).
-  - [x] Subtask 6.11.2: On first connection, check if the `acp_demo_Vendor` table exists; if not, run a one-time DDL + INSERT sequence that creates all 5 ERP demo tables using **HANA-compatible names** (`acp_demo_Vendor`, `acp_demo_PurchaseOrder`, `acp_demo_POItem`, `acp_demo_InvoiceHeader`, `acp_demo_InvoiceItem`) and inserts the exact rows from Action Plan 03 Phase 3. Store this SQL in `python/db/seed_local.sql` and execute it at startup. Using the same names as HANA (where CDS deploys `acp.demo.Vendor` as `acp_demo_Vendor`) means the tool handler SQL in `procurement.py` and `finance.py` works unchanged against both SQLite and HANA.
-  - [x] Subtask 6.11.3: Add `python/local_dev.db` and `python/db/seed_local.sql` to the repo. Add `python/local_dev.db` to `.gitignore` (it will be auto-created; do not commit the binary).
+- [x] **Task 6.11:** Initial data for Python SQL tools comes from **CAP**: **`db/data/*.csv`** deployed with **`npm run deploy:hana`** (same HDI schema as CAP).
+  - [x] Subtask 6.11.1: No separate Python seed step — **HANA** only.
+  - [x] Subtask 6.11.2: *(N/A — no SQL seed files under `python/`.)*
+  - [x] Subtask 6.11.3: *(N/A — no file-based dev DB under `python/`.)*
 - [x] **Task 6.12:** Test Python service locally.
   - [x] Subtask 6.12.1: `cd python && uvicorn app.main:app --reload --port 8000`. *(Use **`python/venv`** per `.cursor/rules/python-venv-policy.mdc`.)*
   - [x] Subtask 6.12.2: `GET http://localhost:8000/health` → `{ status: "ok" }`.
   - [x] Subtask 6.12.3: `POST http://localhost:8000/mcp/tools/list` → returns 7 tool definitions.
-  - [x] Subtask 6.12.4: `POST http://localhost:8000/mcp/tools/call` `{ name: "get_vendors", arguments: {} }` → returns vendor rows from SQLite seed when HANA not bound.
+  - [x] Subtask 6.12.4: `POST http://localhost:8000/mcp/tools/call` `{ name: "get_vendors", arguments: {} }` → returns vendor rows from **HANA** (`acp_demo_Vendor`) after deploy; **`.env` `HANA_*` required** locally.
   - [x] Subtask 6.12.5: `POST http://localhost:8000/chat` with a minimal payload → returns SSE stream with tokens.
 
 ---
@@ -321,7 +322,7 @@
   - [ ] Subtask 8.3.2: Select Procurement Assistant, send "Show me all open purchase orders" — tokens stream in; tool trace shows `get_purchase_orders` call.
   - [ ] Subtask 8.3.3: Expand tool trace — arguments and result summary visible.
   - [ ] Subtask 8.3.4: Session appears in left panel with auto-title.
-  - [ ] Subtask 8.3.5: Reload page — session history reloads from HANA (SQLite in local dev).
+  - [ ] Subtask 8.3.5: Reload page — session history reloads from HANA.
   - [ ] Subtask 8.3.6: Use `dept=finance` dummy user — agent selector shows Invoice Analyst and General Assistant.
 - [ ] **Task 8.4:** Role enforcement tests.
   - [ ] Subtask 8.4.1: `Agent.User` cannot call `POST /odata/v4/governance/McpServers` (should get 403).
