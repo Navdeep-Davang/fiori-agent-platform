@@ -5,4 +5,5 @@ python-dotenv>=1.0.0
 hdbcli>=2.19.0
 anthropic>=0.40.0
 openai>=1.55.0
-google-generativeai>=0.8.0
+# Gemini: use the Gen AI SDK (google-genai), the same stack Google ADK builds on (adk.dev). `google-adk` pulls `google-genai` and matches ADK docs.
+google-adk>=1.28.0

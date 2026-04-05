@@ -25,6 +25,27 @@ sap.ui.define([
             this._abortController = null;
 
             this._loadAgents();
+
+            var oSessionList = this.byId("sessionList");
+            if (oSessionList) {
+                oSessionList.attachUpdateFinished(this._wireSessionDeleteButtons.bind(this));
+            }
+        },
+
+        /** Delete icon must not toggle SingleSelectMaster on the row (same idea as sap.m.ListItemBase inner controls). */
+        _wireSessionDeleteButtons: function () {
+            var oList = this.byId("sessionList");
+            if (!oList) {
+                return;
+            }
+            oList.getItems().forEach(function (oItem) {
+                var aBtns = oItem.findAggregatedObjects(true, function (o) {
+                    return o.isA("sap.m.Button") && o.hasStyleClass("acpSessionDeleteBtn");
+                });
+                aBtns.forEach(function (oBtn) {
+                    oBtn.useEnabledPropagator(false);
+                });
+            });
         },
 
         _loadAgents: function () {
@@ -41,7 +62,11 @@ sap.ui.define([
                 })
                 .catch(err => {
                     console.error("Failed to load agents", err);
-                    MessageToast.show("Failed to load agents");
+                    MessageToast.show("Failed to load agents", {
+                        at: "center top",
+                        my: "center top",
+                        offset: "0 100"
+                    });
                 });
         },
 
@@ -78,6 +103,71 @@ sap.ui.define([
             this._loadSessionHistory(this._sSessionId);
         },
 
+        onDeleteSession: function (oEvent) {
+            if (oEvent.stopPropagation) {
+                oEvent.stopPropagation();
+            }
+            const oBtn = oEvent.getSource();
+            let oCtx = oBtn.getBindingContext();
+            
+            if (!oCtx) {
+                let oWalk = oBtn.getParent();
+                while (oWalk) {
+                    if (oWalk.isA && oWalk.isA("sap.m.ListItemBase")) {
+                        oCtx = oWalk.getBindingContext();
+                        break;
+                    }
+                    oWalk = oWalk.getParent();
+                }
+            }
+            
+            if (!oCtx) {
+                console.error("No binding context found for delete button");
+                return;
+            }
+            
+            const vSid = oCtx.getProperty("ID");
+            const sDeletedId = vSid != null ? String(vSid) : "";
+            const oRb = this.getResourceBundle();
+            
+            MessageBox.warning(oRb.getText("deleteSessionConfirm"), {
+                title: oRb.getText("deleteSessionTitle"),
+                actions: [MessageBox.Action.OK, MessageBox.Action.CANCEL],
+                emphasizedAction: MessageBox.Action.CANCEL,
+                onClose: function (sAction) {
+                    if (sAction !== MessageBox.Action.OK) {
+                        return;
+                    }
+                    
+                    oCtx.delete("$direct").then(
+                        function () {
+                            // Explicitly refresh the session list binding
+                            const oList = this.byId("sessionList");
+                            if (oList) {
+                                const oBinding = oList.getBinding("items");
+                                if (oBinding) {
+                                    oBinding.refresh();
+                                }
+                            }
+                            
+                            // If we just deleted the active session, clear the chat
+                            var cur = this._sSessionId != null ? String(this._sSessionId) : "";
+                            if (cur && sDeletedId && cur === sDeletedId) {
+                                this.onNewSession();
+                            }
+                        }.bind(this)
+                    ).catch(function (err) {
+                        console.error("Delete session failed", err);
+                        MessageToast.show(oRb.getText("deleteSessionFailed"), {
+                            at: "center top",
+                            my: "center top",
+                            offset: "0 100"
+                        });
+                    });
+                }.bind(this)
+            });
+        },
+
         _loadSessionHistory: function (sSessionId) {
             const oModel = this.getView().getModel();
             const sPath = `/ChatMessages`;
@@ -95,6 +185,7 @@ sap.ui.define([
                     return {
                         role: oData.role,
                         content: oData.content,
+                        contentHtml: isUser ? "" : this._markdownToHtml(oData.content || ""),
                         justifyContent: isUser ? "End" : "Start",
                         bubbleClass: isUser ? "userBubble" : "agentBubble",
                         toolCalls: [] // Tool calls would need separate load if needed
@@ -103,7 +194,11 @@ sap.ui.define([
                 this._oChatModel.setProperty("/messages", aMessages);
             }).catch((err) => {
                 console.error("Failed to load session history", err);
-                MessageToast.show("Could not load messages for this session");
+                MessageToast.show("Could not load messages for this session", {
+                    at: "center top",
+                    my: "center top",
+                    offset: "0 100"
+                });
                 this._oChatModel.setProperty("/messages", []);
             });
         },
@@ -115,7 +210,11 @@ sap.ui.define([
 
             const sAgentId = this.byId("agentSelect").getSelectedKey();
             if (!sAgentId) {
-                MessageToast.show("Please select an agent");
+                MessageToast.show("Please select an agent", {
+                    at: "center top",
+                    my: "center top",
+                    offset: "0 100"
+                });
                 return;
             }
 
@@ -124,6 +223,7 @@ sap.ui.define([
             aMessages.push({
                 role: "user",
                 content: sText,
+                contentHtml: "",
                 justifyContent: "End",
                 bubbleClass: "userBubble"
             });
@@ -132,6 +232,7 @@ sap.ui.define([
             const oAssistantMsg = {
                 role: "assistant",
                 content: "",
+                contentHtml: "",
                 justifyContent: "Start",
                 bubbleClass: "agentBubble streaming",
                 toolCalls: []
@@ -199,7 +300,11 @@ sap.ui.define([
                     console.log('Stream aborted');
                 } else {
                     console.error("Stream error", err);
-                    MessageToast.show("Error: " + err.message);
+                    MessageToast.show("Error: " + err.message, {
+                        at: "center top",
+                        my: "center top",
+                        offset: "0 100"
+                    });
                     this._finalizeStream();
                 }
             }
@@ -212,6 +317,7 @@ sap.ui.define([
             switch (oEvent.type) {
                 case "token":
                     oCurrentMsg.content += oEvent.content;
+                    oCurrentMsg.contentHtml = this._markdownToHtml(oCurrentMsg.content);
                     this._oChatModel.setProperty("/messages", aMessages);
                     this._scrollToBottom();
                     break;
@@ -243,7 +349,11 @@ sap.ui.define([
                     this._finalizeStream();
                     break;
                 case "error":
-                    MessageToast.show("Error: " + oEvent.message);
+                    MessageToast.show("Error: " + oEvent.message, {
+                        at: "center top",
+                        my: "center top",
+                        offset: "0 100"
+                    });
                     this._finalizeStream();
                     break;
             }
@@ -268,6 +378,7 @@ sap.ui.define([
             const oCurrentMsg = aMessages[aMessages.length - 1];
             if (oCurrentMsg && oCurrentMsg.role === "assistant") {
                 oCurrentMsg.bubbleClass = "agentBubble";
+                oCurrentMsg.contentHtml = this._markdownToHtml(oCurrentMsg.content || "");
                 this._oChatModel.setProperty("/messages", aMessages);
             }
             this._abortController = null;
@@ -284,6 +395,7 @@ sap.ui.define([
             let sAssistant = "";
             if (oCurrentMsg && oCurrentMsg.role === "assistant") {
                 oCurrentMsg.content += " [stopped]";
+                oCurrentMsg.contentHtml = this._markdownToHtml(oCurrentMsg.content);
                 sAssistant = oCurrentMsg.content;
                 this._oChatModel.setProperty("/messages", aMessages);
             }
@@ -320,16 +432,53 @@ sap.ui.define([
                 })
                 .catch((err) => {
                     console.error(err);
-                    MessageToast.show(this.getResourceBundle().getText("savePartialFailed"));
+                    MessageToast.show(this.getResourceBundle().getText("savePartialFailed"), {
+                        at: "center top",
+                        my: "center top",
+                        offset: "0 100"
+                    });
                 });
         },
 
         onAttachPress: function () {
-            MessageToast.show(this.getResourceBundle().getText("composerAttachNotImplemented"));
+            MessageToast.show(this.getResourceBundle().getText("composerAttachNotImplemented"), {
+                at: "center top",
+                my: "center top",
+                offset: "0 100"
+            });
         },
 
         getResourceBundle: function () {
             return this.getOwnerComponent().getModel("i18n").getResourceBundle();
+        },
+
+        /**
+         * Renders assistant markdown to safe HTML (DOMPurify). Falls back to escaped plain text if libs missing.
+         * @param {string} sRaw markdown
+         * @returns {string} HTML fragment for sap.ui.core.HTML
+         */
+        _markdownToHtml: function (sRaw) {
+            var s = sRaw || "";
+            if (!s) {
+                return "";
+            }
+            var escapeHtml = function (t) {
+                return String(t)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;");
+            };
+            try {
+                if (typeof window !== "undefined" && window.marked && window.DOMPurify) {
+                    var sHtml = window.marked.parse(s, { breaks: true, gfm: true });
+                    var clean = window.DOMPurify.sanitize(sHtml, { USE_PROFILES: { html: true } });
+                    return "<div class=\"acpMarkdownBody\">" + clean + "</div>";
+                }
+            } catch (e) {
+                console.warn("acp.chat: markdown render failed", e);
+            }
+            return "<div class=\"acpMarkdownBody acpMarkdownBody--plain\"><pre>" + escapeHtml(s) + "</pre></div>";
         },
 
         /** OData V4 / SQLite may expose timestamps UI5 DateTime type cannot parse — avoid console errors. */

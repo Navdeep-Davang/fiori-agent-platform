@@ -35,6 +35,9 @@
             frameOptions: "allow"
         };
     </script>
+    <!-- Assistant message markdown → HTML (sanitized); vendored for static deploy -->
+    <script src="vendor/marked.min.js"></script>
+    <script src="vendor/purify.min.js"></script>
     <!-- CAP has no local resources/; use OpenUI5 CDN pinned to manifest minUI5Version. -->
     <script id="sap-ui-bootstrap"
         src="https://sdk.openui5.org/1.120.23/resources/sap-ui-core.js"
@@ -47,7 +50,7 @@
         data-sap-ui-async="false"
         data-sap-ui-libs="sap.m,sap.ui.core,sap.ui.layout,sap.f">
     </script>
-    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <link rel="stylesheet" type="text/css" href="css/style.css?v=acp-chat-focus-4">
 </head>
 <body class="sapUiBody" id="content">
     <!-- async=false: skip Component-preload.js (not built in dev); 404 HTML breaks bootstrap MIME check -->

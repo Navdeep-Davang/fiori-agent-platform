@@ -6,7 +6,8 @@ service ChatService @(path: '/odata/v4/chat') {
     { grant: ['READ'], to: ['Agent.User'], where: 'userId = $user' },
     { grant: ['READ'], to: ['Agent.Audit'] },
     { grant: ['CREATE'], to: ['Agent.User'] },
-    { grant: ['UPDATE'], to: ['Agent.User'], where: 'userId = $user' }
+    { grant: ['UPDATE'], to: ['Agent.User'], where: 'userId = $user' },
+    { grant: ['DELETE'], to: ['Agent.User'], where: 'userId = $user' }
   ])
   entity ChatSessions as projection on acp.ChatSession;
 

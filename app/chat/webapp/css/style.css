@@ -103,11 +103,34 @@ html.sap-desktop .sapUiBody,
     box-sizing: border-box;
 }
 
-/* Sessions pane: list scrolls inside pane, not the window */
-.acpChatShell .sapMSplitterPane:first-child .sapMPage > section {
+/* Sessions pane: fixed Page header (title + new chat); session list scrolls below (ChatGPT-style) */
+.acpChatShell .sapMSplitterPane:first-child .acpSessionPage.sapMPage > section {
     flex: 1 1 0;
     min-height: 0;
-    overflow: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* PageRenderer puts content controls directly under <section id="…-cont"> (no .sapMPageContent) */
+.acpChatShell .sapMSplitterPane:first-child .acpSessionPage.sapMPage > section > .acpSessionListScroll.sapMScrollCont {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    align-self: stretch;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    /* Ensure scrollbar is always visible when content overflows */
+    background: var(--sapList_Background, #fafafa);
+}
+
+.acpChatShell .sapMSplitterPane:first-child .acpSessionListScroll.sapMScrollCont > .sapMScrollContScroll {
+    min-height: 0;
+    box-sizing: border-box;
 }
 
 /*
@@ -355,6 +378,76 @@ html.sap-desktop .sapUiBody,
     background: transparent;
 }
 
+/*
+ * Message rows are still in the tab order, but the default Horizon focus ring reads like a
+ * "selection" border when users click assistant bubbles — suppress chrome only inside the chat list.
+ */
+.acpMessageList.sapMList .acpMessageListItem.sapMLIB:focus,
+.acpMessageList.sapMList .acpMessageListItem.sapMLIB:focus-visible,
+.acpMessageList.sapMList .acpMessageListItem.sapMLIB.sapMFocus {
+    outline: none !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+}
+
+.acpMessageList.sapMList .acpMessageListItem.sapMLIB:focus::before,
+.acpMessageList.sapMList .acpMessageListItem.sapMLIB:focus-visible::before,
+.acpMessageList.sapMList .acpMessageListItem.sapMLIB.sapMFocus::before {
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Bubble shells (FlexItem wrappers) and inner text can receive focus when clicking the row — same ring as the li */
+.acpMessageList.sapMList .acpMessageListItem .sapMFlexItem:focus,
+.acpMessageList.sapMList .acpMessageListItem .sapMFlexItem:focus-visible,
+.acpMessageList.sapMList .acpMessageListItem .sapMFlexItem.sapMFocus,
+.acpMessageList.sapMList .acpMessageListItem .sapMVBox:focus,
+.acpMessageList.sapMList .acpMessageListItem .sapMVBox:focus-visible,
+.acpMessageList.sapMList .acpMessageListItem .sapMVBox.sapMFocus,
+.acpMessageList.sapMList .acpMessageListItem .chatMessageContent.sapMText:focus,
+.acpMessageList.sapMList .acpMessageListItem .chatMessageContent.sapMText:focus-visible,
+.acpMessageList.sapMList .acpMessageListItem .chatMessageContent.sapMText.sapMFocus {
+    outline: none !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+}
+
+.acpMessageList.sapMList .acpMessageListItem .sapMFlexItem:focus::before,
+.acpMessageList.sapMList .acpMessageListItem .sapMFlexItem:focus-visible::before,
+.acpMessageList.sapMList .acpMessageListItem .sapMFlexItem.sapMFocus::before,
+.acpMessageList.sapMList .acpMessageListItem .sapMVBox:focus::before,
+.acpMessageList.sapMList .acpMessageListItem .sapMVBox:focus-visible::before,
+.acpMessageList.sapMList .acpMessageListItem .sapMVBox.sapMFocus::before {
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Horizon often uses a 1px accent border (not outline) on focused message rows / bubbles */
+.acpMessageList.sapMList .acpMessageListItem .sapMLIBContent:focus,
+.acpMessageList.sapMList .acpMessageListItem .sapMLIBContent:focus-visible,
+.acpMessageList.sapMList .acpMessageListItem .sapMLIBContent.sapMFocus,
+.acpMessageList.sapMList .acpMessageRow.sapMFlexBox:focus,
+.acpMessageList.sapMList .acpMessageRow.sapMFlexBox:focus-visible,
+.acpMessageList.sapMList .acpMessageRow.sapMFlexBox.sapMFocus {
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+}
+
+.acpMessageList.sapMList .sapMFlexItem.acpUserMessageFlexItem.sapMFocus,
+.acpMessageList.sapMList .sapMFlexItem.acpUserMessageFlexItem:focus,
+.acpMessageList.sapMList .sapMFlexItem.acpUserMessageFlexItem:focus-visible {
+    border: none !important;
+    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.08) !important;
+}
+
+.acpMessageList.sapMList .acpMessageListItem .chatMessageContent.sapMText .sapMText.sapMFocus,
+.acpMessageList.sapMList .acpMessageListItem .chatMessageContent.sapMText .sapMText:focus {
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+}
+
 .acpChatTitle.sapMTitle {
     font-size: 1rem;
     line-height: 2.5rem;
@@ -441,38 +534,228 @@ html.sap-desktop .sapUiBody,
     box-sizing: border-box;
 }
 
-.userBubble {
-    background-color: #0a6ed1;
-    color: white;
-    padding: 0.625rem 1rem;
-    border-radius: 1rem 1rem 0 1rem;
-    max-width: min(85%, 100%);
-    align-self: flex-end;
-    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.08);
-    box-sizing: border-box;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+/*
+ * User bubble: chrome on FlexBox item wrapper (FlexItemData.styleClass → div.sapMFlexItem).
+ * Inner VBox stays transparent so sap_horizon does not hide the grey shell.
+ */
+.acpMessageList.sapMList .sapMFlexItem.acpUserMessageFlexItem {
+    background-color: #ebebeb !important;
+    background-image: none !important;
+    padding: 0.625rem 1rem !important;
+    border-radius: 1.125rem 1.125rem 0.25rem 1.125rem !important;
+    max-width: min(85%, 100%) !important;
+    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.08) !important;
+    box-sizing: border-box !important;
+    border: none !important;
+    outline: none !important;
 }
 
-.agentBubble {
-    background-color: var(--sapTile_Background, #f2f2f2);
-    color: var(--sapTextColor, #333);
-    padding: 0.625rem 1rem;
-    border-radius: 1rem 1rem 1rem 0;
-    max-width: min(85%, 100%);
-    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.06);
-    box-sizing: border-box;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+.acpMessageList.sapMList .sapMFlexItem.acpUserMessageFlexItem > .sapMVBox {
+    background-color: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
 }
 
-.chatMessageContent.sapMText,
-.chatMessageContent.sapMText .sapMText {
+.acpMessageList.sapMList .sapMFlexItem.acpUserMessageFlexItem .chatMessageContent.sapMText,
+.acpMessageList.sapMList .sapMFlexItem.acpUserMessageFlexItem .chatMessageContent.sapMText .sapMText {
+    color: #1d2d3e !important;
+}
+
+.acpMessageList.sapMList .sapMFlexItem.acpAgentMessageFlexItem > .sapMVBox {
+    background-color: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    padding: 0.375rem 0 0.5rem !important;
+    border-radius: 0 !important;
+    max-width: min(100%, 52rem) !important;
+}
+
+/* Same body size / line-height as assistant markdown (0.9375rem) */
+.acpChatShell .userBubble .chatMessageContent.sapMText,
+.acpChatShell .userBubble .chatMessageContent.sapMText .sapMText {
+    font-size: 0.9375rem;
+    line-height: 1.55;
     white-space: pre-wrap;
-    line-height: 1.45;
     word-break: break-word;
     overflow-wrap: anywhere;
     max-width: 100%;
+    color: inherit;
+}
+
+/* HTML control ignores custom styleClass; wrap for layout (see UI5 HTML.js) */
+.acpChatShell .chatMessageHtmlWrap.sapMVBox {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+/* Assistant prose: match user bubble text metrics */
+.acpChatShell .agentBubble .acpMarkdownBody {
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    color: var(--sapTextColor);
+}
+
+/* Session sidebar: title + meta + delete */
+.acpSessionList.sapMList .acpSessionListItem.sapMLIB {
+    padding-left: 0.25rem;
+    padding-right: 0.125rem;
+}
+
+.acpSessionRow.sapMHBox {
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.acpSessionRowText.sapMVBox {
+    min-width: 0;
+    padding-right: 0.25rem;
+}
+
+.acpSessionTitle.sapMText,
+.acpSessionTitle.sapMText .sapMText {
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--sapTextColor);
+}
+
+.acpSessionMeta.sapMText,
+.acpSessionMeta.sapMText .sapMText {
+    font-size: 0.75rem;
+    line-height: 1.3;
+    margin-top: 0.125rem;
+    color: var(--sapContent_LabelColor, #6a6d70);
+}
+
+.acpSessionDeleteBtn.sapMBtn {
+    flex-shrink: 0;
+}
+
+.acpMarkdownBody p {
+    margin: 0.4em 0;
+}
+
+.acpMarkdownBody p:first-child {
+    margin-top: 0;
+}
+
+.acpMarkdownBody p:last-child {
+    margin-bottom: 0;
+}
+
+.acpMarkdownBody h1,
+.acpMarkdownBody h2,
+.acpMarkdownBody h3,
+.acpMarkdownBody h4 {
+    margin: 0.75em 0 0.35em;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--sapTextColor);
+}
+
+.acpMarkdownBody h1:first-child,
+.acpMarkdownBody h2:first-child,
+.acpMarkdownBody h3:first-child {
+    margin-top: 0;
+}
+
+.acpMarkdownBody h1 {
+    font-size: 1.125rem;
+}
+
+.acpMarkdownBody h2 {
+    font-size: 1.05rem;
+}
+
+.acpMarkdownBody h3,
+.acpMarkdownBody h4 {
+    font-size: 1rem;
+}
+
+.acpMarkdownBody ul,
+.acpMarkdownBody ol {
+    margin: 0.35em 0;
+    padding-left: 1.35rem;
+}
+
+.acpMarkdownBody li {
+    margin: 0.2em 0;
+}
+
+.acpMarkdownBody strong {
+    font-weight: 600;
+}
+
+.acpMarkdownBody hr {
+    border: none;
+    border-top: 0.0625rem solid var(--sapGroup_ContentBorderColor, #d9d9d9);
+    margin: 0.75rem 0;
+}
+
+.acpMarkdownBody a {
+    color: var(--sapLinkColor, #0a6ed1);
+    text-decoration: none;
+}
+
+.acpMarkdownBody a:hover {
+    text-decoration: underline;
+}
+
+.acpMarkdownBody code {
+    font-family: "72Mono", "Lucida Console", monospace;
+    font-size: 0.875em;
+    background-color: var(--sapNeutralBackground, #f2f2f2);
+    padding: 0.1em 0.35em;
+    border-radius: 0.25rem;
+}
+
+.acpMarkdownBody pre {
+    margin: 0.5em 0;
+    padding: 0.5rem 0.65rem;
+    background-color: var(--sapNeutralBackground, #f2f2f2);
+    border-radius: 0.375rem;
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.acpMarkdownBody pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.8125rem;
+}
+
+.acpMarkdownBody blockquote {
+    margin: 0.5em 0;
+    padding-left: 0.75rem;
+    border-left: 0.1875rem solid var(--sapGroup_ContentBorderColor, #d9d9d9);
+    color: var(--sapContent_LabelColor, #6a6d70);
+}
+
+.acpMarkdownBody table {
+    border-collapse: collapse;
+    margin: 0.5em 0;
+    max-width: 100%;
+}
+
+.acpMarkdownBody th,
+.acpMarkdownBody td {
+    border: 0.0625rem solid var(--sapGroup_ContentBorderColor, #d9d9d9);
+    padding: 0.25rem 0.5rem;
+    text-align: left;
+}
+
+.acpMarkdownBody--plain pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    font-size: 0.9375rem;
+    background: transparent;
+    padding: 0;
 }
 
 /* Tool trace table: stay within bubble width */

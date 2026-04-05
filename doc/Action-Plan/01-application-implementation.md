@@ -235,8 +235,7 @@
   - [x] Subtask 6.6.3: Call LLM API — branch on `LLM_PROVIDER`:
     - [x] `anthropic`: implemented (async stream + tool loop).
     - [x] `openai`: implemented in `executor.py` (`_run_openai`, non-streaming completion + tool loop; token chunks for assistant text).
-    - [x] `google-genai`: implemented (`send_message_async`, function calls).
-    - [ ] `google-adk` alternative — **not used** (optional).
+    - [x] `google-genai`: implemented via **Google ADK** (`app/adk_engine.py`: `Runner` + `LlmAgent` + `Gemini`, SSE streaming, governed MCP tools).
   - [x] Subtask 6.6.4: If LLM returns a `tool_use` block: yield `{ type: "tool_call", toolName, args }` SSE event; call `mcp_client.call_tool` with the correct base URL and token (from `effectiveTools[tool.name].mcpServerUrl` and appropriate token); yield `{ type: "tool_result", toolName, summary, durationMs }` SSE event; append result to messages; loop back to LLM.
   - [x] Subtask 6.6.5: If LLM returns text tokens: yield each as `{ type: "token", content: chunk }` SSE event.
   - [x] Subtask 6.6.6: On completion: yield `{ type: "done" }` SSE event.
@@ -250,8 +249,7 @@
   - [x] `fastapi`, `uvicorn[standard]`, `httpx`, `python-dotenv`
   - [x] `anthropic` — Anthropic Claude SDK
   - [x] `openai` — OpenAI SDK (listed; executor OpenAI branch still TODO)
-  - [x] `google-generativeai` — raw Gemini API client (used when `LLM_PROVIDER=google-genai` without ADK)
-  - [ ] `google-adk` — optional; **not** in `requirements.txt`
+  - [x] `google-adk` — Gemini agent runtime (pulls `google-genai`); used when `LLM_PROVIDER=google-genai`
   - [x] `hdbcli` — SAP HANA Python client (connects Python SQL tools to HANA on CF)
   - [x] `@sap-cloud-sdk/connectivity` is Node-only; Python accesses HANA via `hdbcli` using credentials from `VCAP_SERVICES` (parsed in `config.py`).
 - [x] **Task 6.9:** Write `python/Procfile` — required by the CF Python buildpack.

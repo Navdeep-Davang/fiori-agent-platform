@@ -1,7 +1,7 @@
 # Architecture: Agent Control Plane (SAP BTP)
 
 > **Audience:** developers implementing this system. For product requirements and "why" reasoning, see `doc/PRD/agent-control-plane.md`.
-> Last updated: 2026-03-28.
+> Last updated: 2026-04-05.
 
 ---
 
@@ -56,10 +56,41 @@ Agent Control Plane is a governance and chat product running on SAP BTP Cloud Fo
 6. Enforce all role restrictions declared in CDS `@requires` and `@restrict` annotations.
 
 ### 5. Python Executor (`python/`)
-**Technology:** FastAPI, uvicorn, httpx, Anthropic/OpenAI SDK, MCP client
+**Technology:** FastAPI, uvicorn, httpx, **Google Agent Development Kit (ADK)** for the Gemini stack, Anthropic/OpenAI SDKs for other providers, MCP client
+
+**LLM routing:**
+- **`LLM_PROVIDER=google-genai` (default):** Gemini runs **inside ADK** — `google.adk.runners.Runner` + `LlmAgent` + `Gemini` model. Tool declarations are built from CAP’s `effectiveTools`; execution still goes through the existing `mcp_client` HTTP transport (`AcpGovernedMcpToolset` / `_AcpMcpBridgeTool` in `app/adk_engine.py`). Streaming uses ADK `RunConfig(streaming_mode=SSE)` and is mapped to the same SSE event shapes the chat UI already expects (`token`, `tool_call`, `tool_result`).
+- **`LLM_PROVIDER=anthropic` / `openai`:** Unchanged hand-rolled loops in `executor.py` (no ADK).
+
+**Why ADK as the “engine” for Gemini:** ADK is the supported framework for agents on Gemini — runners, session/event model, SSE streaming, tool orchestration, and hooks for **memory**, **artifacts**, **code execution**, **RAG / Vertex**, **MCP toolsets**, multi-agent flows, and deployment paths (e.g. Agent Engine). We keep CAP as the **source of truth for governance** (which tools exist, URLs, elevation, prompts) and inject that into ADK session state per request.
+
+**Request-scoped ADK sessions (current):** Each `POST /chat` creates an in-memory ADK session, replays CAP `history` into ADK `Event`s, then appends the new user turn. Canonical chat persistence remains **HANA** via CAP after the stream completes. A logical next step for scale is swapping `InMemorySessionService` for a persistent service (e.g. SQLite/Vertex) keyed by `ChatSession` ID so ADK state survives across requests and workers.
+
+```mermaid
+flowchart LR
+  subgraph cap [CAP Node.js]
+    Chat[POST /api/chat]
+  end
+  subgraph py [Python FastAPI]
+    EP["/chat"]
+    EX[executor.run]
+    ADK[adk_engine.run_adk_chat]
+    R[ADK Runner]
+    AG[LlmAgent + Gemini]
+    TS[AcpGovernedMcpToolset]
+    MC[mcp_client]
+  end
+  Chat --> EP
+  EP --> EX
+  EX --> ADK
+  ADK --> R
+  R --> AG
+  AG --> TS
+  TS --> MC
+```
 
 **Responsibilities:**
-1. Accept `POST /chat` from CAP `server.js`; run LLM inference loop; stream SSE back.
+1. Accept `POST /chat` from CAP `server.js`; run LLM inference (ADK for Gemini); stream SSE back.
 2. Accept `POST /tool-test` from CAP `runTest` action; invoke a single MCP tool and return result.
 3. Use the `effectiveTools` list provided by CAP — never decide its own tool list.
 4. Call MCP servers via HTTP streamable transport; use `userToken` for delegated tools, machine service token for elevated tools (flag communicated by CAP per tool).
@@ -601,7 +632,9 @@ fiori-agent-platform/
 ├── python/                                 # Python AI executor + MCP server (separate CF app)
 │   ├── app/
 │   │   ├── main.py                         # FastAPI app; mounts /chat, /tool-test, and /mcp routers
-│   │   ├── executor.py                     # LLM orchestration: prompt build, tool loop, SSE streaming
+│   │   ├── executor.py                     # LLM routing; Anthropic/OpenAI loops; delegates Gemini to adk_engine
+│   │   ├── adk_engine.py                   # Google ADK Runner + LlmAgent (Gemini); governed MCP toolset; SSE mapping
+│   │   ├── chat_tooling.py                 # Shared MCP auth helper (delegated vs machine token)
 │   │   ├── mcp_server.py                   # FastAPI router: POST /mcp/tools/list, POST /mcp/tools/call
 │   │   ├── mcp_client.py                   # MCP HTTP client; dispatches tool calls to MCP servers
 │   │   ├── db.py                           # HANA connection (hdbcli); SQLite fallback for local dev
@@ -613,7 +646,7 @@ fiori-agent-platform/
 │   │       └── registry.py                 # Dict: tool name → handler function + JSON Schema
 │   ├── db/
 │   │   └── seed_local.sql                  # DDL + INSERT statements for local SQLite dev fallback
-│   ├── requirements.txt                    # fastapi, uvicorn, httpx, anthropic, openai, google-generativeai, google-adk, hdbcli
+│   ├── requirements.txt                    # fastapi, uvicorn, httpx, anthropic, openai, google-adk (pulls google-genai), hdbcli
 │   ├── Procfile                            # web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 │   └── manifest.yml                        # CF push manifest for Python app
 │

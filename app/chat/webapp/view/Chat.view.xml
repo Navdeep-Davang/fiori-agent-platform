@@ -17,21 +17,39 @@
                         <l:layoutData>
                             <l:SplitterLayoutData size="250px" resizable="true" />
                         </l:layoutData>
-                        <Page title="{i18n>sessionsTitle}" enableScrolling="false">
+                        <Page title="{i18n>sessionsTitle}" enableScrolling="false" class="acpSessionPage">
                             <headerContent>
                                 <Button icon="sap-icon://add" text="{i18n>newSessionBtn}" press=".onNewSession" />
                             </headerContent>
                             <content>
-                                <List id="sessionList" 
-                                      items="{path: '/ChatSessions', parameters: {$orderby: 'updatedAt desc'}}"
+                                <ScrollContainer width="100%"
+                                                 vertical="true"
+                                                 horizontal="false"
+                                                 focusable="true"
+                                                 class="acpSessionListScroll">
+                                <List id="sessionList"
+                                      items="{path: '/ChatSessions', parameters: {$orderby: 'updatedAt desc', $select: 'ID,title,updatedAt,agentId'}, templateShareable: false}"
                                       mode="SingleSelectMaster"
-                                      selectionChange=".onSessionSelect">
-                                    <StandardListItem
-                                        title="{title}"
-                                        description="{path: 'updatedAt', formatter: '.formatSessionDate'}"
-                                        type="Active"
-                                        press=".onSessionSelect" />
-                                </List>
+                                          selectionChange=".onSessionSelect"
+                                          class="acpSessionList">
+                                        <CustomListItem type="Active" class="acpSessionListItem">
+                                            <HBox alignItems="Center" justifyContent="SpaceBetween" width="100%" class="acpSessionRow">
+                                                <VBox class="acpSessionRowText">
+                                                    <layoutData>
+                                                        <FlexItemData growFactor="1" shrinkFactor="1" />
+                                                    </layoutData>
+                                                    <Text text="{title}" wrapping="true" class="acpSessionTitle" />
+                                                    <Text text="{path: 'updatedAt', formatter: '.formatSessionDate'}" class="acpSessionMeta" />
+                                                </VBox>
+                                                <Button icon="sap-icon://delete"
+                                                        type="Transparent"
+                                                        tooltip="{i18n>deleteSessionTooltip}"
+                                                        press=".onDeleteSession"
+                                                        class="acpSessionDeleteBtn" />
+                                            </HBox>
+                                        </CustomListItem>
+                                    </List>
+                                </ScrollContainer>
                             </content>
                         </Page>
                     </l:SplitPane>
@@ -67,12 +85,20 @@
                                               showSeparators="None"
                                               showNoData="false"
                                               class="acpMessageList"
-                                              items="{chatModel>/messages}">
+                                              items="{path: 'chatModel>/messages', templateShareable: false}">
                                             <CustomListItem type="Inactive" class="acpMessageListItem">
                                                 <FlexBox justifyContent="{chatModel>justifyContent}" width="100%" alignItems="Start"
                                                         class="acpMessageRow sapUiSmallMarginBottom">
-                                                    <VBox class="{chatModel>bubbleClass} chatBubbleColumn">
-                                                        <Text text="{chatModel>content}" wrapping="true" class="chatMessageContent" />
+                                                    <!-- FlexItemData.styleClass is applied to div.sapMFlexItem around this VBox (see FlexBoxRenderer) — reliable bubble shell -->
+                                                    <VBox class="{= 'chatBubbleColumn ' + ${chatModel>bubbleClass} }">
+                                                        <layoutData>
+                                                            <FlexItemData styleClass="{= ${chatModel>role} === 'user' ? 'acpUserMessageFlexItem' : 'acpAgentMessageFlexItem' }" />
+                                                        </layoutData>
+                                                        <Text text="{chatModel>content}" wrapping="true" class="chatMessageContent"
+                                                              visible="{= ${chatModel>role} === 'user' }" />
+                                                        <VBox width="100%" visible="{= ${chatModel>role} === 'assistant' }" class="chatMessageHtmlWrap">
+                                                            <core:HTML content="{chatModel>contentHtml}" preferDOM="false" sanitizeContent="false" />
+                                                        </VBox>
                                                         <VBox visible="{= !!${chatModel>toolCalls} &amp;&amp; ${chatModel>toolCalls}.length > 0 }">
                                                             <core:Fragment fragmentName="acp.chat.fragment.ToolTrace" type="XML" />
                                                         </VBox>

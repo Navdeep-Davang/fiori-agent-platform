@@ -1,12 +1,65 @@
 # Fiori Agent Platform
 
-SAP BTP–based agent control plane: CAP backend, Fiori UIs, Python LLM executor, and MCP tooling. Detailed design lives in [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md). Step-by-step build and cockpit work is tracked in [`doc/Action-Plan/01-developer-build.md`](doc/Action-Plan/01-developer-build.md) and [`doc/Action-Plan/02-btp-cockpit-setup.md`](doc/Action-Plan/02-btp-cockpit-setup.md).
+SAP BTP–based agent control plane: CAP backend, Fiori UIs, Python LLM executor, and MCP tooling. Detailed design lives in [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md). Step-by-step build and cockpit work is tracked in [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md) and [`doc/Action-Plan/02-btp-cockpit-setup.md`](doc/Action-Plan/02-btp-cockpit-setup.md).
 
 ---
 
 ## Local environment variables
 
 Copy [`.env.example`](.env.example) to `.env` in the repo root and fill in values for local development. The file is git-ignored. For Cloud Foundry, LLM keys are **not** taken from `.env`; set them on the Python app after deploy (see below).
+
+---
+
+## Run the application locally
+
+You need **Node.js** (with `npm`) and **Python 3** with `pip`. From the repo root:
+
+1. **Install Node dependencies** (workspaces include CAP, app router, and UI5 apps):
+
+   ```bash
+   npm install
+   ```
+
+2. **Configure `.env`** as described in the previous section. At minimum, set `LLM_PROVIDER`, the matching API key, `LLM_MODEL`, and `PYTHON_URL=http://localhost:8000` so CAP can reach the Python service.
+
+3. **Start CAP** (OData, REST, chat API, static UI5 from `app/`; default **http://localhost:4004**):
+
+   ```bash
+   npm run watch
+   ```
+
+   (`cds watch` — reloads on change.)
+
+4. **Start the Python executor** (FastAPI / MCP / LLM; default **http://localhost:8000**). Use a virtual environment so dependencies stay isolated:
+
+   ```bash
+   cd python
+   python -m venv venv # Only run if the venv not there, else skip this and move to next command
+   venv\Scripts\activate
+   ```
+
+   Then install and run:
+
+   ```bash
+   pip install -r requirements.txt
+   uvicorn app.main:app --reload --port 8000
+   ```
+
+5. **Optional — SAP App Router** (same host for `/admin`, `/chat`, `/api`, `/odata`; default **http://localhost:5000** unless `PORT` is set):
+
+   ```bash
+   cd approuter
+   npm start
+   ```
+
+   For a dev loop that temporarily uses `xs-app.local.json`, you can use `npm run start:local` from `approuter` instead (see [`approuter/scripts/run-local-router.cjs`](approuter/scripts/run-local-router.cjs)).
+
+**Where to open the UI**
+
+- With app router: **http://localhost:5000/chat/webapp/** (welcome file is the chat app; confirm the listen port in the app router console if it differs from **5000**).
+- CAP only (when CAP serves the UI5 resources from `app/`): **http://localhost:4004/chat/webapp/index.html**. If that URL does not resolve, run the chat app with the UI5 CLI instead: `cd app/chat && npx ui5 serve --port 3002` (proxies `/api` and OData to CAP on **4004**; see [`app/chat/ui5.yaml`](app/chat/ui5.yaml)).
+
+Local auth uses **dummy** users from root [`package.json`](package.json) (for example Basic auth `alice` / `alice` for a full-role test user). Deeper verification steps and alternate layouts (separate `ui5 serve` per app) are in [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md) and [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md) (section *Local Development Setup*).
 
 ---
 
@@ -81,7 +134,7 @@ The project defines a Cursor subagent (**btp-expert**) that walks through BTP / 
 | Document | Purpose |
 |----------|---------|
 | [`doc/Action-Plan/02-btp-cockpit-setup.md`](doc/Action-Plan/02-btp-cockpit-setup.md) | Full cockpit checklist (including Phase 1 local tools) |
-| [`doc/Action-Plan/01-developer-build.md`](doc/Action-Plan/01-developer-build.md) | Codebase and MTA implementation |
+| [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md) | Codebase and MTA implementation |
 | [`doc/Action-Plan/03-seed-data.md`](doc/Action-Plan/03-seed-data.md) | CSV seed data specification |
 
 When you have finished a pass through the cockpit steps, you can ask for a review against **02** and the checkboxes there can be updated to match what you completed.

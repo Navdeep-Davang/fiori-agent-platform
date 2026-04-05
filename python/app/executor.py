@@ -1,39 +1,40 @@
 import json
 import logging
-import asyncio
 import time
 from typing import AsyncIterator, List, Dict, Any
-from .config import LLM_PROVIDER, LLM_API_KEY, GOOGLE_API_KEY, LLM_MODEL
+from .config import LLM_PROVIDER, LLM_API_KEY, LLM_MODEL
 from . import mcp_client
+from . import adk_engine
+from .chat_tooling import token_for_mcp
 
 logger = logging.getLogger(__name__)
 
 
-def _token_for_mcp(tool_meta: dict, user_token: str) -> str:
-    """Use machine token for elevated tools when CAP supplied one; else user JWT (or Basic) string."""
-    if tool_meta.get("elevated"):
-        mt = (tool_meta.get("machineToken") or "").strip()
-        if mt:
-            return mt
-    return user_token or ""
-
-
 async def run(payload: dict) -> AsyncIterator[str]:
     """Orchestrates the LLM inference loop with MCP tool calls."""
+    # Gemini path: Google ADK owns prompt assembly, tools, and streaming (see adk_engine).
+    if LLM_PROVIDER == "google-genai":
+        try:
+            async for event in adk_engine.run_adk_chat(payload):
+                yield event
+        except Exception as e:
+            logger.exception(f"Exception in executor.run: {e}")
+            yield f'data: {json.dumps({"type": "error", "message": str(e)})}\n\n'
+        yield f'data: {json.dumps({"type": "done", "sessionId": payload.get("sessionId"), "messageId": None})}\n\n'
+        return
+
     agent_config = payload.get("agentConfig", {})
     effective_tools = payload.get("effectiveTools", [])
     user_message = payload.get("message", "")
     history = payload.get("history", [])
     user_token = payload.get("userToken", "")
-    
-    # Pre-process system prompt and history
+
     system_prompt = agent_config.get("systemPrompt", "You are a helpful assistant.")
     messages = []
     for h in history:
         messages.append({"role": h["role"], "content": h["content"]})
     messages.append({"role": "user", "content": user_message})
-    
-    # Map effectiveTools into LLM schemas
+
     llm_tools = []
     for tool in effective_tools:
         llm_tools.append({
@@ -41,17 +42,13 @@ async def run(payload: dict) -> AsyncIterator[str]:
             "description": tool["description"],
             "input_schema": tool["inputSchema"]
         })
-    
-    # LLM execution branching
+
     try:
         if LLM_PROVIDER == "anthropic":
             async for event in _run_anthropic(system_prompt, messages, llm_tools, effective_tools, user_token):
                 yield event
         elif LLM_PROVIDER == "openai":
             async for event in _run_openai(system_prompt, messages, llm_tools, effective_tools, user_token):
-                yield event
-        elif LLM_PROVIDER == "google-genai":
-            async for event in _run_google_genai(system_prompt, messages, llm_tools, effective_tools, user_token):
                 yield event
         else:
             yield f'data: {json.dumps({"type": "error", "message": f"Unsupported LLM provider: {LLM_PROVIDER}"})}\n\n'
@@ -120,7 +117,7 @@ async def _run_anthropic(system_prompt: str, messages: List[Dict], anthropic_too
                         tool_meta["mcpServerUrl"],
                         tool_name,
                         tool_call["input"],
-                        _token_for_mcp(tool_meta, user_token),
+                        token_for_mcp(tool_meta, user_token),
                     )
                     duration = int((time.time() - start_time) * 1000)
                     yield f'data: {json.dumps({"type": "tool_result", "toolName": tool_name, "summary": "Found data", "durationMs": duration})}\n\n'
@@ -201,7 +198,7 @@ async def _run_openai(
                         tool_meta["mcpServerUrl"],
                         name,
                         args,
-                        _token_for_mcp(tool_meta, user_token),
+                        token_for_mcp(tool_meta, user_token),
                     )
                     duration = int((time.time() - start_time) * 1000)
                     yield f'data: {json.dumps({"type": "tool_result", "toolName": name, "summary": "Found data", "durationMs": duration, "args": args})}\n\n'
@@ -214,84 +211,3 @@ async def _run_openai(
                 yield f'data: {json.dumps({"type": "token", "content": text[i : i + step]})}\n\n'
             break
 
-
-async def _run_google_genai(system_prompt: str, messages: List[Dict], tools_schema: List[Dict], effective_tools: List[Dict], user_token: str) -> AsyncIterator[str]:
-    # Implementation using google-generativeai SDK
-    from google import generativeai as genai
-    from google.generativeai.types import content_types
-    
-    genai.configure(api_key=GOOGLE_API_KEY)
-    
-    # Convert schemas to Gemini format
-    gemini_tools = []
-    if tools_schema:
-        # Gemini expects functions in a specific format
-        fns = []
-        for t in tools_schema:
-            fns.append({
-                "name": t["name"],
-                "description": t["description"],
-                "parameters": t["input_schema"]
-            })
-        gemini_tools = [{"function_declarations": fns}]
-    
-    model = genai.GenerativeModel(
-        model_name=LLM_MODEL,
-        system_instruction=system_prompt,
-        tools=gemini_tools
-    )
-    
-    # Gemini Chat session handles history
-    # First convert our message format to Gemini format
-    gemini_history = []
-    # Gemini role names are 'user' and 'model'
-    for m in messages[:-1]:
-        gemini_history.append({"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]})
-    
-    chat = model.start_chat(history=gemini_history)
-    current_prompt = messages[-1]["content"]
-    
-    max_turns = 10
-    for _ in range(max_turns):
-        response = await chat.send_message_async(current_prompt, stream=True)
-        
-        has_tool_call = False
-        tool_results_parts = []
-        
-        async for chunk in response:
-            for part in chunk.candidates[0].content.parts:
-                if part.text:
-                    yield f'data: {json.dumps({"type": "token", "content": part.text})}\n\n'
-                if part.function_call:
-                    has_tool_call = True
-                    tool_name = part.function_call.name
-                    args = dict(part.function_call.args)
-                    
-                    yield f'data: {json.dumps({"type": "tool_call", "toolName": tool_name, "args": args})}\n\n'
-                    
-                    # Execute tool
-                    tool_meta = next((t for t in effective_tools if t["name"] == tool_name), None)
-                    if not tool_meta:
-                        result_str = json.dumps({"error": "Tool not allowed"})
-                    else:
-                        start_time = time.time()
-                        result_str = await mcp_client.call_tool(
-                            tool_meta["mcpServerUrl"],
-                            tool_name,
-                            args,
-                            _token_for_mcp(tool_meta, user_token),
-                        )
-                        duration = int((time.time() - start_time) * 1000)
-                        yield f'data: {json.dumps({"type": "tool_result", "toolName": tool_name, "summary": "Tool called", "durationMs": duration})}\n\n'
-                    
-                    tool_results_parts.append(
-                        content_types.Part.from_function_response(
-                            name=tool_name,
-                            response={"result": result_str}
-                        )
-                    )
-        
-        if not has_tool_call:
-            break
-            
-        current_prompt = tool_results_parts

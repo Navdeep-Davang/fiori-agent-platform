@@ -2,7 +2,7 @@
     xmlns="sap.m"
     xmlns:core="sap.ui.core">
     <Panel expandable="true" expanded="false" headerText="{i18n>toolCalls}" width="100%">
-        <Table items="{chatModel>toolCalls}" alternateRowColors="true" width="100%" class="acpToolTraceTable">
+        <Table items="{path: 'chatModel>toolCalls', templateShareable: false}" alternateRowColors="true" width="100%" class="acpToolTraceTable">
             <columns>
                 <Column width="7rem"><Text text="{i18n>toolName}" /></Column>
                 <Column width="5rem" hAlign="End"><Text text="{i18n>duration}" /></Column>
