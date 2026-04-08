@@ -31,7 +31,10 @@ async function allowedAgentIdsForUser(user) {
        WHERE v.value = ? AND g.claimKey = ? AND g.status = 'Active'`,
       [value, key]
     )
-    for (const r of rows || []) ids.add(r.agent_ID)
+    for (const r of rows || []) {
+      const aid = r.agent_ID ?? r.AGENT_ID
+      if (aid != null) ids.add(aid)
+    }
   }
   return ids
 }
@@ -40,14 +43,18 @@ async function allowedAgentIdsForUser(user) {
 function hybridDummyAuth() {
   if (process.env.ACP_STRICT_AGENT_GATING === 'true') return false
   const profiles = cds.env.profiles || []
-  return profiles.includes('hybrid') && cds.requires.auth?.kind === 'dummy'
+  const envHybrid = (process.env.CDS_ENV || '')
+    .split(',')
+    .map(s => s.trim())
+    .includes('hybrid')
+  return (profiles.includes('hybrid') || envHybrid) && cds.requires.auth?.kind === 'dummy'
 }
 
 let _warnedHybridAgentFallback = false
 
 async function allActiveAgentIds(db) {
   const rows = await db.run(`SELECT ID FROM acp_Agent WHERE status = 'Active'`)
-  return new Set((rows || []).map(r => r.ID))
+  return new Set((rows || []).map(r => r.ID ?? r.id))
 }
 
 /**
@@ -82,13 +89,13 @@ async function loadAgentBundle(agentId) {
   const [agent] = await db.run(`SELECT * FROM acp_Agent WHERE ID = ? AND status = 'Active'`, [agentId])
   if (!agent) return null
   const tools = await db.run(
-    `SELECT at.permissionOverride AS permissionOverride, t.name AS name, t.description AS description,
+    `SELECT agt.permissionOverride AS permissionOverride, t.name AS name, t.description AS description,
             t.inputSchema AS inputSchema, t.elevated AS elevated, t.status AS status,
             s.destinationName AS destinationName, s.baseUrl AS baseUrl
-     FROM acp_AgentTool at
-     INNER JOIN acp_Tool t ON t.ID = at.tool_ID
+     FROM acp_AgentTool AS agt
+     INNER JOIN acp_Tool t ON t.ID = agt.tool_ID
      INNER JOIN acp_McpServer s ON s.ID = t.server_ID
-     WHERE at.agent_ID = ? AND t.status = 'Active'`,
+     WHERE agt.agent_ID = ? AND t.status = 'Active'`,
     [agentId]
   )
   return { agent, tools: tools || [] }
@@ -142,10 +149,10 @@ cds.on('bootstrap', app => {
         [...ids]
       )
       const agents = (rows || []).map(a => ({
-        id: a.ID,
-        name: a.name,
-        description: a.description,
-        modelProfile: a.modelProfile
+        id: a.ID ?? a.id,
+        name: a.name ?? a.NAME,
+        description: a.description ?? a.DESCRIPTION,
+        modelProfile: a.modelProfile ?? a.MODELPROFILE
       }))
       return res.json({ agents })
     } catch (e) {
@@ -169,25 +176,31 @@ cds.on('bootstrap', app => {
 
       const effectiveTools = []
       for (const row of bundle.tools) {
-        const perm = row.permissionOverride || 'Inherit'
-        const eff = effectiveElevated(perm, row.elevated, bundle.agent.identityMode)
-        if (eff === null) return res.status(400).json({ error: 'Invalid permission override for tool ' + row.name })
+        const toolName = row.name ?? row.NAME
+        if (!toolName) continue
+        const perm = (row.permissionOverride ?? row.PERMISSIONOVERRIDE) || 'Inherit'
+        const eff = effectiveElevated(perm, row.elevated ?? row.ELEVATED, bundle.agent.identityMode)
+        if (eff === null) {
+          return res.status(400).json({ error: 'Invalid permission override for tool ' + (toolName || '?') })
+        }
         let mcpServerUrl = ''
-        if (row.destinationName) {
+        const destName = row.destinationName ?? row.DESTINATIONNAME
+        if (destName) {
           try {
             const { getDestination } = require('@sap-cloud-sdk/connectivity')
-            const dest = await getDestination({ destinationName: row.destinationName })
+            const dest = await getDestination({ destinationName: destName })
             mcpServerUrl = dest?.url?.replace(/\/$/, '') || ''
           } catch {
             mcpServerUrl = ''
           }
         }
-        if (!mcpServerUrl && row.baseUrl) mcpServerUrl = String(row.baseUrl).replace(/\/$/, '')
+        const baseUrl = row.baseUrl ?? row.BASEURL
+        if (!mcpServerUrl && baseUrl) mcpServerUrl = String(baseUrl).replace(/\/$/, '')
         const machineTok = eff ? MCP_MACHINE_TOKEN() : ''
         effectiveTools.push({
-          name: row.name,
-          description: row.description || '',
-          inputSchema: safeJson(row.inputSchema),
+          name: toolName,
+          description: (row.description ?? row.DESCRIPTION) || '',
+          inputSchema: safeJson(row.inputSchema ?? row.INPUTSCHEMA),
           mcpServerUrl,
           elevated: eff,
           machineToken: machineTok || null
@@ -205,11 +218,12 @@ cds.on('bootstrap', app => {
       }
 
       const authHeader = req.headers.authorization || ''
+      const a = bundle.agent
       const payload = {
         agentConfig: {
-          systemPrompt: bundle.agent.systemPrompt,
-          modelProfile: bundle.agent.modelProfile,
-          identityMode: bundle.agent.identityMode
+          systemPrompt: a.systemPrompt ?? a.SYSTEMPROMPT,
+          modelProfile: a.modelProfile ?? a.MODELPROFILE,
+          identityMode: a.identityMode ?? a.IDENTITYMODE
         },
         effectiveTools,
         message,

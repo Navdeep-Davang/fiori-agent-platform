@@ -1,13 +1,13 @@
 # Architecture: Agent Control Plane (SAP BTP)
 
 > **Audience:** developers implementing this system. For product requirements and "why" reasoning, see `doc/PRD/agent-control-plane.md`.
-> Last updated: 2026-04-05.
+> Last updated: 2026-04-08.
 
 ---
 
 ## 1. Overview
 
-Agent Control Plane is a governance and chat product running on SAP BTP Cloud Foundry. It consists of two SAPUI5 frontend apps (`app/admin/` for Fiori Elements governance screens, `app/chat/` for freestyle streaming chat), an `@sap/approuter` OAuth2 gateway, a CAP Node.js service (`srv/`) that exposes OData V4 endpoints for all governed entities plus custom SSE routes in `server.js`, and a separate FastAPI Python service (`python/`) that runs LLM inference and MCP tool calls. SAP HANA Cloud (HDI container) is the sole datastore. Authentication is XSUAA with four application scopes. All components deploy as a single MTA on Cloud Foundry.
+Agent Control Plane is a governance and chat product running on SAP BTP Cloud Foundry. It consists of two SAPUI5 frontend apps (`app/admin/` for Fiori Elements governance screens, `app/chat/` for freestyle streaming chat), an `@sap/approuter` OAuth2 gateway, a CAP Node.js service (`srv/`) that exposes OData V4 endpoints for all governed entities plus custom SSE routes in `server.js`, and a separate FastAPI Python service (`python/`) that runs LLM inference and MCP tool calls. SAP HANA Cloud (HDI container) is the sole datastore. **On Cloud Foundry**, authentication is **XSUAA** (JWT, role collections, scopes). **Local Spectrum 1 hybrid** uses **CAP dummy auth** against the **same** live HANA data (no XSUAA/IAS on the laptop); see §9 and **ADR-7**. All components deploy as a single MTA on Cloud Foundry.
 
 ---
 
@@ -715,7 +715,15 @@ cd python && uvicorn app.main:app --reload --port 8000
 
 ### Local dev database + auth (Spectrum 1)
 
-Root **`package.json`** defines **`cds.requires.db["[hybrid]"].kind = "hana"`** and **`auth["[hybrid]"].kind = "dummy"`** with mock users (`alice`, `bob`, …). Use **`cds bind db --to <your-hana-instance>`** then **`npm run deploy:hana`** once (schema + CSV seeds), then **`npm run watch`** (runs `cds watch --profile hybrid`). See **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**.
+**What is “dummy” here?** CAP **`auth["[hybrid]"].kind = "dummy"`** (root **`package.json`**) defines **named users** (`alice`, `bob`, `carol`, `dave`) with **passwords**, **roles** (`Agent.*`), and **`attr`** (e.g. **`dept`**). The server **does not** skip auth: each request must present credentials the runtime accepts (e.g. **HTTP Basic**); CAP resolves `req.user` from that. This is **not** an open bypass—it replaces **XSUAA JWT validation** only for local runs.
+
+**HANA** stores governance and chat data only. It has **no** “login table” for alice/bob. Seeds define **`AgentGroup` / `AgentGroupClaimValue` / `AgentGroupAgent`** (claim key **`dept`**, values like `it`, `procurement`, `finance`). **`server.js`** resolves allowed agents by matching **`user.attr.dept`** to those rows—the **same idea** as production, where **`dept`** will come from a JWT claim (IAS → XSUAA). Demo CSVs may mention emails (e.g. `bob@acme.com` on a PO line) as **business data**, not as the auth identity store.
+
+**Chat UI without approuter login:** `app/chat/webapp/utils/DevAuth.js` builds **`Authorization: Basic …`** from **`localStorage.acpDevUser` / `acpDevPass`** (default **`alice`/`alice`**). There is no Fiori login screen when you open CAP’s static URL directly—switching persona = change those keys (or use another browser profile) and reload.
+
+**SOP (local multi-user / hybrid HANA):** (1) **`cf login`**, **`cds bind db --to <HDI instance>`**, **`npm run deploy:hana`**, **`npm run watch`** — use the **`server listening on` URL** from the console (avoid a stale process on another port). (2) Fill **`.env`** **`HANA_*`** for Python if you use SQL tools. (3) To test **different agent visibility**, set **`localStorage`** to **`bob`/`bob`** or **`carol`/`carol`** (matches seeded **`dept`** claim values) and reload. (4) **Production path:** XSUAA + IAS + BTP role collections; map **`dept`** into the token as in Action Plan 02.
+
+Further checklist: **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**, CAP auth overview: [Authentication | capire](https://cap.cloud.sap/docs/node.js/authentication).
 
 Python SQL tools need **`.env`** **`HANA_*`** copied from the **same** HDI service key (schema = runtime user schema).
 
@@ -978,3 +986,13 @@ Canonical copy: repo root **`xs-security.json`**. Attribute **`dept`** is filled
 **Decision:** CAP `server.js` is the sole component that resolves which agents and tools a user may access. Python receives a fully computed `effectiveTools` list and cannot add to or override it.
 
 **Rationale:** Python is an AI executor, not a policy engine. Allowing Python to query HANA directly or decide its own tool list would make the governance model unenforceable — a compromised Python process could call any registered tool. CAP is the trust boundary: it holds the XSUAA binding, the HANA binding, and the role-enforcement annotations. All policy decisions happen before the request reaches Python.
+
+---
+
+### ADR-7: Spectrum 1 — dummy auth + live HANA (local only)
+
+**Decision:** For **local hybrid** development, use **`cds.requires.auth["[hybrid]"].kind = "dummy"`** with users in **`package.json`**, alongside **`cds.requires.db["[hybrid]"].kind = "hana"`** bound to **real** SAP HANA Cloud (HDI). Do **not** require XSUAA or IAS on the developer machine for this mode.
+
+**Rationale:** CAP documents **dummy** (and related) strategies so teams can run **`cds watch`** against **live BTP data services** without OAuth round-trips. The database and seeds are **production-shaped**; only the **identity proof** is swapped for configured users + Basic auth. Moving to **XSUAA** for integration tests uses the same CDS services with **`kind: "xsuaa"`** and **`cds bind`**—no change to HANA schema. This matches the **Spectrum 1** model in **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**.
+
+**Operational note:** Chat UI uses **`DevAuth.js`** + **`localStorage`** to pick which dummy user to send; OData and **`/api/*`** must receive consistent **`Authorization`** headers. See §9 **SOP** above.

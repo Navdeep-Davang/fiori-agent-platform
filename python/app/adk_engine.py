@@ -46,29 +46,43 @@ def _bare_model_name_for_adk(raw: str) -> str:
     return m
 
 
+def _tool_meta_get(meta: Dict[str, Any], *keys: str) -> Any:
+    """HANA/JSON may use camelCase or UPPER keys from CAP."""
+    for k in keys:
+        if k in meta and meta[k] is not None:
+            return meta[k]
+    return None
+
+
 class _AcpMcpBridgeTool(BaseTool):
     """Single governed tool: declaration from CAP, execution via existing MCP client."""
 
     def __init__(self, meta: Dict[str, Any]) -> None:
         self._meta = dict(meta)
+        name = _tool_meta_get(self._meta, "name", "NAME")
+        if name is None or str(name).strip() == "":
+            raise ValueError("Governed tool meta must include name (camelCase or NAME)")
+        self._meta["name"] = str(name)
         super().__init__(
-            name=str(self._meta["name"]),
-            description=(self._meta.get("description") or "")[:16000],
+            name=self._meta["name"],
+            description=str(_tool_meta_get(self._meta, "description", "DESCRIPTION") or "")[:16000],
         )
 
     def _get_declaration(self) -> types.FunctionDeclaration:
-        schema = self._meta.get("inputSchema")
+        schema = self._meta.get("inputSchema") or self._meta.get("INPUTSCHEMA")
         if not isinstance(schema, dict):
             schema = {"type": "object", "properties": {}}
         return types.FunctionDeclaration(
             name=self._meta["name"],
-            description=(self._meta.get("description") or "")[:16000],
+            description=str(_tool_meta_get(self._meta, "description", "DESCRIPTION") or "")[:16000],
             parameters_json_schema=schema,
         )
 
     async def run_async(self, *, args: dict[str, Any], tool_context: Any) -> Any:
         user_tok = tool_context.state.get("acp_user_token") or ""
-        url = (self._meta.get("mcpServerUrl") or "").strip()
+        url = str(
+            _tool_meta_get(self._meta, "mcpServerUrl", "MCPSERVERURL") or ""
+        ).strip()
         if not url:
             return {"error": "No MCP server URL for this tool"}
         try:

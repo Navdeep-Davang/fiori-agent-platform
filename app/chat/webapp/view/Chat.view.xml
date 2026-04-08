@@ -65,7 +65,7 @@
                                         </contentLeft>
                                         <contentRight>
                                             <Select id="agentSelect"
-                                                    items="{path: 'agentsModel>/'}"
+                                                    items="{path: 'agentsModel>/agents'}"
                                                     change=".onAgentChange"
                                                     width="14rem">
                                                 <core:Item key="{agentsModel>id}" text="{agentsModel>name}" />

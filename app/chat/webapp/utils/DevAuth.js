@@ -6,8 +6,9 @@ sap.ui.define([], function () {
      * Override in the browser: localStorage acpDevUser / acpDevPass
      */
     function basicAuthorizationValue() {
-        var u = window.localStorage.getItem("acpDevUser") || "bob";
-        var p = window.localStorage.getItem("acpDevPass") || "bob";
+        // Default matches README / package.json dummy user with full chat + governance roles.
+        var u = window.localStorage.getItem("acpDevUser") || "alice";
+        var p = window.localStorage.getItem("acpDevPass") || "alice";
         return "Basic " + btoa(u + ":" + p);
     }
 

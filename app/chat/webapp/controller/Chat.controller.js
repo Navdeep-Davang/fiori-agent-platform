@@ -17,14 +17,17 @@ sap.ui.define([
             });
             this.getView().setModel(this._oChatModel, "chatModel");
 
-            this._oAgentsModel = new JSONModel([]);
+            this._oAgentsModel = new JSONModel({ agents: [] });
             this.getView().setModel(this._oAgentsModel, "agentsModel");
 
             this._sSessionId = null;
             this._sLastUserMessage = "";
             this._abortController = null;
 
-            this._loadAgents();
+            // Defer so the first /api/agents request is not cancelled during shell navigation (avoids spurious Failed to fetch).
+            setTimeout(function () {
+                this._loadAgents();
+            }.bind(this), 150);
 
             var oSessionList = this.byId("sessionList");
             if (oSessionList) {
@@ -61,8 +64,8 @@ sap.ui.define([
                     });
                 })
                 .then(function (data) {
-                    const list = Array.isArray(data) ? data : (data.agents || []);
-                    this._oAgentsModel.setData(list);
+                    var list = Array.isArray(data) ? data : (data.agents || []);
+                    this._oAgentsModel.setData({ agents: list });
                     if (list.length > 0) {
                         this.byId("agentSelect").setSelectedKey(list[0].id);
                     }
