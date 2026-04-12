@@ -2,6 +2,7 @@ const cds = require('@sap/cds')
 const axios = require('axios')
 const { getDestination } = require('@sap-cloud-sdk/connectivity')
 const { SELECT, INSERT, UPDATE } = cds.ql
+const { forwardHeadersForPython } = require('./python-trust')
 
 const PYTHON_URL = () => process.env.PYTHON_URL || 'http://localhost:8000'
 
@@ -112,7 +113,7 @@ module.exports = cds.service.impl(async function () {
     const { data } = await axios.post(
       `${PYTHON_URL()}/tool-test`,
       { mcpServerUrl: base, toolName: tool.name, args },
-      { timeout: 120000 }
+      { timeout: 120000, headers: forwardHeadersForPython(req.user) }
     )
     return data?.result != null ? String(data.result) : JSON.stringify(data)
   })

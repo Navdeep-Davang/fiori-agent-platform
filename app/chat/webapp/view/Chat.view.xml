@@ -51,6 +51,11 @@
                                     </List>
                                 </ScrollContainer>
                             </content>
+                            <footer>
+                                <OverflowToolbar design="Transparent">
+                                    <Button type="Transparent" icon="sap-icon://log" text="{i18n>logoutBtn}" tooltip="{i18n>logoutBtn}" press=".onLogoutPress" />
+                                </OverflowToolbar>
+                            </footer>
                         </Page>
                     </l:SplitPane>
 
@@ -129,7 +134,7 @@
                                                 </HBox>
                                             </HBox>
                                         </VBox>
-                                        <Text text="{i18n>footerCredit}" textAlign="Center" class="acpChatFooter__description" />
+                                        <Text text="{i18n>footerCredit}" textAlign="Center" width="100%" class="acpChatFooter__description" />
                                     </VBox>
                                 </VBox>
                             </content>

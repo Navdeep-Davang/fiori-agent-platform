@@ -2,6 +2,7 @@ import os
 import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from . import config, executor, mcp_server, db
 from .tools.registry import TOOL_REGISTRY
 
@@ -9,7 +10,30 @@ from .tools.registry import TOOL_REGISTRY
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+INTERNAL_TOKEN = os.environ.get("ACP_INTERNAL_TOKEN", "").strip()
+
+class InternalTokenMiddleware(BaseHTTPMiddleware):
+    """When ACP_INTERNAL_TOKEN is set, require matching X-Internal-Token on internal API routes (CAP → Python)."""
+
+    _protected_prefixes = ("/chat", "/tool-test", "/mcp")
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if not INTERNAL_TOKEN or not any(
+            path == p or path.startswith(p + "/") for p in self._protected_prefixes
+        ):
+            return await call_next(request)
+        got = (
+            request.headers.get("x-internal-token")
+            or request.headers.get("X-Internal-Token")
+            or ""
+        )
+        if got != INTERNAL_TOKEN:
+            return JSONResponse(status_code=403, content={"error": "Invalid or missing internal token"})
+        return await call_next(request)
+
 app = FastAPI(title="ACP Python Executor")
+app.add_middleware(InternalTokenMiddleware)
 
 # Mount MCP server routes
 app.include_router(mcp_server.router)

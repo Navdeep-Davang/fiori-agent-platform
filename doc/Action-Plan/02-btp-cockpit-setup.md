@@ -183,57 +183,52 @@
 
 - [ ] **Task 8.5:** Open IAS Administration Console (`<tenant>.accounts.ondemand.com`).
 - [ ] **Task 8.6:** Applications & Resources → Applications → **SAP BTP subaccount trial** →
-  Trust → **Attributes** → Add:
-  - **Name:** `dept`
-  - **Source:** Identity Directory
-  - **Value:** Application Custom Attribute 1
-  - Save.
+  Trust → **Attributes** (Self-defined Attributes) → ensure a **`dept`** row:
+  - **Name:** `dept` (matches **`xs-security.json`** and BTP role mapping).
+  - **Value:** either **Expression** **`${customAttribute1}`** *or* **Identity Directory** → **Application Custom Attribute 1** (one mapping is enough; avoid duplicate rows).
+  - Save.  
+  See SAP Help: [Configure default attributes sent to application](https://help.sap.com/docs/cloud-identity-services/cloud-identity-services/configure-default-attributes-sent-to-application).
 
 ### 8.4 — Create BTP roles with IdP attribute mapping
 
 > **Root cause of the "Source not editable" trap:** When `xs-security.json` defines
-> `role-collections`, BTP creates "Managed by Application" placeholder roles. These cannot
-> be edited (no Source dropdown) or deleted (no trash icon) from the Cockpit. The fix:
+> `role-collections`, BTP creates "Managed by Application" placeholder roles. This repo’s
+> **`xs-security.json` omits `role-collections`** — use **ACP**-suffixed templates (**`AgentUserACP`**, …) and **manually** created roles only.
 
-- [ ] **Task 8.7:** Temporarily remove `role-collections` from `xs-security.json`, rename
-  role templates to `AgentUserV2`, `AgentAuthorV2`, `AgentAdminV2`, `AgentAuditV2`.
+- [ ] **Task 8.7:** Ensure committed **`xs-security.json`** has **no** **`role-collections`** block, then apply the descriptor:
   ```bash
   cf update-service acp-xsuaa -c xs-security.json
   ```
 
-- [ ] **Task 8.8:** In BTP Cockpit → Security → Roles, use **Create Role** on each `V2`
-  template:
-  - Role Name: `AgentAdmin` (same name as old template for clarity)
-  - Source: **Identity Provider**
-  - Values: **`dept`**
-  - Repeat for `AgentAuthor`, `AgentUser` (all templates with `attribute-references: [dept]`).
-  - `AgentAudit` has no `dept` attribute — BTP auto-creates it; skip.
+- [ ] **Task 8.8:** In BTP Cockpit → Security → Roles, use **Create Role** on each template that references **`dept`** (**`AgentUserACP`**, **`AgentAuthorACP`**, **`AgentAdminACP`**):
+  - Attribute **`dept`**: **Source** = **Identity Provider**, value **`dept`** (the name IAS asserts — same as **`xs.user.attributes`** key).
+  - Optionally use **`btp create security/role`** with **`scripts/xsuaa-role-attrs-dept-idp.json`** (see **`btp help create security/role`**).
+  - **`AgentAuditACP`** has no **`dept`** on the template — create its role without IdP **`dept`** mapping.
 
-- [ ] **Task 8.9:** In BTP Cockpit → Security → Role Collections, create manually:
-  - `ACP Platform Admin` → add role `AgentAdmin`
-  - `ACP Agent Author` → add role `AgentAuthor`
-  - `ACP Chat User` → add role `AgentUser`
-  - `ACP Auditor` → add role `AgentAuditV2`
+- [ ] **Task 8.9:** In BTP Cockpit → Security → Role Collections, create collections (names are yours; examples) and add **only** the **manual** roles from 8.8, e.g.:
+  - `ACP Platform Admin ACP` → role from **`AgentAdminACP`**
+  - `ACP Agent Author ACP` → role from **`AgentAuthorACP`**
+  - `ACP Chat User ACP` → role from **`AgentUserACP`**
+  - `ACP Auditor ACP` → role from **`AgentAuditACP`**
 
-**Gate:** All 4 role collections exist with roles assigned and `+` icon is active (not blurry).
+**Gate:** All four role collections exist, each references an **editable** manual role, and **`+`** on the role row is usable (not read-only managed).
 
 ---
 
 ## Phase 9: Role Collection Mappings and User Verification
 
-> Trust attribute mappings automatically assign role collections to users on login based on
-> their `dept` claim. No per-user manual assignment needed.
+> **Trust → Attribute Mappings** can **automatically** assign role collections at login when **`xs.user.attributes.dept`** matches. Alternatively, assign collections **explicitly** to each shadow user (**Security → Users** or **`btp assign security/role-collection`**). Use one approach or combine them (avoid conflicting duplicates).
 
 - [ ] **Task 9.1:** BTP Cockpit → Security → Trust Configuration → your IAS trust →
-  open it → **Attribute Mappings** tab → add rows:
+  open it → **Attribute Mappings** tab → add rows (collection names must match **Task 8.9**):
 
   | Role Collection | Attribute | Operator | Value |
   |----------------|-----------|----------|-------|
-  | ACP Platform Admin | `dept` | equals | `it` |
-  | ACP Agent Author | `dept` | equals | `procurement` |
-  | ACP Chat User | `dept` | equals | `finance` |
-  | ACP Chat User | `dept` | equals | `it` |
-  | ACP Chat User | `dept` | equals | `procurement` |
+  | ACP Platform Admin ACP | `dept` | equals | `it` |
+  | ACP Agent Author ACP | `dept` | equals | `procurement` |
+  | ACP Chat User ACP | `dept` | equals | `finance` |
+  | ACP Chat User ACP | `dept` | equals | `it` |
+  | ACP Chat User ACP | `dept` | equals | `procurement` |
 
   > Value = actual department code (e.g. `it`), NOT the word `dept`.
 
@@ -257,15 +252,15 @@
   - Log in as alice@yourdomain.com.
 
 - [ ] **Task 9.4:** Verify Alice appears in BTP Cockpit → Security → Users with IAS origin
-  and `ACP Platform Admin` role collection assigned (auto-assigned by trust mapping).
+  and **`ACP Platform Admin ACP`** (or the admin collection name from Task 8.9) assigned (auto or manual).
 
 - [ ] **Task 9.5:** Verify JWT.
   - Decode the XSUAA access token (from browser DevTools → Network → Authorization header).
   - Paste at https://jwt.io.
   - Confirm: `xs.user.attributes.dept` = `["it"]` for Alice.
 
-**Gate:** Alice JWT contains `xs.user.attributes.dept = ["it"]` and `ACP Platform Admin`
-role collection is visible in BTP Cockpit under her user.
+**Gate:** Alice JWT contains `xs.user.attributes.dept = ["it"]` and the admin role collection
+is visible in BTP Cockpit under her user.
 
 ---
 

@@ -9,6 +9,8 @@
     .\scripts\ias-scim.ps1 -Action ListUsers
     .\scripts\ias-scim.ps1 -Action ListGroups
     .\scripts\ias-scim.ps1 -Action Token
+    .\scripts\ias-scim.ps1 -Action OpenIdMetadata
+    .\scripts\ias-scim.ps1 -Action UserOidcClaims
     .\scripts\ias-scim.ps1 -Action GetUser -UserName "user@example.com"
     .\scripts\ias-scim.ps1 -Action CreateUser -UserName "bob@yourdomain.com" -GivenName Bob -FamilyName Procurement -Department procurement
     # Optional: -InitialPassword "..." if your tenant requires a password on create (do not commit passwords)
@@ -20,9 +22,17 @@
 
   Optional: IAS_TOKEN_RESOURCE — tenant base URL (e.g. https://<id>.trial-accounts.ondemand.com) appended to
   the token POST as &resource=… if SCIM returns 401 with Bearer-only tokens.
+
+  OpenIdMetadata — GET /.well-known/openid-configuration (no SCIM token). Needs IAS_TOKEN_URL.
+
+  UserOidcClaims — Resource Owner Password grant (if enabled on tenant) + decode JWT + optional UserInfo.
+  Set IAS_ROPC_USER and IAS_ROPC_PASSWORD in .env (gitignored). Never commit passwords.
+  Prints a summary: whether top-level claims include `dept` vs `customAttribute1` (IAS often keeps the directory name).
+  For the subscribed app JWT, verify `xs.user.attributes.dept` via GET /api/me (ACP_DEBUG_IDENTITY) — that is XSUAA, not raw IAS.
+  If ROPC is disabled, use browser Network tab id_token or CAP /api/me debug instead.
 #>
 param(
-  [ValidateSet('ListUsers', 'ListGroups', 'Token', 'GetUser', 'CreateUser', 'SetPassword')]
+  [ValidateSet('ListUsers', 'ListGroups', 'Token', 'GetUser', 'CreateUser', 'SetPassword', 'OpenIdMetadata', 'UserOidcClaims')]
   [string] $Action = 'ListUsers',
   [string] $UserName = '',
   [string] $GivenName = '',
@@ -57,6 +67,143 @@ function Import-DotEnvFiles {
 
 Import-DotEnvFiles
 
+function Get-IasTenantBaseUrl {
+  if ([string]::IsNullOrWhiteSpace($env:IAS_TOKEN_URL)) {
+    Write-Error 'IAS_TOKEN_URL is required (e.g. https://<tenant>.trial-accounts.ondemand.com/oauth2/token).'
+  }
+  $u = $env:IAS_TOKEN_URL.Trim()
+  if ($u -match '^(https?://[^/]+)') {
+    return $matches[1]
+  }
+  Write-Error 'Cannot derive tenant base URL from IAS_TOKEN_URL.'
+}
+
+function Decode-JwtPayloadToObject {
+  param([string]$Jwt)
+  if ([string]::IsNullOrWhiteSpace($Jwt)) { return $null }
+  $parts = $Jwt.Split('.')
+  if ($parts.Length -lt 2) { return $null }
+  $payload = $parts[1]
+  $rem = $payload.Length % 4
+  if ($rem -gt 0) { $payload += ('=' * (4 - $rem)) }
+  $b64 = $payload.Replace('-', '+').Replace('_', '/')
+  try {
+    $bytes = [Convert]::FromBase64String($b64)
+    $json = [Text.Encoding]::UTF8.GetString($bytes)
+    return ($json | ConvertFrom-Json)
+  } catch {
+    return $null
+  }
+}
+
+function Write-OidcClaimSummary {
+  param([string] $Label, $Payload)
+  if ($null -eq $Payload) {
+    Write-Host "# $Label : (empty)"
+    return
+  }
+  $keys = @($Payload.PSObject.Properties | ForEach-Object { $_.Name })
+  Write-Host "# --- $Label ---"
+  Write-Host "# Top-level claim keys: $($keys -join ', ')"
+  $watch = @('dept', 'customAttribute1', 'department', 'Department')
+  foreach ($wk in $watch) {
+    if ($keys -contains $wk) {
+      $val = $Payload.($wk)
+      if ($null -eq $val) {
+        $shown = 'null'
+      } elseif ($val -is [string] -or $val -is [int] -or $val -is [long] -or $val -is [bool]) {
+        $shown = "$val"
+      } else {
+        $shown = ($val | ConvertTo-Json -Compress -Depth 4)
+      }
+      Write-Host "# Found claim '$wk' = $shown"
+    }
+  }
+  $hasDept = $keys -contains 'dept'
+  $hasC1 = $keys -contains 'customAttribute1'
+  if ($hasDept -and -not $hasC1) {
+    Write-Host '# Summary: top-level dept present; no customAttribute1 (unusual unless IAS maps claim names explicitly).'
+  } elseif ($hasC1 -and -not $hasDept) {
+    Write-Host '# Summary: customAttribute1 present; no top-level dept (typical for raw IAS). XSUAA dept comes from BTP Trust mapping.'
+  } elseif ($hasDept -and $hasC1) {
+    Write-Host '# Summary: both dept and customAttribute1 present — compare values.'
+  } else {
+    Write-Host '# Summary: neither dept nor customAttribute1 at top level (see UserInfo JSON below).'
+  }
+}
+
+# --- OIDC discovery / user token (no SCIM client_credentials) ---------------------------------
+if ($Action -eq 'OpenIdMetadata') {
+  if ([string]::IsNullOrWhiteSpace($env:IAS_TOKEN_URL)) {
+    Write-Error 'OpenIdMetadata requires IAS_TOKEN_URL to derive the tenant host.'
+  }
+  $tenantBase = Get-IasTenantBaseUrl
+  $wellKnown = "$tenantBase/.well-known/openid-configuration"
+  try {
+    $meta = Invoke-RestMethod -Uri $wellKnown -Method Get -Headers @{ Accept = 'application/json' }
+    Write-Host "# OpenID Connect discovery: $wellKnown"
+    $meta | ConvertTo-Json -Depth 10
+  } catch {
+    Write-Error "OpenID discovery failed: $($_.Exception.Message)"
+  }
+  exit 0
+}
+
+if ($Action -eq 'UserOidcClaims') {
+  $req = @('IAS_CLIENT_ID', 'IAS_CLIENT_SECRET', 'IAS_TOKEN_URL', 'IAS_ROPC_USER', 'IAS_ROPC_PASSWORD')
+  foreach ($name in $req) {
+    if (-not [string]::IsNullOrEmpty((Get-Item -Path "Env:$name" -ErrorAction SilentlyContinue).Value)) { continue }
+    Write-Error "UserOidcClaims requires $name in .env. ROPC must be allowed for your OAuth client (often disabled in production)."
+  }
+  $cid2 = $env:IAS_CLIENT_ID
+  $sec2 = $env:IAS_CLIENT_SECRET
+  $pair2 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${cid2}:${sec2}"))
+  $scope = $env:IAS_OIDC_SCOPE
+  if ([string]::IsNullOrWhiteSpace($scope)) { $scope = 'openid profile email' }
+  $rb = 'grant_type=password' +
+    '&username=' + [Uri]::EscapeDataString($env:IAS_ROPC_USER.Trim()) +
+    '&password=' + [Uri]::EscapeDataString($env:IAS_ROPC_PASSWORD) +
+    '&scope=' + [Uri]::EscapeDataString($scope)
+  if (-not [string]::IsNullOrWhiteSpace($env:IAS_TOKEN_RESOURCE)) {
+    $rb += '&resource=' + [Uri]::EscapeDataString($env:IAS_TOKEN_RESOURCE.Trim())
+  }
+  try {
+    $ut = Invoke-RestMethod -Uri $env:IAS_TOKEN_URL -Method Post `
+      -Headers @{ Authorization = "Basic $pair2" } `
+      -Body $rb `
+      -ContentType 'application/x-www-form-urlencoded'
+  } catch {
+    Write-Error "User token (ROPC) failed: $($_.Exception.Message). If disabled, decode id_token from browser login instead."
+  }
+  $jwtSrc = $ut.id_token
+  if ([string]::IsNullOrWhiteSpace($jwtSrc)) { $jwtSrc = $ut.access_token }
+  $claims = Decode-JwtPayloadToObject -Jwt $jwtSrc
+  if ($null -eq $claims) {
+    Write-Error 'Could not decode id_token/access_token payload (not a JWT or empty).'
+  }
+  Write-Host '# IAS OIDC (ROPC): id_token payload summary (raw tokens not printed)'
+  Write-OidcClaimSummary -Label 'id_token (or access_token if no id_token)' -Payload $claims
+
+  if (-not [string]::IsNullOrWhiteSpace($ut.access_token)) {
+    $tenantBase = Get-IasTenantBaseUrl
+    try {
+      $oidcMeta = Invoke-RestMethod -Uri "$tenantBase/.well-known/openid-configuration" -Method Get -Headers @{ Accept = 'application/json' }
+      $ue = $oidcMeta.userinfo_endpoint
+      if (-not [string]::IsNullOrWhiteSpace($ue)) {
+        $ui = Invoke-RestMethod -Uri $ue -Method Get -Headers @{ Authorization = "Bearer $($ut.access_token)"; Accept = 'application/json' }
+        Write-OidcClaimSummary -Label 'UserInfo endpoint' -Payload $ui
+      }
+    } catch {
+      Write-Host "# UserInfo skipped or failed: $($_.Exception.Message)"
+    }
+  }
+
+  Write-Host '# Full id_token payload JSON (decoded only):'
+  $claims | ConvertTo-Json -Depth 15
+  exit 0
+}
+
+# --- SCIM API (client_credentials) ------------------------------------------------------------
 $required = @('IAS_CLIENT_ID', 'IAS_CLIENT_SECRET', 'IAS_TOKEN_URL', 'IAS_SCIM_BASE')
 foreach ($name in $required) {
   if (-not [string]::IsNullOrEmpty((Get-Item -Path "Env:$name" -ErrorAction SilentlyContinue).Value)) { continue }

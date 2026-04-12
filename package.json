@@ -25,7 +25,8 @@
     "deploy:hana": "cds deploy --profile hybrid",
     "build:cap": "cds build --production",
     "start": "cds run --profile hybrid",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "start:approuter": "cds bind --exec -- npm run start --prefix approuter"
   },
   "cds": {
     "requires": {
@@ -39,6 +40,9 @@
       },
       "auth": {
         "[hybrid]": {
+          "kind": "xsuaa"
+        },
+        "[development]": {
           "kind": "dummy",
           "users": {
             "alice": {

@@ -46,6 +46,12 @@ The BTP Cockpit link only opens the admin UI; it does **not** print the OAuth/SC
 | **Assign BTP role collections** (e.g. ACP Chat User) | **`btp assign security/role-collection`** | **Not** IAS; assigns platform/app roles to a user **by email**; may create **shadow user**. |
 | Map **IdP claims → XSUAA JWT** (`dept`) | **BTP Cockpit** (Trust, Roles, application security) | Attribute mapping is **configuration**, not a single IAS SCIM call. Verify with decoded JWT after login. |
 
+### `btp` CLI vs Cockpit for attribute mapping
+
+**Mapping IAS `customAttribute1` (or similar) into the XSUAA JWT as `dept`** is **not** done via **`btp`** subcommands. **`btp`** can list **trust** and assign **role collections**; **Cockpit** (or XSUAA Authorization APIs) is where **IdP → XSUAA attribute mapping** is configured. **IAS SCIM** (`scripts/ias-scim.ps1`) **sets** the user attribute in IAS; **BTP** **maps** it into the token.
+
+**Verify end-to-end:** (1) **`GetUser`** via SCIM — confirm **`customAttribute1`** in IAS. (2) **Decode the access token** after login — confirm **`xs.user.attributes.dept`** (or equivalent). **This repo** exposes **`GET /api/me`** with **`debug`** when **`ACP_DEBUG_IDENTITY=true`** on CAP; browser: **`?acpIdentityDebug=1`** logs to the console.
+
 ## Recommended orchestration order (this repo)
 
 1. **IAS**: SCIM create user + set custom attribute used as department source (e.g. **customAttribute1** aligned with `xs-security.json` / action plan).
@@ -69,6 +75,10 @@ Do not paste real secrets into chat or repo files.
 
 Subaccount **role collection** assignment, **`btp target`**, **`btp list security/*`** → see **`.cursor/skills/btp-cli-orchestration/SKILL.md`**.
 
+## Companion: BTP Authorization REST (`btp-auth-api.ps1`)
+
+Role collection / app JSON via **OAuth client_credentials** → see **`.cursor/skills/btp-api-orchestration/SKILL.md`**.
+
 ## When to read `reference.md`
 
 For curated SAP Help and community links (SCIM, custom attributes, trust, role collections).
@@ -87,14 +97,18 @@ This skill does **not** add a Cursor MCP binary. The **approved “tool”** is 
 
 ```text
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ias-scim.ps1 -Action Token
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ias-scim.ps1 -Action OpenIdMetadata
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ias-scim.ps1 -Action UserOidcClaims
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ias-scim.ps1 -Action ListUsers
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ias-scim.ps1 -Action ListGroups
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ias-scim.ps1 -Action GetUser -UserName "user@example.com"
 ```
 
 - **`Token`** — prints only token length and `expires_in` (sanity check; no raw token).  
+- **`OpenIdMetadata`** — GET `/.well-known/openid-configuration` (OIDC discovery). Needs **`IAS_TOKEN_URL`** only (tenant host is derived); no SCIM base. Use to confirm issuer, `authorization_endpoint`, `jwks_uri`, and supported grant types.  
+- **`UserOidcClaims`** — **Resource Owner Password** grant (only if enabled on the OAuth client / tenant) + prints **decoded JWT payload** JSON (no raw `id_token` / `access_token`). Requires **`IAS_ROPC_USER`** and **`IAS_ROPC_PASSWORD`** in `.env` (gitignored). If ROPC is disabled, verify claims via browser **`id_token`** after login or **`GET /api/me`** with **`ACP_DEBUG_IDENTITY=true`**.  
 - **`ListUsers` / `ListGroups`** — SCIM JSON to stdout.  
-- **`GetUser`** — SCIM filter `userName eq "…"` (adjust if your tenant uses a different login).
+- **`GetUser`** — SCIM filter `userName eq "…"` (adjust if your tenant uses a different login). **SCIM shows `customAttribute1`**, not the OIDC claim name **`dept`**; trust mapping affects tokens, not SCIM field names.
 
 If the Shell environment cannot reach the tenant (network), have the user run the same command locally and paste **redacted** JSON if needed.
 

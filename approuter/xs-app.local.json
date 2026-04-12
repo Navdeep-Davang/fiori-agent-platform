@@ -1,10 +1,20 @@
 {
   "welcomeFile": "/chat/webapp/index.html",
   "authenticationMethod": "none",
+  "logout": {
+    "logoutEndpoint": "/logout",
+    "logoutPage": "/chat/webapp/index.html"
+  },
   "routes": [
     {
       "source": "^/admin/(.*)",
       "target": "/admin/$1",
+      "destination": "cap",
+      "csrfProtection": true
+    },
+    {
+      "source": "^/chat(\\?.*)?$",
+      "target": "/chat/webapp/index.html$1",
       "destination": "cap",
       "csrfProtection": true
     },
@@ -24,7 +34,7 @@
       "source": "^/odata/(.*)",
       "target": "/odata/$1",
       "destination": "cap",
-      "csrfProtection": true
+      "csrfProtection": false
     }
   ]
 }

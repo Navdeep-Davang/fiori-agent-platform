@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-Agent Control Plane is a governance and chat product running on SAP BTP Cloud Foundry. It consists of two SAPUI5 frontend apps (`app/admin/` for Fiori Elements governance screens, `app/chat/` for freestyle streaming chat), an `@sap/approuter` OAuth2 gateway, a CAP Node.js service (`srv/`) that exposes OData V4 endpoints for all governed entities plus custom SSE routes in `server.js`, and a separate FastAPI Python service (`python/`) that runs LLM inference and MCP tool calls. SAP HANA Cloud (HDI container) is the sole datastore. **On Cloud Foundry**, authentication is **XSUAA** (JWT, role collections, scopes). **Local Spectrum 1 hybrid** uses **CAP dummy auth** against the **same** live HANA data (no XSUAA/IAS on the laptop); see §9 and **ADR-7**. All components deploy as a single MTA on Cloud Foundry.
+Agent Control Plane is a governance and chat product running on SAP BTP Cloud Foundry. It consists of two SAPUI5 frontend apps (`app/admin/` for Fiori Elements governance screens, `app/chat/` for freestyle streaming chat), an `@sap/approuter` OAuth2 gateway, a CAP Node.js service (`srv/`) that exposes OData V4 endpoints for all governed entities plus custom SSE routes in `server.js`, and a separate FastAPI Python service (`python/`) that runs LLM inference and MCP tool calls. SAP HANA Cloud (HDI container) is the sole datastore. **On Cloud Foundry**, authentication is **XSUAA** (JWT, role collections, scopes). **Hybrid profile (`cds watch --profile hybrid`)** uses **real XSUAA and HANA** via **`cds bind`** (prod-like JWT and roles on the laptop); optional **`development`** profile can use **CAP dummy** auth with **`ACP_USE_DUMMY_AUTH=true`** for Basic-only flows — see **ADR-7** and `doc/Action-Plan/05-cap-public-python-private-production-path.md`. All components deploy as a single MTA on Cloud Foundry.
 
 ---
 
@@ -42,7 +42,7 @@ Agent Control Plane is a governance and chat product running on SAP BTP Cloud Fo
 3. Route `/admin*` → CAP OData + Admin UI static assets.
 4. Route `/chat*` → CAP OData + Chat UI static assets.
 5. Route `/api/*` → CAP `server.js` custom routes.
-6. Enforce that all routes require authentication via `xs-app.json` `authenticationType: "xsuaa"`.
+6. Enforce login via `xs-app.json` **`authenticationMethod`: `"route"`** (OAuth); **`xs-app.local.json`** keeps **`none`** for offline UI dev.
 
 ### 4. CAP Service (`srv/`)
 **Technology:** SAP CAP (Node.js), CDS, `@sap/xssec` v4
@@ -95,6 +95,8 @@ flowchart LR
 3. Use the `effectiveTools` list provided by CAP — never decide its own tool list.
 4. Call MCP servers via HTTP streamable transport; use `userToken` for delegated tools, machine service token for elevated tools (flag communicated by CAP per tool).
 5. Emit structured SSE events: `token`, `tool_call`, `tool_result`, `done`, `error`.
+
+**CAP → Python (private hop):** Python is **not** a public OAuth client. End users authenticate only to **App Router + CAP** (JWT). **CAP** is the only intended caller for **`python/`**; it forwards **user context** headers (`X-AC-User-Id`, `X-AC-Dept`, `X-AC-Roles`) and optional **`X-Internal-Token`** when **`ACP_INTERNAL_TOKEN`** is set (Python must match when configured). Identity is **vouched by CAP** on this internal hop; JWT verification is not duplicated in Python for v1.
 
 ### 6. SAP HANA Cloud
 **Technology:** HDI container, managed by CAP CDS deploy
@@ -653,10 +655,10 @@ fiori-agent-platform/
 │   ├── default-env.json                    # Local dev: mock VCAP_SERVICES for XSUAA + Destination
 │   └── package.json                        # { "dependencies": { "@sap/approuter": "^21.x" } }
 │
-├── xs-security.json                        # XSUAA app security descriptor (scopes, role-templates, role-collections)
+├── xs-security.json                        # XSUAA descriptor: scopes, attributes, role-templates, oauth2 (no role-collections — roles created in BTP)
 ├── mta.yaml                                # MTA build + deploy descriptor (all modules + resources)
 ├── package.json                            # Root: workspaces, cds dependency, shared scripts
-├── .cdsrc.json                             # CAP overrides (optional); primary `cds.requires` in root `package.json` (`[hybrid]` hana + dummy auth)
+├── .cdsrc.json                             # CAP overrides (optional); primary `cds.requires` in root `package.json` (`[hybrid]` hana + xsuaa auth)
 ├── .env.example                            # Local dev env var template
 └── doc/
     ├── Architecture/
@@ -715,11 +717,11 @@ cd python && uvicorn app.main:app --reload --port 8000
 
 ### Local dev database + auth (Spectrum 1)
 
-**What is “dummy” here?** CAP **`auth["[hybrid]"].kind = "dummy"`** (root **`package.json`**) defines **named users** (`alice`, `bob`, `carol`, `dave`) with **passwords**, **roles** (`Agent.*`), and **`attr`** (e.g. **`dept`**). The server **does not** skip auth: each request must present credentials the runtime accepts (e.g. **HTTP Basic**); CAP resolves `req.user` from that. This is **not** an open bypass—it replaces **XSUAA JWT validation** only for local runs.
+**Hybrid (`[hybrid]`):** **`auth.kind = "xsuaa"`** — use **`cds bind`** to XSUAA + HANA, **`npm run watch`**, and the **App Router** for login (JWT to CAP). **Optional `[development]` + `ACP_USE_DUMMY_AUTH=true`:** CAP **`auth["[development]"].kind = "dummy"`** defines **named users** (`alice`, …) with **Basic** auth; the UI sets **`localStorage.acpUseDummyAuth = "true"`** to send **`Authorization: Basic …`**. This is **not** an open bypass—it replaces **XSUAA** only for that profile.
 
 **HANA** stores governance and chat data only. It has **no** “login table” for alice/bob. Seeds define **`AgentGroup` / `AgentGroupClaimValue` / `AgentGroupAgent`** (claim key **`dept`**, values like `it`, `procurement`, `finance`). **`server.js`** resolves allowed agents by matching **`user.attr.dept`** to those rows—the **same idea** as production, where **`dept`** will come from a JWT claim (IAS → XSUAA). Demo CSVs may mention emails (e.g. `bob@acme.com` on a PO line) as **business data**, not as the auth identity store.
 
-**Chat UI without approuter login:** `app/chat/webapp/utils/DevAuth.js` builds **`Authorization: Basic …`** from **`localStorage.acpDevUser` / `acpDevPass`** (default **`alice`/`alice`**). There is no Fiori login screen when you open CAP’s static URL directly—switching persona = change those keys (or use another browser profile) and reload.
+**Chat UI with dummy profile:** `DevAuth.js` adds **`Authorization: Basic …`** only when **`localStorage.acpUseDummyAuth === "true"`** (and **`acpDevUser` / `acpDevPass`**). **Default (XSUAA):** same-origin **`fetch`** with **`credentials: "include"`** through the App Router—no Basic header.
 
 **SOP (local multi-user / hybrid HANA):** (1) **`cf login`**, **`cds bind db --to <HDI instance>`**, **`npm run deploy:hana`**, **`npm run watch`** — use the **`server listening on` URL** from the console (avoid a stale process on another port). (2) Fill **`.env`** **`HANA_*`** for Python if you use SQL tools. (3) To test **different agent visibility**, set **`localStorage`** to **`bob`/`bob`** or **`carol`/`carol`** (matches seeded **`dept`** claim values) and reload. (4) **Production path:** XSUAA + IAS + BTP role collections; map **`dept`** into the token as in Action Plan 02.
 
@@ -847,93 +849,73 @@ cf logs acp-cap --recent
 
 ---
 
-## 11. xs-security.json (complete)
+## 11. xs-security.json (canonical)
 
-Canonical copy: repo root **`xs-security.json`**. Attribute **`dept`** is filled from IAS **`customAttribute1`** via BTP **Security → Roles** (Identity Provider mapping) after XSUAA deploy — see **Action Plan 02** Phase 5.
+Canonical copy: repo root **`xs-security.json`**.
+
+### 11.1 What the file contains (and what it must not)
+
+The descriptor defines **`xsappname`**, **scopes**, **`attributes`** (e.g. **`dept`**), **`role-templates`** (with **`attribute-references`** where needed), and **`oauth2-configuration`**.
+
+**Do not add a `role-collections` section** to this file for normal operation. If **`role-collections`** are defined here and you run **`cf update-service … -c xs-security.json`** (or MTA deploy), XSUAA **creates** those collections and **application-managed** roles in the subaccount. Those roles are often **read-only** in **BTP Cockpit → Security → Roles**: the **`dept`** attribute stays **Unrestricted** and you **cannot** set **Source = Identity Provider** for IAS → **`xs.user.attributes.dept`**. Managed roles also **cannot** be removed with **`btp delete security/role`** (*read-only Role*).
+
+**Correct approach (full SOP):** keep **`role-collections`** out of **`xs-security.json`**. Then, in order: (1) **IAS** — Self-defined attribute **`dept`** sourced from **`${customAttribute1}`** (or Identity Directory → Application Custom Attribute 1) so tokens carry **`xs.user.attributes.dept`**. (2) **XSUAA** — `cf update-service` / MTA with this file (templates only). (3) **BTP** — **Create Role** on each **`Agent*ACP`** template (or **`btp create security/role`** with IdP **`dept`** mapping; example payload **`scripts/xsuaa-role-attrs-dept-idp.json`**). (4) **Role collections** — Cockpit or **`btp create security/role-collection`** + **`btp add security/role`**, pointing only at those **manual** roles. (5) **Trust Configuration** → custom IAS → **Attribute Mappings** to assign collections by **`dept`** value (optional automation). (6) **Users** — shadow users from IAS login and/or **`btp assign security/role-collection`**. See **`.cursor/rules/xsuaa-manual-roles.mdc`** and **README** (BTP security).
+
+Attribute **`dept`** in the JWT comes from **IAS** emitting **`dept`** (mapped from **`customAttribute1`**) plus **BTP** roles that reference **Identity Provider** **`dept`** — see **Action Plan 02**.
+
+### 11.2 Embedded copy (may drift; trust repo file `xs-security.json`)
+
+Role templates use an **`ACP`** suffix (**`AgentUserACP`**, **`AgentAuthorACP`**, **`AgentAdminACP`**, **`AgentAuditACP`**) so subaccount roles created from them stay distinct from legacy XSUAA-managed names. **No `role-collections` block.**
 
 ```json
 {
   "xsappname": "agent-control-plane",
+  "description": "Role-templates use an ACP suffix (AgentUserACP, …) so subaccount roles built from them are clearly separate from legacy managed names. Do not add role-collections here — create collections in BTP.",
   "tenant-mode": "dedicated",
   "scopes": [
-    {
-      "name": "$XSAPPNAME.Agent.User",
-      "description": "Open chat; use agents assigned to user's groups."
-    },
-    {
-      "name": "$XSAPPNAME.Agent.Author",
-      "description": "Create and edit agents within policy."
-    },
-    {
-      "name": "$XSAPPNAME.Agent.Admin",
-      "description": "Manage MCP servers, tools, groups, policies, elevated flags."
-    },
-    {
-      "name": "$XSAPPNAME.Agent.Audit",
-      "description": "Read-only access to all records, sessions, and tool-call logs."
-    }
+    { "name": "$XSAPPNAME.Agent.User", "description": "Open chat; use agents assigned to user's groups." },
+    { "name": "$XSAPPNAME.Agent.Author", "description": "Create and edit agents within policy." },
+    { "name": "$XSAPPNAME.Agent.Admin", "description": "Manage MCP servers, tools, groups, policies, elevated flags." },
+    { "name": "$XSAPPNAME.Agent.Audit", "description": "Read-only access to all records, sessions, and tool-call logs." }
   ],
   "attributes": [
     {
       "name": "dept",
-      "description": "Department code for agent resolution (e.g. it, procurement, finance). Mapped from IAS customAttribute1.",
-      "valueType": "string"
+      "description": "Department code for agent resolution. Mapped from IAS customAttribute1 via BTP role attribute mapping.",
+      "valueType": "string",
+      "valueRequired": "false"
     }
   ],
   "role-templates": [
     {
-      "name": "AgentUser",
-      "description": "Standard chat user.",
+      "name": "AgentUserACP",
+      "description": "Standard chat user (ACP-suffixed template for editable subaccount roles).",
       "scope-references": ["$XSAPPNAME.Agent.User"],
       "attribute-references": ["dept"]
     },
     {
-      "name": "AgentAuthor",
-      "description": "Agent designer.",
-      "scope-references": [
-        "$XSAPPNAME.Agent.User",
-        "$XSAPPNAME.Agent.Author"
-      ],
+      "name": "AgentAuthorACP",
+      "description": "Agent designer (ACP).",
+      "scope-references": ["$XSAPPNAME.Agent.User", "$XSAPPNAME.Agent.Author"],
       "attribute-references": ["dept"]
     },
     {
-      "name": "AgentAdmin",
-      "description": "Platform administrator.",
-      "scope-references": [
-        "$XSAPPNAME.Agent.User",
-        "$XSAPPNAME.Agent.Author",
-        "$XSAPPNAME.Agent.Admin"
-      ],
+      "name": "AgentAdminACP",
+      "description": "Platform administrator (ACP).",
+      "scope-references": ["$XSAPPNAME.Agent.User", "$XSAPPNAME.Agent.Author", "$XSAPPNAME.Agent.Admin"],
       "attribute-references": ["dept"]
     },
     {
-      "name": "AgentAudit",
-      "description": "Read-only auditor.",
+      "name": "AgentAuditACP",
+      "description": "Read-only auditor (ACP).",
       "scope-references": ["$XSAPPNAME.Agent.Audit"]
     }
   ],
-  "role-collections": [
-    {
-      "name": "ACP Chat User",
-      "description": "Can open chat and use assigned agents.",
-      "role-template-references": ["$XSAPPNAME.AgentUser"]
-    },
-    {
-      "name": "ACP Agent Author",
-      "description": "Can create and edit agents.",
-      "role-template-references": ["$XSAPPNAME.AgentAuthor"]
-    },
-    {
-      "name": "ACP Platform Admin",
-      "description": "Full platform governance access.",
-      "role-template-references": ["$XSAPPNAME.AgentAdmin"]
-    },
-    {
-      "name": "ACP Auditor",
-      "description": "Read-only audit access.",
-      "role-template-references": ["$XSAPPNAME.AgentAudit"]
-    }
-  ]
+  "oauth2-configuration": {
+    "grant-types": ["authorization_code", "client_credentials", "refresh_token"],
+    "autoapprove": true,
+    "redirect-uris": ["http://localhost:5000/login/callback"]
+  }
 }
 ```
 
@@ -967,9 +949,9 @@ Canonical copy: repo root **`xs-security.json`**. Attribute **`dept`** is filled
 
 ### ADR-4: XSUAA over SAP Cloud Identity Services (IAS) for v1
 
-**Decision:** XSUAA is used for JWT issuance, scope definitions, and role collections.
+**Decision:** XSUAA is used for JWT issuance, scope definitions, and role templates (**`Agent*ACP`** in **`xs-security.json`**). **Role collections and concrete roles** are created in the **BTP subaccount** (Cockpit or **`btp`** CLI), **not** via a **`role-collections`** block in **`xs-security.json`**, so **Identity Provider** attribute mapping (e.g. **`dept`**) remains editable for manually created roles.
 
-**Rationale:** XSUAA has the most mature CAP integration (`cds.env.requires.auth.kind = "xsuaa"`) and the `@sap/xssec` v4 library validates XSUAA tokens with a single `createSecurityContext` call. The same `@sap/xssec` v4 library supports IAS tokens with the same API, so migrating later requires only a service binding swap.
+**Rationale:** XSUAA has the most mature CAP integration (`cds.env.requires.auth.kind = "xsuaa"`) and the `@sap/xssec` v4 library validates XSUAA tokens with a single `createSecurityContext` call. The same `@sap/xssec` v4 library supports IAS tokens with the same API, so migrating later requires only a service binding swap. Roles defined only as **role templates** in **`xs-security.json`** avoid application-managed read-only roles that block IdP mapping for **`xs.user.attributes`**.
 
 ---
 
@@ -991,8 +973,8 @@ Canonical copy: repo root **`xs-security.json`**. Attribute **`dept`** is filled
 
 ### ADR-7: Spectrum 1 — dummy auth + live HANA (local only)
 
-**Decision:** For **local hybrid** development, use **`cds.requires.auth["[hybrid]"].kind = "dummy"`** with users in **`package.json`**, alongside **`cds.requires.db["[hybrid]"].kind = "hana"`** bound to **real** SAP HANA Cloud (HDI). Do **not** require XSUAA or IAS on the developer machine for this mode.
+**Decision:** **Default hybrid** (`cds.requires.auth["[hybrid]"]`) is **`xsuaa`** with **`cds bind`** to a real XSUAA instance (see Action Plan **05**). **Optional** **`[development]`** profile retains **`kind: "dummy"`** users in **`package.json`** for Basic-only runs when **`ACP_USE_DUMMY_AUTH=true`** on CAP. **`cds.requires.db["[hybrid]"].kind = "hana"`** stays bound to **real** SAP HANA Cloud (HDI).
 
-**Rationale:** CAP documents **dummy** (and related) strategies so teams can run **`cds watch`** against **live BTP data services** without OAuth round-trips. The database and seeds are **production-shaped**; only the **identity proof** is swapped for configured users + Basic auth. Moving to **XSUAA** for integration tests uses the same CDS services with **`kind: "xsuaa"`** and **`cds bind`**—no change to HANA schema. This matches the **Spectrum 1** model in **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**.
+**Rationale:** CAP supports **`cds bind`** so hybrid matches **production JWT and roles** before CF deploy. **Dummy** remains available for quick UI tests without OAuth. The database and seeds are **production-shaped**; switching identity mode does not change HANA schema. Historical Spectrum 1 notes live in **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**.
 
-**Operational note:** Chat UI uses **`DevAuth.js`** + **`localStorage`** to pick which dummy user to send; OData and **`/api/*`** must receive consistent **`Authorization`** headers. See §9 **SOP** above.
+**Operational note:** With **XSUAA**, open the **App Router** URL (same-origin **`/api`** + session cookie; no Basic header). For **dummy** + **`ACP_USE_DUMMY_AUTH`**, set **`localStorage.acpUseDummyAuth = "true"`** and use **`acpDevUser` / `acpDevPass`** for Basic. See README and §9 **SOP** where still relevant.

@@ -58,10 +58,11 @@
 
 ---
 
-## Phase 5: Future (Spectrum 2 & 3) — placeholders only
+## Phase 5: Future (Spectrum 2 & 3) — superseded by Action Plan 05
 
-- [ ] **Task 5.1:** Spectrum 2 — `cds bind` **XSUAA**, extend **`xs-security.json`** redirect URIs for `localhost`, switch **`[hybrid]`** auth from `dummy` to **`xsuaa`** when ready (separate pass).
-- [ ] **Task 5.2:** Spectrum 3 — MTA deploy to CF; remove reliance on local `.env` for HANA (use **`VCAP_SERVICES`** only).
+- **Follow:** **`doc/Action-Plan/05-cap-public-python-private-production-path.md`** for **XSUAA hybrid**, **App Router**, **public CAP + private Python**, and **CF production** sequencing.
+- [ ] **Task 5.1 (legacy pointer):** Spectrum 2 — `cds bind` **XSUAA**, **`xs-security.json`** redirect URIs for `localhost`, switch **`[hybrid]`** auth from `dummy` to **`xsuaa`** — **detailed tasks in Plan 05 Phase 2**.
+- [ ] **Task 5.2 (legacy pointer):** Spectrum 3 — MTA deploy to CF — **detailed tasks in Plan 05 Phase 4**.
 
 ---
 

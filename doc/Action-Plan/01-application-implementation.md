@@ -288,8 +288,7 @@
 - [x] **Task 7.4:** Run `npm install` inside `approuter/`.
 - [x] **Task 7.5:** Write `xs-security.json` — exactly as architecture section 11.
   - [x] 4 scopes: `Agent.User`, `Agent.Author`, `Agent.Admin`, `Agent.Audit`.
-  - [x] 4 role-templates: `AgentUser`, `AgentAuthor`, `AgentAdmin`, `AgentAudit`.
-  - [x] 4 role-collections: `ACP Chat User`, `ACP Agent Author`, `ACP Platform Admin`, `ACP Auditor`.
+  - [x] 4 role-templates: `AgentUserACP`, `AgentAuthorACP`, `AgentAdminACP`, `AgentAuditACP` (ACP suffix; **no** `role-collections` in file — collections created in BTP Cockpit / `btp` per **`.cursor/rules/xsuaa-manual-roles.mdc`**).
 - [x] **Task 7.6:** Write `mta.yaml` — based on architecture section 10 with the following required corrections.
   - [x] Modules: `acp-approuter`, `acp-cap`, `acp-python`, `acp-db-deployer`.
   - [x] Resources: `acp-xsuaa` (xsuaa/application), `acp-hana` (hana/hdi-shared), `acp-destination` (destination/lite) — **present** in `mta.yaml`.

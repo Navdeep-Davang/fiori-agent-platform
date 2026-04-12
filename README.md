@@ -1,12 +1,12 @@
 # Fiori Agent Platform
 
-SAP BTP–based agent control plane: CAP backend, Fiori UIs, Python LLM executor, and MCP tooling. Detailed design lives in [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md). **Local development (Spectrum 1)** uses **SAP HANA Cloud** (hybrid `cds bind` + **`npm run deploy:hana`**) and **mock CAP users** — see [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md). Full build history: [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md); cockpit: [`doc/Action-Plan/02-btp-cockpit-setup.md`](doc/Action-Plan/02-btp-cockpit-setup.md).
+SAP BTP–based agent control plane: CAP backend, Fiori UIs, Python LLM executor, and MCP tooling. Detailed design lives in [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md). **Hybrid** (`npm run watch`) uses **SAP HANA Cloud** and **real XSUAA** via **`cds bind`** (JWT and BTP roles, prod-like identity on your machine). Optional **`development`** profile + **`ACP_USE_DUMMY_AUTH=true`** keeps Basic dummy users for quick tests. See [`doc/Action-Plan/05-cap-public-python-private-production-path.md`](doc/Action-Plan/05-cap-public-python-private-production-path.md), [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md), [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md), and [`doc/Action-Plan/02-btp-cockpit-setup.md`](doc/Action-Plan/02-btp-cockpit-setup.md).
 
 ---
 
 ## Local environment variables
 
-Copy [`.env.example`](.env.example) to `.env` in the repo root and fill in values. The file is git-ignored. You **must** set **`HANA_HOST`**, **`HANA_USER`**, **`HANA_PASSWORD`**, and **`HANA_SCHEMA`** for Python (use the same HDI / service-key values as CAP). For Cloud Foundry, LLM keys are **not** taken from `.env`; set them on the Python app after deploy (see below).
+Copy [`.env.example`](.env.example) to `.env` in the repo root and fill in values. The file is git-ignored. You **must** set **`HANA_HOST`**, **`HANA_USER`**, **`HANA_PASSWORD`**, and **`HANA_SCHEMA`** for Python (use the same HDI / service-key values as CAP). For Cloud Foundry, LLM keys are **not** taken from `.env`; set them on the Python app after deploy (see below). **Agent list gating:** real XSUAA users only see agents allowed by **`dept`** vs rows in **`ACP_AGENTGROUPCLAIMVALUE`** (seeded from `db/data/acp-AgentGroupClaimValue.csv`; redeploy with `npm run deploy:hana` after CSV changes). The JWT should carry **`xs.user.attributes.dept`** (recommended: IAS Self-defined attribute **`dept`** from **`${customAttribute1}`**, then BTP role + trust mapping). Until that is in place, CAP can fall back to **`customAttribute1`** / **`department`** in **`xs.user.attributes`** for gating — see **`.cursor/rules/xsuaa-manual-roles.mdc`**. Values are matched case-insensitively against **`ACP_AGENTGROUPCLAIMVALUE`**. If no value resolves, the agent list is empty and the CAP log warns. Do **not** set **`ACP_HYBRID_XSUAA_AGENT_FALLBACK`** unless you intentionally want “all agents” when claims do not match (dev only).
 
 ---
 
@@ -14,20 +14,29 @@ Copy [`.env.example`](.env.example) to `.env` in the repo root and fill in value
 
 Before CAP or Python can run against data:
 
-1. **SAP BTP:** HANA Cloud instance **Running**; Cloud Foundry **logged in** (`cf login` / `cf target`).
-2. **Bind CAP to HANA** (creates `.cdsrc-private.json`, git-ignored):
+### 1. SAP BTP prerequisites
 
-   ```bash
-   cds bind db --to <your-hana-or-hdi-service-instance-name>
-   ```
+**SAP BTP:** HANA Cloud instance **Running**; Cloud Foundry **logged in** (`cf login` / `cf target`).
 
-3. **Deploy schema + CSV seeds** to HDI (once per fresh instance / after model changes):
+### 2. Bind CAP to HANA
 
-   ```bash
-   npm run deploy:hana
-   ```
+Creates `.cdsrc-private.json`, git-ignored:
 
-4. Copy **`host` / `port` / `user` / `password` / `schema`** from the **same** service key into **`.env`** as `HANA_*` so Python’s MCP SQL tools hit the same tables as CAP.
+```bash
+cds bind db --to <your-hana-or-hdi-service-instance-name>
+```
+
+### 3. Deploy schema and CSV seeds
+
+Run once per fresh instance / after model changes:
+
+```bash
+npm run deploy:hana
+```
+
+### 4. Align Python `.env` with the service key
+
+Copy **`host` / `port` / `user` / `password` / `schema`** from the **same** service key into **`.env`** as `HANA_*` so Python’s MCP SQL tools hit the same tables as CAP.
 
 Details and verification checklist: [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md).
 
@@ -37,52 +46,96 @@ Details and verification checklist: [`doc/Action-Plan/04-hybrid-hana-spectrum-1.
 
 You need **Node.js** (with `npm`) and **Python 3** with `pip`. CAP hybrid mode requires the **`@sap/hana-client`** package (declared in root `package.json`; installed via `npm install`). From the repo root:
 
-1. **Install Node dependencies** (workspaces include CAP, app router, and UI5 apps):
+### 1. Install Node dependencies
 
-   ```bash
-   npm install
-   ```
+Workspaces include CAP, app router, and UI5 apps:
 
-2. **Configure `.env`:** LLM vars, `PYTHON_URL=http://localhost:8000`, and **all `HANA_*` fields** (see above).
+```bash
+npm install
+```
 
-3. **Start CAP** (OData, REST, chat API, static UI5 from `app/`; default **http://localhost:4004**):
+### 2. Configure `.env`
 
-   ```bash
-   npm run watch
-   ```
+Set LLM vars, `PYTHON_URL=http://localhost:8000`, optional matching **`ACP_INTERNAL_TOKEN`** on both CAP and Python when you want a shared secret on the internal hop, and **all `HANA_*` fields** (see above). Export vars the CAP process can see (this repo does not auto-load `.env` into Node; use your shell or a tool of your choice).
 
-   This runs **`cds watch --profile hybrid`** (reloads on change). It **requires** a prior **`cds bind db`**.
+### 3. Bind services (hybrid — XSUAA + HANA)
 
-4. **Start the Python executor** (FastAPI / MCP / LLM; default **http://localhost:8000**). Use a virtual environment so dependencies stay isolated:
+From the repo root, log in to Cloud Foundry and bind **HANA** and **XSUAA** so `VCAP_SERVICES` is available to **`cds watch`** (creates **`.cdsrc-private.json`**, git-ignored):
 
-   ```bash
-   cd python
-   python -m venv venv # Only run if the venv not there, else skip this and move to next command
-   venv\Scripts\activate
-   ```
+```bash
+cf login
+cf target -o <org> -s <space>
+cds bind db --to <your-hdi-or-hana-instance>
+cds bind --to <your-xsuaa-instance>
+```
 
-   Then install and run:
+Update **`xs-security.json`** OAuth redirect URIs for your App Router URL if needed, then apply the XSUAA config (redeploy MTA or `cf update-service <xsuaa-instance> -c xs-security.json`). Local App Router defaults include **`http://localhost:5000/login/callback`** in-repo.
 
-   ```bash
-   pip install -r requirements.txt
-   uvicorn app.main:app --reload --port 8000
-   ```
+**Important — roles and role collections:** This repo’s **`xs-security.json`** intentionally **does not** define **`role-collections`** — only **scopes**, **`dept`**, **`Agent*ACP`** **role-templates**, and **oauth2-configuration**. Defining **`role-collections`** in the file and updating XSUAA creates **application-managed** read-only roles. **Workflow:** IAS **`dept`** ← **`${customAttribute1}`** → deploy XSUAA descriptor → **Create Role** on each **`Agent*ACP`** template with **`dept`** from **Identity Provider** (CLI example payload: **`scripts/xsuaa-role-attrs-dept-idp.json`**) → create **role collections** and add those **manual** roles → **Trust Configuration** attribute mappings (optional) → shadow users / **`btp assign security/role-collection`**. See **`doc/Architecture/fiori-agent-platform.md`** §11 and **`.cursor/rules/xsuaa-manual-roles.mdc`**.
 
-5. **Optional — SAP App Router** (same host for `/admin`, `/chat`, `/api`, `/odata`; default **http://localhost:5000** unless `PORT` is set):
+### 4. Start CAP
 
-   ```bash
-   cd approuter
-   npm start
-   ```
+OData, REST, chat API, static UI5 from `app/`; default **http://localhost:4004**:
 
-   For a dev loop that temporarily uses `xs-app.local.json`, you can use `npm run start:local` from `approuter` instead (see [`approuter/scripts/run-local-router.cjs`](approuter/scripts/run-local-router.cjs)).
+```bash
+npm run watch
+```
 
-**Where to open the UI**
+This runs **`cds watch --profile hybrid`** (reloads on change). It **requires** prior **`cds bind`** for **db** and **xsuaa** (hybrid auth is **`xsuaa`** in root **`package.json`**).
 
-- With app router: **http://localhost:5000/chat/webapp/** (welcome file is the chat app; confirm the listen port in the app router console if it differs from **5000**).
-- CAP only (when CAP serves the UI5 resources from `app/`): **http://localhost:4004/chat/webapp/index.html**. If that URL does not resolve, run the chat app with the UI5 CLI instead: `cd app/chat && npx ui5 serve --port 3002` (proxies `/api` and OData to CAP on **4004**; see [`app/chat/ui5.yaml`](app/chat/ui5.yaml)).
+### 5. Start the Python executor
 
-Local auth uses **dummy** users from root [`package.json`](package.json) under **`cds.requires.auth["[hybrid]"]`** (for example Basic auth `alice` / `alice`). Deeper verification steps are in [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md), [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md), and [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md).
+FastAPI / MCP / LLM; default **http://localhost:8000**. Use a virtual environment so dependencies stay isolated:
+
+```bash
+cd python
+python -m venv venv # Only run if the venv not there, else skip this and move to next command
+venv\Scripts\activate
+```
+
+Then install and run:
+
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+### 6. SAP App Router (recommended for login)
+
+Use one terminal for CAP (**4004**) and one for the App Router so the UI and **`/api`** share the **App Router origin** (session cookie + **`Authorization: Bearer`** forwarded to CAP per destination).
+
+**Option A — bindings injected for the router process** (VCAP includes XSUAA; matches [CAP — Running App Router](https://cap.cloud.sap/docs/node.js/authentication#running-app-router)):
+
+```bash
+npm run start:approuter
+```
+
+(`cds bind --exec` runs `npm run start` in **`approuter/`** from the repo root; ensure **`cds bind`** was run for **xsuaa** first.)
+
+**Option B — from `approuter/`**:
+
+```bash
+cd approuter
+npm run start:bind
+```
+
+Same host for `/admin`, `/chat`, `/api`, `/odata`; default **http://localhost:5000** unless **`PORT`** is set. Configure **`approuter/default-env.json`** destinations (CAP URL **`http://localhost:4004`**, **`forwardAuthToken: true`**) — template values are placeholders; **`cds bind --exec`** supplies real **`VCAP_SERVICES`**.
+
+For a dev loop **without** XSUAA (no login), use **`npm run start:local`** in **`approuter/`** (swaps in **`xs-app.local.json`** via [`approuter/scripts/run-local-router.cjs`](approuter/scripts/run-local-router.cjs)).
+
+### Where to open the UI
+
+- **Recommended (XSUAA):** App Router entry — **http://localhost:5000/chat/webapp/** or **http://localhost:5000/chat** (same app; query strings e.g. `?acpIdentityDebug=1` work on both). Use **http**, not **https**, unless you terminate TLS locally. Fiori uses same-origin **`fetch("/api/...")`** with **`credentials: "include"`**; do **not** send Basic headers unless you explicitly enabled dummy auth (below).
+- **Log out:** Use **Log out** in the chat sidebar (confirm dialog). That navigates to the Application Router **`logout`** endpoint configured in **`approuter/xs-app.json`**, which ends the **app-router session** and the **identity provider** session (XSUAA/IAS), then returns you to the chat entry URL so you can sign in again—not merely clearing `localStorage`. The **`logout`** block must exist in **`xs-app.json`** (otherwise **`/logout`** returns 404). After changing **`oauth2-configuration.post-logout-redirect-uris`** in **`xs-security.json`**, run **`cf update-service <xsuaa-instance> -c xs-security.json`** (or redeploy MTA) so the broker accepts the post-logout URL. See [Configure redirect URLs for browser logout](https://github.com/SAP-docs/btp-cloud-platform/blob/main/docs/30-development/configure-redirect-urls-for-browser-logout-690931c.md).
+- **CAP only** (when CAP serves the UI5 resources from `app/`): **http://localhost:4004/chat/webapp/index.html**. If that URL does not resolve, run the chat app with the UI5 CLI instead:
+
+```bash
+cd app/chat && npx ui5 serve --port 3002
+```
+
+(proxies `/api` and OData to CAP on **4004**; see [`app/chat/ui5.yaml`](app/chat/ui5.yaml)).
+
+**Optional dummy auth (no XSUAA):** use **`cds watch --profile development`**, set environment **`ACP_USE_DUMMY_AUTH=true`** for CAP, and in the browser set **`localStorage.acpUseDummyAuth = "true"`** plus **`acpDevUser` / `acpDevPass`** (defaults **`alice`/`alice`**). **`cds.requires.auth["[development]"]`** in root [`package.json`](package.json) defines users. Deeper verification steps are in [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md), [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md), and [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md).
 
 ---
 
@@ -129,7 +182,7 @@ After the **Python** application is deployed, note its public route (for example
 
 ### Role collections and your admin user
 
-After deploy, XSUAA role collections from `xs-security.json` appear under **Security → Role Collections**. Under **Security → Users**, assign the right collections to each demo shadow user (Admin, Chat User, Auditor, etc.) and assign yourself an admin collection if you need full testing access.
+**Role collection names** (e.g. `ACP Chat User ACP`, `ACP Agent Author ACP`, …) are **not** created by **`xs-security.json`** — create them in **Security → Role Collections** (or **`btp create security/role-collection`**) and attach **manually created** roles from **`Agent*ACP`** templates with **`dept`** → **Identity Provider**. Assign collections via **Trust Configuration** attribute mappings and/or **Security → Users** (`btp assign security/role-collection` or Cockpit). Pre-existing **managed** roles from an older **`xs-security.json`** that included **`role-collections`** may be *read-only*; use **ACP**-suffixed templates and new manual roles (architecture §11).
 
 ### Secrets on Cloud Foundry (LLM keys)
 

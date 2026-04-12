@@ -22,6 +22,6 @@ Use these when implementation details or URLs change; prefer SAP Help over blog-
 
 ## This repository
 
-- `xs-security.json` — XSUAA attribute `dept`, role templates, role collections.
+- `xs-security.json` — XSUAA attribute `dept`, **`Agent*ACP`** role templates only (no `role-collections` in file — see **`.cursor/rules/xsuaa-manual-roles.mdc`**).
 - `doc/Action-Plan/02-btp-infrastructure.md` — IAS users, custom attributes, trust, role assignment (cockpit-oriented; same steps map to SCIM + `btp`).
 - `scripts/ias-scim.ps1` — Local IAS tool (OAuth + SCIM); loads `.env` / `.env.local`; see skill **Agent tool contract**.

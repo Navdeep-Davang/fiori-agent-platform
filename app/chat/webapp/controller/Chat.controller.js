@@ -10,6 +10,24 @@ sap.ui.define([
     "use strict";
 
     return Controller.extend("acp.chat.controller.Chat", {
+        /**
+         * Central logout (SAP App Router): clears app-router session, ends IdP session (XSUAA/IAS),
+         * then redirects to logoutPage (see approuter/xs-app.json). Not the same as clearing localStorage only.
+         */
+        onLogoutPress: function () {
+            var rb = this.getResourceBundle();
+            MessageBox.confirm(rb.getText("logoutConfirm"), {
+                title: rb.getText("logoutBtn"),
+                actions: [MessageBox.Action.OK, MessageBox.Action.CANCEL],
+                emphasizedAction: MessageBox.Action.OK,
+                onClose: function (sAction) {
+                    if (sAction === MessageBox.Action.OK) {
+                        window.location.replace("/logout");
+                    }
+                }
+            });
+        },
+
         onInit: function () {
             this._oChatModel = new JSONModel({
                 messages: [],
@@ -28,6 +46,10 @@ sap.ui.define([
             setTimeout(function () {
                 this._loadAgents();
             }.bind(this), 150);
+
+            setTimeout(function () {
+                this._logIdentityDebug();
+            }.bind(this), 0);
 
             var oSessionList = this.byId("sessionList");
             if (oSessionList) {
@@ -51,9 +73,64 @@ sap.ui.define([
             });
         },
 
+        /**
+         * Always logs identity/JWT debug info to browser console on load.
+         * Full claim dump + raw access JWT require ACP_DEBUG_IDENTITY=true on CAP.
+         * This path always requests ?acpLogToken=1 so the token is returned for local decode (dev only — do not share).
+         * Optional: still use ?acpLogToken=0 to suppress token in /api/me if you add that server-side later.
+         */
+        _logIdentityDebug: function () {
+            var q = new URLSearchParams(window.location.search);
+            var suppressToken = q.get("acpLogToken") === "0";
+            var url = "/api/me" + (suppressToken ? "" : "?acpLogToken=1");
+            fetch(url, {
+                credentials: "include",
+                headers: Object.assign({}, DevAuth.authorizationHeaders())
+            })
+                .then(function (res) {
+                    return res.json().then(function (body) {
+                        if (!res.ok) {
+                            throw new Error(body && body.error ? body.error : "HTTP " + res.status);
+                        }
+                        return body;
+                    });
+                })
+                .then(function (data) {
+                    if (data.debug) {
+                        console.group("[acp] identity on login");
+                        console.info("xsUserAttributes:", data.debug.xsUserAttributes);
+                        console.info("gatedDeptEffective:", data.debug.gatedDeptEffective);
+                        console.info("claimPairs:", data.debug.claimPairs);
+                        console.info("capUserAttr:", data.debug.capUserAttr);
+                        console.info("jwtTopLevelClaimKeys:", data.debug.jwtTopLevelClaimKeys);
+                        console.info("full debug:", data.debug);
+                        console.groupEnd();
+                    } else {
+                        console.group("[acp] identity on login (no debug — set ACP_DEBUG_IDENTITY=true in .env)");
+                        console.info("id:", data.id);
+                        console.info("roles:", data.roles);
+                        console.info("attrKeys:", data.attrKeys);
+                        console.info("deptEffective:", data.deptEffective);
+                        console.groupEnd();
+                    }
+                    if (data.accessToken) {
+                        console.warn("[acp] raw access JWT (dev only — do not share):", data.accessToken);
+                        console.log("[acp] JWT length:", data.accessToken.length);
+                    } else if (data.debug && !suppressToken) {
+                        console.warn(
+                            "[acp] no accessToken in /api/me — set ACP_DEBUG_IDENTITY=true on CAP, or use ?acpLogToken=0 if you disabled token echo."
+                        );
+                    }
+                })
+                .catch(function (err) {
+                    console.warn("[acp] /api/me identity debug failed", err);
+                });
+        },
+
         _loadAgents: function () {
             fetch("/api/agents", {
-                headers: { Authorization: DevAuth.basicAuthorizationValue() }
+                credentials: "include",
+                headers: Object.assign({}, DevAuth.authorizationHeaders())
             })
                 .then(function (res) {
                     return res.json().then(function (body) {
@@ -266,10 +343,11 @@ sap.ui.define([
             try {
                 const response = await fetch("/api/chat", {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: DevAuth.basicAuthorizationValue()
-                    },
+                    credentials: "include",
+                    headers: Object.assign(
+                        { "Content-Type": "application/json" },
+                        DevAuth.authorizationHeaders()
+                    ),
                     body: JSON.stringify({
                         agentId: sAgentId,
                         message: sMessage,
@@ -422,10 +500,11 @@ sap.ui.define([
 
             fetch("/api/chat/save-partial", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: DevAuth.basicAuthorizationValue()
-                },
+                credentials: "include",
+                headers: Object.assign(
+                    { "Content-Type": "application/json" },
+                    DevAuth.authorizationHeaders()
+                ),
                 body: JSON.stringify(oBody)
             })
                 .then((res) => {

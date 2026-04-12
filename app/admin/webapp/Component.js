@@ -13,11 +13,13 @@ sap.ui.define(
                 try {
                     var oModel = this.getModel();
                     if (oModel && oModel.isA && oModel.isA("sap.ui.model.odata.v4.ODataModel")) {
-                        var auth = { Authorization: DevAuth.basicAuthorizationValue() };
-                        if (typeof oModel.changeHttpHeaders === "function") {
-                            oModel.changeHttpHeaders(auth);
-                        } else if (typeof oModel.setHttpHeaders === "function") {
-                            oModel.setHttpHeaders(auth);
+                        var auth = DevAuth.authorizationHeaders();
+                        if (Object.keys(auth).length) {
+                            if (typeof oModel.changeHttpHeaders === "function") {
+                                oModel.changeHttpHeaders(auth);
+                            } else if (typeof oModel.setHttpHeaders === "function") {
+                                oModel.setHttpHeaders(auth);
+                            }
                         }
                     }
                 } catch (e) {

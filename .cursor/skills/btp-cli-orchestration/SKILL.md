@@ -7,12 +7,20 @@ description: Orchestrates SAP BTP subaccount security via scripts/btp-platform.p
 
 ## How identity “wiring” fits together (undergrad map)
 
-1. **`xs-security.json`** (this repo) defines **scopes**, **role-templates**, and **role-collections** (e.g. `ACP Chat User`).  
-2. Those are **deployed into the XSUAA service instance** (MTA/`cf update-service`). They become **subaccount-visible role collections** tied to your application.  
+1. **`xs-security.json`** (this repo) defines **scopes**, attribute **`dept`**, **`Agent*ACP`** **role-templates**, and **oauth2-configuration** — **no** **`role-collections`** (collections are created in Cockpit / **`btp`**; see **`.cursor/rules/xsuaa-manual-roles.mdc`**).  
+2. The file is **deployed into the XSUAA service instance** (MTA/`cf update-service`). **Role collections** are created separately and reference **manually** created roles from those templates.  
 3. **IAS** holds **real people** (email, optional **customAttribute1** = department). That is **not** where BTP role collections live.  
 4. **BTP subaccount** links the IdP: **Trust Configuration** to your IAS tenant (often set up once in Cockpit or via `btp` trust commands — see Help).  
 5. **`btp assign security/role-collection`** attaches a **role collection name** to a **user identity** (usually **email**) for a given **IdP origin**. The first assignment can create a **shadow user** in the subaccount.  
 6. **Attribute mapping** (JWT `dept` from IAS → XSUAA) is **BTP Cockpit / role configuration**, not a `btp` one-liner; verify with a decoded token after login.
+
+### IdP attribute → XSUAA JWT (`dept`): can `btp` set it?
+
+**No.** The standard **`btp`** CLI is for **subaccount security** (trust *list/create*, **role collection** assignment, users, etc.). It does **not** provide a supported one-liner to configure **Trust Configuration** assertion → **`xs.user.attributes.dept`** (or SAML/OIDC attribute mapping). That mapping is done in the **BTP Cockpit** (Trust / application security), or via **XSUAA / Authorization and Trust Management** REST APIs for automation — **not** `btp assign security/role-collection`.
+
+**How to verify (terminal-adjacent):** After login, the **access token** is authoritative. Decode it (e.g. copy `Authorization: Bearer …` from the browser Network tab for a CAP request, or use a **jwt** decoder). **Inspect `xs.user.attributes`** (and `dept` after mapping). **`btp list security/trust`** confirms **trust** and **origin** but **not** JWT claims.
+
+**This repo:** Set **`ACP_DEBUG_IDENTITY=true`** on CAP and call **`GET /api/me`** — the JSON includes **`debug`** (claim keys, `xs.user.attributes`, `claimPairs`). In the browser, enable **`?acpIdentityDebug=1`** or **`localStorage.acpIdentityDebug=1`** so the UI logs **`/api/me`** to the console.
 
 **Yes — role collection assignment is what the BTP CLI is for** (among other security operations). Authoritative syntax evolves; run **`btp help assign security/role-collection`** before scripting.
 
@@ -73,7 +81,7 @@ btp list security/role-collection
 btp list security/trust
 ```
 
-**Assign:** `btp assign security/role-collection <NAME> --to-user <EMAIL> --of-idp <ORIGIN> [--subaccount <ID>]` — see **`btp help assign security/role-collection`**. Wrapper: **`.\scripts\btp-platform.ps1 -Action AssignRoleCollection -RoleCollection "ACP Chat User" -UserEmail "x@y.com" -IdpOrigin "<origin>"`**.
+**Assign:** `btp assign security/role-collection <NAME> --to-user <EMAIL> --of-idp <ORIGIN> [--subaccount <ID>]` — see **`btp help assign security/role-collection`**. Wrapper: **`.\scripts\btp-platform.ps1 -Action AssignRoleCollection -RoleCollection "ACP Chat User ACP" -UserEmail "x@y.com" -IdpOrigin "<origin>"`** (exact name from **`btp list security/role-collection`**).
 
 **Verify:** `btp list security/user` / `btp get security/user`.
 
@@ -83,16 +91,19 @@ btp list security/trust
 |------|----------------|
 | Create user, set **customAttribute1** (dept) in IAS | `ias-api-orchestration` + `scripts/ias-scim.ps1` |
 | Assign **ACP …** role collections in BTP | **This skill** + **`scripts/btp-platform.ps1`** or `btp assign security/role-collection` |
+| List role collections / apps via **Authorization REST** (debug payloads) | **`btp-api-orchestration`** + **`scripts/btp-auth-api.ps1`** |
+| Create **API credentials** for Authorization REST | **`btp create security/api-credential`** — see [Managing API credentials](https://help.sap.com/docs/btp/sap-business-technology-platform/managing-api-credentials-for-calling-rest-apis-of-sap-authorization-and-trust-management-service) |
 | Trust / first-time federation | Cockpit and/or `btp create security/trust` — see [Managing trust from SAP BTP to Identity Authentication](https://help.sap.com/docs/btp/sap-business-technology-platform/managing-trust-from-sap-btp-to-identity-authentication-tenant) |
 | JWT contains **`dept`** for CAP | Cockpit **Roles** / **Trust** attribute mapping — validate after login |
 
 ## This repo’s role collection names
 
-Defined in **`xs-security.json`** → e.g. `ACP Chat User`, `ACP Agent Author`, `ACP Platform Admin`, `ACP Auditor`. Exact strings must match what appears in `btp list security/role-collection` after deployment.
+**Not** in **`xs-security.json`**. Create collections in the subaccount (e.g. **`ACP Chat User ACP`**, …) per **`.cursor/rules/xsuaa-manual-roles.mdc`**. Exact strings must match **`btp list security/role-collection`**.
 
 ## Anti-patterns
 
-- Assigning role collections **before** XSUAA instance reflects `xs-security.json` (collections missing or wrong).  
+- Defining **`role-collections`** inside **`xs-security.json`** (creates read-only managed roles).  
+- Assigning role collections **before** they exist in the subaccount or **before** manual roles are attached to them.  
 - Wrong **`--of-idp`** (user not found or assignment to wrong IdP).  
 - Expecting **`btp`** to set IAS **custom attributes** (use **SCIM** / `ias-scim.ps1` instead).  
 - Putting **`btp` / cockpit password** or tokens in **committed** files or pasting them in chat.  

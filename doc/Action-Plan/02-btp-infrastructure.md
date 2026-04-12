@@ -182,20 +182,19 @@ This is the most time-consuming step. The HANA instance takes ~10 minutes to pro
 
 ## Phase 8: Assign Role Collections to Demo Users
 
-> After MTA deploy, the role collections defined in `xs-security.json` will appear in BTP Cockpit. Assign them to your demo users.
+> **Role collections are not defined in `xs-security.json`.** Create them in the subaccount (see **`doc/Action-Plan/02-btp-cockpit-setup.md`** Phase 8–9 and **`.cursor/rules/xsuaa-manual-roles.mdc`**), then assign them. Prefer **Trust Configuration → Attribute Mappings** on **`dept`** for automatic assignment; otherwise assign explicitly here.
 
 - [ ] **Task 8.1:** Open Security → Users in BTP Cockpit.
   - BTP Cockpit → Subaccount → **Security** → **Users**.
 - [ ] **Task 8.2:** Find or create shadow user for each demo persona.
   - If your demo users already signed in via IAS, they should appear here automatically as shadow users.
-  - If not, click **Create** to add shadow users manually using their email addresses.
-- [ ] **Task 8.3:** Assign role collections.
-  - Open Alice's user → **Role Collections** → Assign **ACP Platform Admin**.
-  - Open Bob's user → **Role Collections** → Assign **ACP Chat User**.
-  - Open Carol's user → **Role Collections** → Assign **ACP Chat User**.
-  - Open Dave's user → **Role Collections** → Assign **ACP Auditor**.
-  - (Alice already has Admin, which inherits User and Author scopes from the role template.)
-- [ ] **Task 8.4:** Assign your own user the **ACP Platform Admin** role collection so you can do end-to-end testing with full access.
+  - If not, click **Create** to add shadow users manually using their email addresses, or use **`btp`** / Trust API as documented in **`scripts/btp-platform.ps1`**.
+- [ ] **Task 8.3:** Assign role collections (skip any user already receiving them via trust attribute mappings).
+  - Open Alice's user → **Role Collections** → Assign **ACP Platform Admin ACP** (or your chosen name from Phase 8.9).
+  - Open Bob's user → **Role Collections** → Assign **ACP Chat User ACP**.
+  - Open Carol's user → **Role Collections** → Assign **ACP Chat User ACP**.
+  - Open Dave's user → **Role Collections** → Assign **ACP Auditor ACP**.
+- [ ] **Task 8.4:** Assign your own user the admin collection for end-to-end testing if needed.
 
 ---
 

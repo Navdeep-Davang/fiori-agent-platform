@@ -18,6 +18,12 @@
         "last_modified": "2026-04-05T00:00:00Z",
         "status": "in_progress",
         "note": "Phase 1–3 implementation complete in repo; Phase 4 verification is developer-run on BTP"
+      },
+      "05-cap-public-python-private-production-path": {
+        "path": "doc/Action-Plan/05-cap-public-python-private-production-path.md",
+        "last_modified": "2026-04-12T00:00:00Z",
+        "status": "in_progress",
+        "note": "Phases 2–3 implemented in repo; Phase 1 BTP live checks pending login; Phase 4+ CF deploy after user review"
       }
     }
   }

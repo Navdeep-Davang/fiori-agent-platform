@@ -1,6 +1,6 @@
 {
   "xsappname": "agent-control-plane",
-  "description": "Temporary: role-templates is []. Restore from xs-security.role-templates.json after BTP manual cleanup, then cf update-service. Scopes + attributes unchanged. No role-collections in this file.",
+  "description": "Role-templates use an ACP suffix (AgentUserACP, …) so subaccount roles built from them are clearly separate from legacy managed names. Do not add role-collections here — create collections in BTP.",
   "tenant-mode": "dedicated",
   "scopes": [
     {
@@ -28,7 +28,35 @@
       "valueRequired": "false"
     }
   ],
-  "role-templates": [],
+  "role-templates": [
+    {
+      "name": "AgentUserACP",
+      "description": "Standard chat user (ACP-suffixed template for editable subaccount roles).",
+      "scope-references": ["$XSAPPNAME.Agent.User"],
+      "attribute-references": ["dept"]
+    },
+    {
+      "name": "AgentAuthorACP",
+      "description": "Agent designer (ACP).",
+      "scope-references": ["$XSAPPNAME.Agent.User", "$XSAPPNAME.Agent.Author"],
+      "attribute-references": ["dept"]
+    },
+    {
+      "name": "AgentAdminACP",
+      "description": "Platform administrator (ACP).",
+      "scope-references": [
+        "$XSAPPNAME.Agent.User",
+        "$XSAPPNAME.Agent.Author",
+        "$XSAPPNAME.Agent.Admin"
+      ],
+      "attribute-references": ["dept"]
+    },
+    {
+      "name": "AgentAuditACP",
+      "description": "Read-only auditor (ACP).",
+      "scope-references": ["$XSAPPNAME.Agent.Audit"]
+    }
+  ],
   "oauth2-configuration": {
     "grant-types": ["authorization_code", "client_credentials", "refresh_token"],
     "autoapprove": true,

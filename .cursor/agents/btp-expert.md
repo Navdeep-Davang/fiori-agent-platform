@@ -162,9 +162,7 @@ Steps:
 
 **Gate:** `cf service acp-xsuaa` shows `create succeeded`.
 
-The `xs-security.json` at repo root defines scopes, role templates (`AgentUser`, `AgentAuthor`,
-`AgentAdmin`, `AgentAudit`), and the `dept` attribute. This file **must exist** before creating
-the service.
+The `xs-security.json` at repo root defines scopes, **`Agent*ACP`** role templates (**`AgentUserACP`**, …), attribute **`dept`**, and **oauth2-configuration** — **no `role-collections`**. This file **must exist** before creating the service.
 
 ```bash
 cf create-service xsuaa application acp-xsuaa -c xs-security.json
@@ -172,10 +170,7 @@ cf create-service xsuaa application acp-xsuaa -c xs-security.json
 
 Verify: `cf service acp-xsuaa` → **last operation: create succeeded**.
 
-**Note:** Do not manually create roles or role collections in the Cockpit at this stage.
-Roles and collections are managed after deploy (Phase 9) once the app registers itself
-with the XSUAA instance. Creating them early leads to "locked" roles with no delete icon
-and no editable Source field — as experienced in setup.
+**Note:** After XSUAA exists and **`xs-security.json`** is applied **without** **`role-collections`**, create **manual** roles from **`Agent*ACP`** templates and **role collections** in Cockpit or via **`btp`** (see **`.cursor/rules/xsuaa-manual-roles.mdc`**). Defining **`role-collections`** in the JSON creates read-only managed roles.
 
 ---
 
@@ -265,34 +260,23 @@ your IAS tenant → Finish.
 
 In the IAS Administration Console (`<tenant>.accounts.ondemand.com`):
 1. Applications & Resources → Applications → **SAP BTP subaccount trial** (Bundled).
-2. Trust → **Attributes** → Add:
+2. Trust → **Attributes** (Self-defined) → **`dept`**:
    - **Name:** `dept`
-   - **Source:** Identity Directory
-   - **Value:** `Application Custom Attribute 1`
+   - **Value:** **Expression** **`${customAttribute1}`** 
 3. Save.
 
 ### 8.4 — Create roles with IdP mapping in BTP Cockpit
 
-Because roles that reference the `dept` attribute cannot have their Source edited on
-existing placeholder rows, use this pattern:
+**Canonical pattern:** **`xs-security.json`** has **no** **`role-collections`**. Role templates use the **`ACP`** suffix to avoid legacy managed names.
 
-**Root cause (learned from setup):** When `xs-security.json` defines `role-collections`
-and you deploy, BTP creates "Managed by Application" placeholder roles that are locked
-(no delete icon, no editable Source). To work around this:
+1. `cf update-service acp-xsuaa -c xs-security.json` (or create-service) with the committed file.
+2. **Security → Roles → Create Role** on **`AgentUserACP`**, **`AgentAuthorACP`**, **`AgentAdminACP`**: attribute **`dept`** → **Identity Provider** → value **`dept`**. **`AgentAuditACP`**: no **`dept`** on template.
+3. Optional CLI: **`btp create security/role`** with **`scripts/xsuaa-role-attrs-dept-idp.json`**.
+4. **Security → Role Collections** — create collections (e.g. **`ACP Chat User ACP`**) and add **only** those manual roles.
 
-1. Temporarily remove `role-collections` from `xs-security.json`.
-2. Run `cf update-service acp-xsuaa -c xs-security.json` — this unlocks the roles.
-3. Also rename role templates temporarily (e.g. `AgentAdminV2`) so BTP treats them as new.
-4. Run `cf update-service acp-xsuaa -c xs-security.json` again.
-5. In BTP Cockpit → Security → Roles → **Create Role** on each `V2` template:
-   - Source = **Identity Provider**
-   - Values = **`dept`**
-6. Create role collections manually (Security → Role Collections → Create) and add the
-   newly created roles to them.
+See **`.cursor/rules/xsuaa-manual-roles.mdc`** for the full SOP.
 
-> **Why not use the file for role-collections?** Managed collections cannot be edited in
-> the UI. Manual collections give you the `+` icon to add roles. For production, use a
-> full MTA deploy with `cf deploy` which handles this correctly end-to-end.
+> **Why not put `role-collections` in `xs-security.json`?** XSUAA then creates application-managed roles that are often read-only (**Identity Provider** mapping for **`dept`** blocked).
 
 ### 8.5 — Verify JWT
 
@@ -321,16 +305,15 @@ BTP Cockpit → Security → Trust Configuration → your IAS trust → **Attrib
 
 | Role Collection | Attribute | Operator | Value |
 |----------------|-----------|----------|-------|
-| ACP Platform Admin | `dept` | equals | `it` |
-| ACP Agent Author | `dept` | equals | `procurement` |
-| ACP Chat User | `dept` | equals | `finance` |
-| ACP Chat User | `dept` | equals | `it` |
-| ACP Chat User | `dept` | equals | `procurement` |
-| ACP Auditor | (no mapping needed — assign manually) | — | — |
+| ACP Platform Admin ACP | `dept` | equals | `it` |
+| ACP Agent Author ACP | `dept` | equals | `procurement` |
+| ACP Chat User ACP | `dept` | equals | `finance` |
+| ACP Chat User ACP | `dept` | equals | `it` |
+| ACP Chat User ACP | `dept` | equals | `procurement` |
+| ACP Auditor ACP | (optional — assign manually) | — | — |
 
 > Value = **actual department code** (e.g. `it`), NOT the word `dept`.
-> After a user logs in through the approuter, they appear in Security → Users automatically
-> with the mapped role collections. You do not need to add them manually.
+> Shadow users usually appear after first app login; else **Security → Users → Create** or **`btp assign security/role-collection`**. Attribute mappings can assign collections automatically; manual assignment is an alternative.
 
 ### 9.2 — Verify
 

@@ -1,0 +1,80 @@
+---
+description: Canonical BTP + IAS + XSUAA workflow — xs-security templates only; editable roles, collections, trust mappings, shadow users (no role-collections in xs-security.json)
+globs: xs-security.json,**/README.md,doc/Architecture/**/*.md,doc/Action-Plan/02-btp-cockpit-setup.md,doc/Action-Plan/02-btp-infrastructure.md
+alwaysApply: false
+---
+
+# XSUAA + IAS: canonical workflow (no `role-collections` in `xs-security.json`)
+
+This rule is the **single SOP** for how this repository expects **BTP security** to be set up. Follow it end-to-end to avoid read-only “managed” roles and to get **`xs.user.attributes.dept`** (not raw **`customAttribute1`**) in the JWT.
+
+## Why `role-collections` must not live in `xs-security.json`
+
+- If **`role-collections`** are defined in **`xs-security.json`** and you run **`cf update-service … -c xs-security.json`** (or MTA deploy), XSUAA **creates** those collections and **application-managed** roles.
+- Those roles are often **read-only** in **BTP Cockpit → Security → Roles**: **`dept`** stays **Unrestricted**, **Source = Identity Provider** cannot be set, and **`btp delete security/role`** fails (*read-only Role*).
+
+**Keep:** **`xsappname`**, **scopes**, **`attributes`** (e.g. **`dept`**), **`role-templates`** (this repo uses **`AgentUserACP`**, **`AgentAuthorACP`**, **`AgentAdminACP`**, **`AgentAuditACP`** — ACP suffix to distinguish from legacy managed names), **`oauth2-configuration`**.
+
+**Omit:** any **`role-collections`** block.
+
+---
+
+## End-to-end flow (order matters)
+
+### 1) Identity Authentication (IAS) — name the claim `dept`
+
+IAS stores the department in **Application Custom Attribute 1** (API name **`customAttribute1`**). Applications expect a technical name **`dept`** in the token.
+
+- **IAS Admin** → **Applications** → **SAP BTP subaccount trial** (or your BTP-linked app) → **Trust** → **Attributes** (Self-defined Attributes).
+- Add attribute **Name:** **`dept`**.
+- **Value:** map from the directory field, e.g. **Expression** **`${customAttribute1}`** *or* **Identity Directory** → **Application Custom Attribute 1** (one clear mapping is enough; avoid duplicate rows).
+- **Save.** After login, the **XSUAA access token** should show **`xs.user.attributes.dept`** (e.g. `["procurement"]`), not only a top-level **`customAttribute1`** claim.
+
+See SAP Help: [Configure default attributes sent to application](https://help.sap.com/docs/cloud-identity-services/cloud-identity-services/configure-default-attributes-sent-to-application).
+
+### 2) XSUAA descriptor — deploy templates only
+
+- Repo root **`xs-security.json`** as committed: **no** **`role-collections`**.
+- Apply: **`cf create-service xsuaa application <instance> -c xs-security.json`** or **`cf update-service <instance> -c xs-security.json`** / MTA deploy.
+
+### 3) Subaccount roles — create **editable** roles from templates
+
+Create **one role per template** that needs **`dept`** (**AgentUserACP**, **AgentAuthorACP**, **AgentAdminACP**; **AgentAuditACP** has no **`dept`** reference).
+
+- **Cockpit:** **Security → Roles → Create Role** on the template → set attribute **`dept`**: **Source = Identity Provider**, value **`dept`** (the **asserted** name from IAS, matching **`xs.user.attributes`**).
+- **CLI:** use **`btp create security/role`** with a payload that sets **Identity Provider**-sourced **`dept`**; see **`btp help create security/role`**. Example attribute file: **`scripts/xsuaa-role-attrs-dept-idp.json`** (maps **`dept`** from IdP).
+
+Do **not** rely on placeholder roles created from an old **`role-collections`** block — they may be read-only.
+
+### 4) Role collections — reference **manual** roles only
+
+- **Cockpit** or **`btp create security/role-collection`** + **`btp add security/role`**.
+- Examples: **`ACP Chat User ACP`**, **`ACP Agent Author ACP`**, **`ACP Platform Admin ACP`**, **`ACP Auditor ACP`** — each collection must include the **manually created** roles from step 3, not unmanaged duplicates.
+
+### 5) Trust Configuration — attribute mappings (optional automation)
+
+- **BTP Cockpit → Security → Trust Configuration** → open your **custom IAS** entry → **Attribute Mappings** (wording may vary).
+- Map **role collections** to conditions on the JWT attribute **`dept`** (e.g. **equals** `it`, `procurement`, …). Values are **department codes**, not the string `dept`.
+
+This can **automatically** assign collections at login when **`xs.user.attributes.dept`** matches.
+
+### 6) Users — shadow user + assignment
+
+- IAS users get a **shadow user** in the subaccount (often on **first successful app login** via the custom IdP). If needed, **create** the user in **Security → Users** or via **`btp`** / **Authorization and Trust Management API**.
+- Assign **role collections** either:
+  - **Automatically** via step 5 (trust attribute mappings), or  
+  - **Manually:** **`btp assign security/role-collection`** / Cockpit — see **`scripts/btp-platform.ps1`** and **`.cursor/skills/btp-cli-orchestration/SKILL.md`**.
+
+---
+
+## Verify
+
+- Decode the **XSUAA access token** (after App Router login): **`xs.user.attributes.dept`** present with expected codes.
+- Locally: **`scripts/decode-jwt.ps1`**, or **`GET /api/me?acpLogToken=1`** with **`ACP_DEBUG_IDENTITY=true`** (dev only; do not leak tokens).
+
+---
+
+## Before changing `xs-security.json`
+
+- Re-read **`doc/Architecture/fiori-agent-platform.md`** §11 and **README** (BTP security).
+- Reintroducing **`role-collections`** risks deleting or replacing manually curated collections on **`cf update-service`** and recreating **non-editable** managed roles.
