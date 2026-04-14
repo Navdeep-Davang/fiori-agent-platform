@@ -163,33 +163,62 @@ async def _run_openai(
     current = list(oa_messages)
 
     for _ in range(max_turns):
-        kwargs: Dict[str, Any] = {"model": LLM_MODEL, "messages": current}
+        kwargs: Dict[str, Any] = {"model": LLM_MODEL, "messages": current, "stream": True}
         if oa_tools:
             kwargs["tools"] = oa_tools
-        resp = await client.chat.completions.create(**kwargs)
-        msg = resp.choices[0].message
 
-        if msg.tool_calls:
-            assistant_msg = {"role": "assistant", "content": msg.content, "tool_calls": []}
-            for tc in msg.tool_calls:
+        stream = await client.chat.completions.create(**kwargs)
+
+        acc_text = ""
+        tool_calls_map: Dict[int, Dict[str, str]] = {}
+
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            ch0 = chunk.choices[0]
+            delta = ch0.delta
+            if delta is None:
+                continue
+            if delta.content:
+                acc_text += delta.content
+                yield f'data: {json.dumps({"type": "token", "content": delta.content})}\n\n'
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    if idx not in tool_calls_map:
+                        tool_calls_map[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tc.id:
+                        tool_calls_map[idx]["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            tool_calls_map[idx]["name"] = tc.function.name
+                        if tc.function.arguments:
+                            tool_calls_map[idx]["arguments"] += tc.function.arguments or ""
+
+        if tool_calls_map:
+            sorted_indices = sorted(tool_calls_map.keys())
+            assistant_msg = {"role": "assistant", "content": acc_text or None, "tool_calls": []}
+            for i in sorted_indices:
+                t = tool_calls_map[i]
                 assistant_msg["tool_calls"].append(
                     {
-                        "id": tc.id,
+                        "id": t["id"],
                         "type": "function",
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"},
+                        "function": {"name": t["name"], "arguments": t["arguments"] or "{}"},
                     }
                 )
             current.append(assistant_msg)
 
-            for tc in msg.tool_calls:
-                name = tc.function.name
+            for i in sorted_indices:
+                t = tool_calls_map[i]
+                name = t["name"]
                 try:
-                    args = json.loads(tc.function.arguments or "{}")
+                    args = json.loads(t["arguments"] or "{}")
                 except json.JSONDecodeError:
                     args = {}
                 yield f'data: {json.dumps({"type": "tool_call", "toolName": name, "args": args})}\n\n'
 
-                tool_meta = next((t for t in effective_tools if t["name"] == name), None)
+                tool_meta = next((t2 for t2 in effective_tools if t2["name"] == name), None)
                 if not tool_meta:
                     result = json.dumps({"error": f"Tool {name} not allowed"})
                 else:
@@ -203,11 +232,7 @@ async def _run_openai(
                     duration = int((time.time() - start_time) * 1000)
                     yield f'data: {json.dumps({"type": "tool_result", "toolName": name, "summary": "Found data", "durationMs": duration, "args": args})}\n\n'
 
-                current.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                current.append({"role": "tool", "tool_call_id": t["id"], "content": result})
         else:
-            text = msg.content or ""
-            step = 32
-            for i in range(0, len(text), step):
-                yield f'data: {json.dumps({"type": "token", "content": text[i : i + step]})}\n\n'
             break
 

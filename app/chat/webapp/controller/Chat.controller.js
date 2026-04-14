@@ -4,9 +4,8 @@ sap.ui.define([
     "sap/m/MessageToast",
     "sap/m/MessageBox",
     "sap/ui/core/Fragment",
-    "acp/chat/utils/DevAuth",
     "sap/ui/core/format/DateFormat"
-], function (Controller, JSONModel, MessageToast, MessageBox, Fragment, DevAuth, DateFormat) {
+], function (Controller, JSONModel, MessageToast, MessageBox, Fragment, DateFormat) {
     "use strict";
 
     return Controller.extend("acp.chat.controller.Chat", {
@@ -41,6 +40,22 @@ sap.ui.define([
             this._sSessionId = null;
             this._sLastUserMessage = "";
             this._abortController = null;
+            this._streamDisplayRafId = null;
+            this._bMessageInputKeydownWired = false;
+
+            this.getView().addEventDelegate({
+                onAfterRendering: function () {
+                    if (this._bMessageInputKeydownWired) {
+                        return;
+                    }
+                    var oTA = this.byId("messageInput");
+                    if (!oTA) {
+                        return;
+                    }
+                    this._bMessageInputKeydownWired = true;
+                    oTA.attachBrowserEvent("keydown", this._onMessageInputKeydown.bind(this));
+                }.bind(this)
+            });
 
             // Defer so the first /api/agents request is not cancelled during shell navigation (avoids spurious Failed to fetch).
             setTimeout(function () {
@@ -72,8 +87,7 @@ sap.ui.define([
         _loadAgents: function () {
             this._oAgentsModel.setProperty("/agentsLoading", true);
             fetch("/api/agents", {
-                credentials: "include",
-                headers: Object.assign({}, DevAuth.authorizationHeaders())
+                credentials: "include"
             })
                 .then(function (res) {
                     return res.json().then(function (body) {
@@ -217,6 +231,8 @@ sap.ui.define([
                         role: oData.role,
                         content: oData.content,
                         contentHtml: isUser ? "" : this._markdownToHtml(oData.content || ""),
+                        streamVisibleText: "",
+                        assistantUsePlainText: false,
                         justifyContent: isUser ? "End" : "Start",
                         bubbleClass: isUser ? "userBubble" : "agentBubble",
                         toolCalls: [] // Tool calls would need separate load if needed
@@ -264,6 +280,9 @@ sap.ui.define([
                 role: "assistant",
                 content: "",
                 contentHtml: "",
+                streamVisibleText: "",
+                streamShownLength: 0,
+                assistantUsePlainText: true,
                 justifyContent: "Start",
                 bubbleClass: "agentBubble streaming",
                 toolCalls: []
@@ -273,6 +292,7 @@ sap.ui.define([
 
             this._sLastUserMessage = sText;
             oInput.setValue("");
+            this._blurMessageInput();
             this._oChatModel.setProperty("/isStreaming", true);
             this.byId("sendBtn").setVisible(false);
             this.byId("stopBtn").setVisible(true);
@@ -288,10 +308,7 @@ sap.ui.define([
                 const response = await fetch("/api/chat", {
                     method: "POST",
                     credentials: "include",
-                    headers: Object.assign(
-                        { "Content-Type": "application/json" },
-                        DevAuth.authorizationHeaders()
-                    ),
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         agentId: sAgentId,
                         message: sMessage,
@@ -337,8 +354,104 @@ sap.ui.define([
                         my: "center top",
                         offset: "0 100"
                     });
-                    this._finalizeStream();
+                    window.setTimeout(
+                        function () {
+                            this._finalizeStream(false);
+                        }.bind(this),
+                        0
+                    );
                 }
+            }
+        },
+
+        /** Remove focus from the composer after send so the textarea is not left in a focused/selected state. */
+        _blurMessageInput: function () {
+            window.setTimeout(
+                function () {
+                    var oInput = this.byId("messageInput");
+                    if (!oInput) {
+                        return;
+                    }
+                    var el = oInput.getFocusDomRef && oInput.getFocusDomRef();
+                    if (el && typeof el.blur === "function") {
+                        el.blur();
+                    }
+                }.bind(this),
+                0
+            );
+        },
+
+        /**
+         * Enter sends (same as Send); Shift+Enter inserts a newline. Skips IME composition.
+         */
+        _onMessageInputKeydown: function (oEvent) {
+            var e = oEvent && oEvent.getOriginalEvent ? oEvent.getOriginalEvent() : oEvent;
+            if (!e || e.isComposing) {
+                return;
+            }
+            if (e.key !== "Enter") {
+                return;
+            }
+            if (e.shiftKey) {
+                return;
+            }
+            if (e.repeat) {
+                e.preventDefault();
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            this.onSendMessage();
+        },
+
+        /**
+         * Smooth streaming display: network pushes full text into content; the UI reveals it with a
+         * ChatGPT-style cadence (decoupled buffer → display), matching common recipes (e.g. smooth
+         * streaming / typewriter patterns for LLM UIs).
+         */
+        _kickAssistantStreamDisplay: function () {
+            if (this._streamDisplayRafId != null) {
+                return;
+            }
+            this._streamDisplayRafId = window.requestAnimationFrame(this._runAssistantStreamDisplayFrame.bind(this));
+        },
+
+        _runAssistantStreamDisplayFrame: function () {
+            this._streamDisplayRafId = null;
+            var aMessages = this._oChatModel.getProperty("/messages");
+            var oMsg = aMessages[aMessages.length - 1];
+            if (!oMsg || oMsg.role !== "assistant") {
+                return;
+            }
+            var full = oMsg.content || "";
+            var fullLen = full.length;
+            var n = typeof oMsg.streamShownLength === "number" ? oMsg.streamShownLength : 0;
+            if (n < fullLen) {
+                var lag = fullLen - n;
+                // Chars per frame (~60fps): lower = slower, more readable typing (tune here only).
+                var inc;
+                if (lag > 200) {
+                    inc = Math.min(lag, 6);
+                } else if (lag > 80) {
+                    inc = Math.min(lag, 2);
+                } else {
+                    inc = 1;
+                }
+                n = Math.min(fullLen, n + inc);
+                oMsg.streamShownLength = n;
+                oMsg.streamVisibleText = full.substring(0, n);
+                this._oChatModel.setProperty("/messages", aMessages);
+                this._scrollToBottom();
+            }
+            if (oMsg.streamShownLength < (oMsg.content || "").length) {
+                this._streamDisplayRafId = window.requestAnimationFrame(this._runAssistantStreamDisplayFrame.bind(this));
+            }
+        },
+
+        _cancelAssistantStreamDisplay: function () {
+            if (this._streamDisplayRafId != null) {
+                window.cancelAnimationFrame(this._streamDisplayRafId);
+                this._streamDisplayRafId = null;
             }
         },
 
@@ -348,10 +461,11 @@ sap.ui.define([
 
             switch (oEvent.type) {
                 case "token":
+                    if (!oCurrentMsg || oCurrentMsg.role !== "assistant") {
+                        break;
+                    }
                     oCurrentMsg.content += oEvent.content;
-                    oCurrentMsg.contentHtml = this._markdownToHtml(oCurrentMsg.content);
-                    this._oChatModel.setProperty("/messages", aMessages);
-                    this._scrollToBottom();
+                    this._kickAssistantStreamDisplay();
                     break;
                 case "tool_call":
                     oCurrentMsg.toolCalls.push({
@@ -378,7 +492,13 @@ sap.ui.define([
                         // Refresh session list
                         this.getView().getModel().refresh();
                     }
-                    this._finalizeStream();
+                    // Defer so display RAF runs before _finalizeStream cancels pending frames (same sync batch as many tokens + done).
+                    window.setTimeout(
+                        function () {
+                            this._finalizeStream(false);
+                        }.bind(this),
+                        0
+                    );
                     break;
                 case "error":
                     MessageToast.show("Error: " + oEvent.message, {
@@ -386,7 +506,12 @@ sap.ui.define([
                         my: "center top",
                         offset: "0 100"
                     });
-                    this._finalizeStream();
+                    window.setTimeout(
+                        function () {
+                            this._finalizeStream(false);
+                        }.bind(this),
+                        0
+                    );
                     break;
             }
         },
@@ -401,7 +526,27 @@ sap.ui.define([
             }, 0);
         },
 
-        _finalizeStream: function () {
+        /**
+         * @param {boolean} [bForce] when true, skip waiting for stream display to catch up (e.g. Stop).
+         */
+        _finalizeStream: function (bForce) {
+            bForce = !!bForce;
+            var aMessagesEarly = this._oChatModel.getProperty("/messages");
+            var oMsgEarly = aMessagesEarly[aMessagesEarly.length - 1];
+            if (!bForce && oMsgEarly && oMsgEarly.role === "assistant") {
+                var sFullEarly = oMsgEarly.content || "";
+                var nShown =
+                    typeof oMsgEarly.streamShownLength === "number" ? oMsgEarly.streamShownLength : 0;
+                if (sFullEarly.length > 0 && nShown < sFullEarly.length) {
+                    window.requestAnimationFrame(
+                        function () {
+                            this._finalizeStream(false);
+                        }.bind(this)
+                    );
+                    return;
+                }
+            }
+            this._cancelAssistantStreamDisplay();
             this._oChatModel.setProperty("/isStreaming", false);
             this.byId("sendBtn").setVisible(true);
             this.byId("stopBtn").setVisible(false);
@@ -410,8 +555,13 @@ sap.ui.define([
             const oCurrentMsg = aMessages[aMessages.length - 1];
             if (oCurrentMsg && oCurrentMsg.role === "assistant") {
                 oCurrentMsg.bubbleClass = "agentBubble";
-                oCurrentMsg.contentHtml = this._markdownToHtml(oCurrentMsg.content || "");
+                var sFull = oCurrentMsg.content || "";
+                oCurrentMsg.streamShownLength = sFull.length;
+                oCurrentMsg.streamVisibleText = sFull;
+                oCurrentMsg.assistantUsePlainText = false;
+                oCurrentMsg.contentHtml = this._markdownToHtml(sFull);
                 this._oChatModel.setProperty("/messages", aMessages);
+                this._scrollToBottom();
             }
             this._abortController = null;
         },
@@ -427,6 +577,8 @@ sap.ui.define([
             let sAssistant = "";
             if (oCurrentMsg && oCurrentMsg.role === "assistant") {
                 oCurrentMsg.content += " [stopped]";
+                oCurrentMsg.streamVisibleText = oCurrentMsg.content;
+                oCurrentMsg.assistantUsePlainText = false;
                 oCurrentMsg.contentHtml = this._markdownToHtml(oCurrentMsg.content);
                 sAssistant = oCurrentMsg.content;
                 this._oChatModel.setProperty("/messages", aMessages);
@@ -440,15 +592,12 @@ sap.ui.define([
                 assistantContent: sAssistant
             };
 
-            this._finalizeStream();
+            this._finalizeStream(true);
 
             fetch("/api/chat/save-partial", {
                 method: "POST",
                 credentials: "include",
-                headers: Object.assign(
-                    { "Content-Type": "application/json" },
-                    DevAuth.authorizationHeaders()
-                ),
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(oBody)
             })
                 .then((res) => {

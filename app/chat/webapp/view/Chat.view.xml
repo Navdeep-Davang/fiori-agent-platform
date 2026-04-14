@@ -113,8 +113,16 @@
                                                         </layoutData>
                                                         <Text text="{chatModel>content}" wrapping="true" class="chatMessageContent"
                                                               visible="{= ${chatModel>role} === 'user' }" />
+                                                        <!-- Streaming: sap.m.Text (binds reliably). Final/history: core:HTML markdown — HTML control replaces DOM each tick and hides typing (OpenUI5 #3459). -->
                                                         <VBox width="100%" visible="{= ${chatModel>role} === 'assistant' }" class="chatMessageHtmlWrap">
-                                                            <core:HTML content="{chatModel>contentHtml}" preferDOM="false" sanitizeContent="false" />
+                                                            <Text text="{chatModel>streamVisibleText}"
+                                                                  wrapping="true"
+                                                                  visible="{= ${chatModel>assistantUsePlainText} === true }"
+                                                                  class="chatMessageContent chatMessageStreamPlain" />
+                                                            <core:HTML content="{chatModel>contentHtml}"
+                                                                       preferDOM="false"
+                                                                       sanitizeContent="false"
+                                                                       visible="{= ${chatModel>assistantUsePlainText} !== true }" />
                                                         </VBox>
                                                         <VBox visible="{= !!${chatModel>toolCalls} &amp;&amp; ${chatModel>toolCalls}.length > 0 }">
                                                             <core:Fragment fragmentName="acp.chat.fragment.ToolTrace" type="XML" />

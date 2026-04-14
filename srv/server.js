@@ -187,7 +187,6 @@ function safeJson(s) {
   }
 }
 
-const mockedUsers = require('@sap/cds/lib/srv/middlewares/auth/mocked-users')
 const { forwardHeadersForPython } = require('./python-trust')
 
 cds.on('bootstrap', app => {
@@ -195,39 +194,21 @@ cds.on('bootstrap', app => {
   app.use('/api', express.json())
 
   const kind = cds.requires.auth?.kind
-  const dummyAllowed = kind === 'dummy' && process.env.ACP_USE_DUMMY_AUTH === 'true'
   const useJwt = kind === 'xsuaa' || kind === 'jwt' || kind === 'ias'
 
-  if (kind === 'dummy' && !dummyAllowed) {
+  if (!useJwt) {
     app.use('/api', (req, res) => {
-      res.status(401).json({
-        error:
-          'Dummy auth disabled. Set ACP_USE_DUMMY_AUTH=true for local Basic auth, or use `cds watch --profile hybrid` with XSUAA (`cds bind`). See README.'
+      res.status(503).json({
+        error: 'Configure cds.requires.auth to xsuaa, jwt, or ias (bind XSUAA for local hybrid).'
       })
     })
-  } else if (dummyAllowed) {
-    const userStore = mockedUsers(cds.env.requires.auth)
-    app.use('/api', cds.middlewares.context())
-    app.use('/api', (req, res, next) => {
-      const auth = req.headers.authorization
-      if (!auth?.match(/^basic/i)) {
-        return res.set('WWW-Authenticate', 'Basic realm="Users"').status(401).end()
-      }
-      const [id, pwd] = Buffer.from(auth.slice(6), 'base64').toString().split(':')
-      const u = userStore.verify(id, pwd)
-      if (u.failed) return res.status(401).json({ error: u.failed })
-      req.user = u
-      const ctx = cds.context
-      if (ctx) ctx.user = u
-      next()
-    })
-  } else if (useJwt) {
+  } else {
     app.use('/api', cds.middlewares.context())
     app.use('/api', cds.middlewares.auth())
     app.use('/api', (req, res, next) => {
       req.user = cds.context.user
       if (!req.user) return res.status(401).json({ error: 'Unauthorized' })
-      // Dev-only JWT log (keep commented in production):
+      // Dev-only JWT log — set ACP_LOG_JWT=true in .env; never enable in production.
       // if (process.env.ACP_LOG_JWT === 'true' || process.env.ACP_LOG_JWT === '1') {
       //   const h = getAuthHeader(req)
       //   const m = h.match(/^Bearer\s+(.+)$/i)

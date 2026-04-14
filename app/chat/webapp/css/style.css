@@ -598,6 +598,18 @@ html.sap-desktop .sapUiBody,
     color: var(--sapTextColor);
 }
 
+/* Live streaming uses sap.m.Text (not core:HTML) so partial text repaints every frame */
+.acpChatShell .chatMessageStreamPlain.sapMText,
+.acpChatShell .chatMessageStreamPlain.sapMText .sapMText {
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    color: var(--sapTextColor);
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+}
+
 /* Session sidebar: title + meta + delete */
 .acpSessionList.sapMList .acpSessionListItem.sapMLIB {
     padding-left: 0.25rem;

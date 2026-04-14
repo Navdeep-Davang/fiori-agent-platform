@@ -139,7 +139,8 @@ async def _replay_cap_history(
 
 
 def _iter_token_sse_lines(text: str):
-    step = 32
+    """Split ADK partial text into small SSE chunks so the UI can paint incrementally."""
+    step = 4
     for i in range(0, len(text), step):
         chunk = text[i : i + step]
         yield f'data: {json.dumps({"type": "token", "content": chunk})}\n\n'

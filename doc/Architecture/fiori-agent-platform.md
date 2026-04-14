@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-Agent Control Plane is a governance and chat product running on SAP BTP Cloud Foundry. It consists of two SAPUI5 frontend apps (`app/admin/` for Fiori Elements governance screens, `app/chat/` for freestyle streaming chat), an `@sap/approuter` OAuth2 gateway, a CAP Node.js service (`srv/`) that exposes OData V4 endpoints for all governed entities plus custom SSE routes in `server.js`, and a separate FastAPI Python service (`python/`) that runs LLM inference and MCP tool calls. SAP HANA Cloud (HDI container) is the sole datastore. **On Cloud Foundry**, authentication is **XSUAA** (JWT, role collections, scopes). **Hybrid profile (`cds watch --profile hybrid`)** uses **real XSUAA and HANA** via **`cds bind`** (prod-like JWT and roles on the laptop); optional **`development`** profile can use **CAP dummy** auth with **`ACP_USE_DUMMY_AUTH=true`** for Basic-only flows — see **ADR-7** and `doc/Action-Plan/05-cap-public-python-private-production-path.md`. All components deploy as a single MTA on Cloud Foundry.
+Agent Control Plane is a governance and chat product running on SAP BTP Cloud Foundry. It consists of two SAPUI5 frontend apps (`app/admin/` for Fiori Elements governance screens, `app/chat/` for freestyle streaming chat), an `@sap/approuter` OAuth2 gateway, a CAP Node.js service (`srv/`) that exposes OData V4 endpoints for all governed entities plus custom SSE routes in `server.js`, and a separate FastAPI Python service (`python/`) that runs LLM inference and MCP tool calls. SAP HANA Cloud (HDI container) is the sole datastore. **On Cloud Foundry** and in **hybrid** local development, authentication is **XSUAA** (JWT, role collections, scopes) via **`cds bind`** — see **ADR-7** and `doc/Action-Plan/05-cap-public-python-private-production-path.md`. All components deploy as a single MTA on Cloud Foundry.
 
 ---
 
@@ -717,13 +717,11 @@ cd python && uvicorn app.main:app --reload --port 8000
 
 ### Local dev database + auth (Spectrum 1)
 
-**Hybrid (`[hybrid]`):** **`auth.kind = "xsuaa"`** — use **`cds bind`** to XSUAA + HANA, **`npm run watch`**, and the **App Router** for login (JWT to CAP). **Optional `[development]` + `ACP_USE_DUMMY_AUTH=true`:** CAP **`auth["[development]"].kind = "dummy"`** defines **named users** (`alice`, …) with **Basic** auth; the UI sets **`localStorage.acpUseDummyAuth = "true"`** to send **`Authorization: Basic …`**. This is **not** an open bypass—it replaces **XSUAA** only for that profile.
+**Hybrid and development profiles:** **`auth.kind = "xsuaa"`** — use **`cds bind`** to XSUAA + HANA, **`npm run watch`**, and the **App Router** for login (JWT to CAP). The Fiori apps use same-origin **`fetch`** with **`credentials: "include"`** through the App Router (no Basic auth).
 
-**HANA** stores governance and chat data only. It has **no** “login table” for alice/bob. Seeds define **`AgentGroup` / `AgentGroupClaimValue` / `AgentGroupAgent`** (claim key **`dept`**, values like `it`, `procurement`, `finance`). **`server.js`** resolves allowed agents by matching **`user.attr.dept`** to those rows—the **same idea** as production, where **`dept`** will come from a JWT claim (IAS → XSUAA). Demo CSVs may mention emails (e.g. `bob@acme.com` on a PO line) as **business data**, not as the auth identity store.
+**HANA** stores governance and chat data only. It has **no** separate “login table” for end users beyond what your app persists. Seeds define **`AgentGroup` / `AgentGroupClaimValue` / `AgentGroupAgent`** (claim key **`dept`**, values like `it`, `procurement`, `finance`). **`server.js`** resolves allowed agents by matching **`user.attr.dept`** (and related JWT attributes) to those rows—the **same idea** as production, where **`dept`** comes from a JWT claim (IAS → XSUAA). Demo CSVs may mention emails (e.g. `bob@acme.com` on a PO line) as **business data**, not as the auth identity store.
 
-**Chat UI with dummy profile:** `DevAuth.js` adds **`Authorization: Basic …`** only when **`localStorage.acpUseDummyAuth === "true"`** (and **`acpDevUser` / `acpDevPass`**). **Default (XSUAA):** same-origin **`fetch`** with **`credentials: "include"`** through the App Router—no Basic header.
-
-**SOP (local multi-user / hybrid HANA):** (1) **`cf login`**, **`cds bind db --to <HDI instance>`**, **`npm run deploy:hana`**, **`npm run watch`** — use the **`server listening on` URL** from the console (avoid a stale process on another port). (2) Fill **`.env`** **`HANA_*`** for Python if you use SQL tools. (3) To test **different agent visibility**, set **`localStorage`** to **`bob`/`bob`** or **`carol`/`carol`** (matches seeded **`dept`** claim values) and reload. (4) **Production path:** XSUAA + IAS + BTP role collections; map **`dept`** into the token as in Action Plan 02.
+**SOP (local / hybrid HANA):** (1) **`cf login`**, **`cds bind db --to <HDI instance>`**, **`npm run deploy:hana`**, **`npm run watch`** — use the **`server listening on` URL** from the console (avoid a stale process on another port). (2) Fill **`.env`** **`HANA_*`** for Python if you use SQL tools. (3) To test **different agent visibility**, sign in as users whose JWT carries different **`dept`** (or mapped) values per your IAS/XSUAA setup. (4) **Production path:** XSUAA + IAS + BTP role collections; map **`dept`** into the token as in Action Plan 02.
 
 Further checklist: **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**, CAP auth overview: [Authentication | capire](https://cap.cloud.sap/docs/node.js/authentication).
 
@@ -971,10 +969,10 @@ Role templates use an **`ACP`** suffix (**`AgentUserACP`**, **`AgentAuthorACP`**
 
 ---
 
-### ADR-7: Spectrum 1 — dummy auth + live HANA (local only)
+### ADR-7: Spectrum 1 — XSUAA + live HANA (local hybrid)
 
-**Decision:** **Default hybrid** (`cds.requires.auth["[hybrid]"]`) is **`xsuaa`** with **`cds bind`** to a real XSUAA instance (see Action Plan **05**). **Optional** **`[development]`** profile retains **`kind: "dummy"`** users in **`package.json`** for Basic-only runs when **`ACP_USE_DUMMY_AUTH=true`** on CAP. **`cds.requires.db["[hybrid]"].kind = "hana"`** stays bound to **real** SAP HANA Cloud (HDI).
+**Decision:** **`cds.requires.auth["[hybrid]"]`** and **`["[development]"]`** use **`xsuaa`** with **`cds bind`** to a real XSUAA instance (see Action Plan **05**). **`cds.requires.db["[hybrid]"].kind = "hana"`** is bound to **SAP HANA Cloud** (HDI).
 
-**Rationale:** CAP supports **`cds bind`** so hybrid matches **production JWT and roles** before CF deploy. **Dummy** remains available for quick UI tests without OAuth. The database and seeds are **production-shaped**; switching identity mode does not change HANA schema. Historical Spectrum 1 notes live in **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**.
+**Rationale:** CAP **`cds bind`** lets local hybrid match **production JWT and roles** before CF deploy. The database and seeds are **production-shaped**. Historical Spectrum 1 notes live in **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**.
 
-**Operational note:** With **XSUAA**, open the **App Router** URL (same-origin **`/api`** + session cookie; no Basic header). For **dummy** + **`ACP_USE_DUMMY_AUTH`**, set **`localStorage.acpUseDummyAuth = "true"`** and use **`acpDevUser` / `acpDevPass`** for Basic. See README and §9 **SOP** where still relevant.
+**Operational note:** Open the **App Router** URL (same-origin **`/api`** + session cookie; forwarded Bearer token to CAP). See README and §9 **SOP**.

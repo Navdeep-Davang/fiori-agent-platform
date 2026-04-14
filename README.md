@@ -1,6 +1,6 @@
 # Fiori Agent Platform
 
-SAP BTP–based agent control plane: CAP backend, Fiori UIs, Python LLM executor, and MCP tooling. Detailed design lives in [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md). **Hybrid** (`npm run watch`) uses **SAP HANA Cloud** and **real XSUAA** via **`cds bind`** (JWT and BTP roles, prod-like identity on your machine). Optional **`development`** profile + **`ACP_USE_DUMMY_AUTH=true`** keeps Basic dummy users for quick tests. See [`doc/Action-Plan/05-cap-public-python-private-production-path.md`](doc/Action-Plan/05-cap-public-python-private-production-path.md), [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md), [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md), and [`doc/Action-Plan/02-btp-cockpit-setup.md`](doc/Action-Plan/02-btp-cockpit-setup.md).
+SAP BTP–based agent control plane: CAP backend, Fiori UIs, Python LLM executor, and MCP tooling. Detailed design lives in [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md). **Hybrid** (`npm run watch`) uses **SAP HANA Cloud** and **XSUAA** via **`cds bind`** (JWT and BTP roles, prod-like identity on your machine). See [`doc/Action-Plan/05-cap-public-python-private-production-path.md`](doc/Action-Plan/05-cap-public-python-private-production-path.md), [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md), [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md), and [`doc/Action-Plan/02-btp-cockpit-setup.md`](doc/Action-Plan/02-btp-cockpit-setup.md).
 
 ---
 
@@ -127,7 +127,7 @@ For a dev loop **without** XSUAA (no login), use **`npm run start:local`** in **
 
 ### Where to open the UI
 
-- **Recommended (XSUAA):** App Router entry — **http://localhost:5000/chat/webapp/** or **http://localhost:5000/chat** (same app). Use **http**, not **https**, unless you terminate TLS locally. Fiori uses same-origin **`fetch("/api/...")`** with **`credentials: "include"`**; do **not** send Basic headers unless you explicitly enabled dummy auth (below).
+- **Recommended (XSUAA):** App Router entry — **http://localhost:5000/chat/webapp/** or **http://localhost:5000/chat** (same app). Use **http**, not **https**, unless you terminate TLS locally. Fiori uses same-origin **`fetch("/api/...")`** with **`credentials: "include"`** so the App Router session forwards the OAuth access token to CAP.
 - **Log out:** Use **Log out** in the chat sidebar (confirm dialog). That navigates to the Application Router **`logout`** endpoint configured in **`approuter/xs-app.json`**, which ends the **app-router session** and the **identity provider** session (XSUAA/IAS), then returns you to the chat entry URL so you can sign in again—not merely clearing `localStorage`. The **`logout`** block must exist in **`xs-app.json`** (otherwise **`/logout`** returns 404). After changing **`oauth2-configuration.post-logout-redirect-uris`** in **`xs-security.json`**, run **`cf update-service <xsuaa-instance> -c xs-security.json`** (or redeploy MTA) so the broker accepts the post-logout URL. See [Configure redirect URLs for browser logout](https://github.com/SAP-docs/btp-cloud-platform/blob/main/docs/30-development/configure-redirect-urls-for-browser-logout-690931c.md).
 - **CAP only** (when CAP serves the UI5 resources from `app/`): **http://localhost:4004/chat/webapp/index.html**. If that URL does not resolve, run the chat app with the UI5 CLI instead:
 
@@ -136,8 +136,6 @@ cd app/chat && npx ui5 serve --port 3002
 ```
 
 (proxies `/api` and OData to CAP on **4004**; see [`app/chat/ui5.yaml`](app/chat/ui5.yaml)).
-
-**Optional dummy auth (no XSUAA):** use **`cds watch --profile development`**, set environment **`ACP_USE_DUMMY_AUTH=true`** for CAP, and in the browser set **`localStorage.acpUseDummyAuth = "true"`** plus **`acpDevUser` / `acpDevPass`** (defaults **`alice`/`alice`**). **`cds.requires.auth["[development]"]`** in root [`package.json`](package.json) defines users. Deeper verification steps are in [`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`](doc/Action-Plan/04-hybrid-hana-spectrum-1.md), [`doc/Action-Plan/01-application-implementation.md`](doc/Action-Plan/01-application-implementation.md), and [`doc/Architecture/fiori-agent-platform.md`](doc/Architecture/fiori-agent-platform.md).
 
 ---
 
