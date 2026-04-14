@@ -610,6 +610,55 @@ html.sap-desktop .sapUiBody,
     max-width: 100%;
 }
 
+/* Three-dot “typing” pulse while waiting for first SSE chunk (left-aligned under assistant bubble) */
+.acpChatShell .acpTypingIndicatorHost {
+    display: block;
+    min-height: 1.5rem;
+    margin: 0;
+    padding: 0.125rem 0 0.25rem;
+}
+
+.acpChatShell .acpTypingIndicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 1.25rem;
+}
+
+.acpChatShell .acpTypingIndicator span {
+    display: inline-block;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background-color: var(--sapContent_LabelColor, #6a6d70);
+    animation: acpTypingBounce 1.25s ease-in-out infinite both;
+}
+
+.acpChatShell .acpTypingIndicator span:nth-child(1) {
+    animation-delay: 0ms;
+}
+
+.acpChatShell .acpTypingIndicator span:nth-child(2) {
+    animation-delay: 160ms;
+}
+
+.acpChatShell .acpTypingIndicator span:nth-child(3) {
+    animation-delay: 320ms;
+}
+
+@keyframes acpTypingBounce {
+    0%,
+    80%,
+    100% {
+        transform: translateY(0);
+        opacity: 0.45;
+    }
+    40% {
+        transform: translateY(-0.35rem);
+        opacity: 1;
+    }
+}
+
 /* Session sidebar: title + meta + delete */
 .acpSessionList.sapMList .acpSessionListItem.sapMLIB {
     padding-left: 0.25rem;

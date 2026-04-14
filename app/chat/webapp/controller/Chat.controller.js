@@ -285,7 +285,8 @@ sap.ui.define([
                 assistantUsePlainText: true,
                 justifyContent: "Start",
                 bubbleClass: "agentBubble streaming",
-                toolCalls: []
+                toolCalls: [],
+                waitingForFirstToken: true
             };
             aMessages.push(oAssistantMsg);
             this._oChatModel.setProperty("/messages", aMessages);
@@ -464,10 +465,12 @@ sap.ui.define([
                     if (!oCurrentMsg || oCurrentMsg.role !== "assistant") {
                         break;
                     }
+                    oCurrentMsg.waitingForFirstToken = false;
                     oCurrentMsg.content += oEvent.content;
                     this._kickAssistantStreamDisplay();
                     break;
                 case "tool_call":
+                    oCurrentMsg.waitingForFirstToken = false;
                     oCurrentMsg.toolCalls.push({
                         toolName: oEvent.toolName,
                         args: oEvent.args,
@@ -478,6 +481,7 @@ sap.ui.define([
                     this._scrollToBottom();
                     break;
                 case "tool_result":
+                    oCurrentMsg.waitingForFirstToken = false;
                     const oCall = oCurrentMsg.toolCalls.find(tc => tc.toolName === oEvent.toolName);
                     if (oCall) {
                         oCall.durationMs = oEvent.durationMs;
@@ -554,6 +558,7 @@ sap.ui.define([
             const aMessages = this._oChatModel.getProperty("/messages");
             const oCurrentMsg = aMessages[aMessages.length - 1];
             if (oCurrentMsg && oCurrentMsg.role === "assistant") {
+                oCurrentMsg.waitingForFirstToken = false;
                 oCurrentMsg.bubbleClass = "agentBubble";
                 var sFull = oCurrentMsg.content || "";
                 oCurrentMsg.streamShownLength = sFull.length;

@@ -115,9 +115,17 @@
                                                               visible="{= ${chatModel>role} === 'user' }" />
                                                         <!-- Streaming: sap.m.Text (binds reliably). Final/history: core:HTML markdown — HTML control replaces DOM each tick and hides typing (OpenUI5 #3459). -->
                                                         <VBox width="100%" visible="{= ${chatModel>role} === 'assistant' }" class="chatMessageHtmlWrap">
+                                                            <HBox visible="{= ${chatModel>waitingForFirstToken} === true }"
+                                                                  alignItems="Center"
+                                                                  class="acpTypingIndicatorHost"
+                                                                  accessibleName="{i18n>typingIndicatorAria}">
+                                                                <core:HTML preferDOM="false"
+                                                                           sanitizeContent="false"
+                                                                           content="&lt;div class=&quot;acpTypingIndicator&quot; role=&quot;presentation&quot;&gt;&lt;span&gt;&lt;/span&gt;&lt;span&gt;&lt;/span&gt;&lt;span&gt;&lt;/span&gt;&lt;/div&gt;" />
+                                                            </HBox>
                                                             <Text text="{chatModel>streamVisibleText}"
                                                                   wrapping="true"
-                                                                  visible="{= ${chatModel>assistantUsePlainText} === true }"
+                                                                  visible="{= ${chatModel>assistantUsePlainText} === true &amp;&amp; !!${chatModel>streamVisibleText} }"
                                                                   class="chatMessageContent chatMessageStreamPlain" />
                                                             <core:HTML content="{chatModel>contentHtml}"
                                                                        preferDOM="false"
