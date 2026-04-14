@@ -35,7 +35,7 @@ sap.ui.define([
             });
             this.getView().setModel(this._oChatModel, "chatModel");
 
-            this._oAgentsModel = new JSONModel({ agents: [] });
+            this._oAgentsModel = new JSONModel({ agents: [], agentsLoading: true });
             this.getView().setModel(this._oAgentsModel, "agentsModel");
 
             this._sSessionId = null;
@@ -46,10 +46,6 @@ sap.ui.define([
             setTimeout(function () {
                 this._loadAgents();
             }.bind(this), 150);
-
-            setTimeout(function () {
-                this._logIdentityDebug();
-            }.bind(this), 0);
 
             var oSessionList = this.byId("sessionList");
             if (oSessionList) {
@@ -73,61 +69,8 @@ sap.ui.define([
             });
         },
 
-        /**
-         * Always logs identity/JWT debug info to browser console on load.
-         * Full claim dump + raw access JWT require ACP_DEBUG_IDENTITY=true on CAP.
-         * This path always requests ?acpLogToken=1 so the token is returned for local decode (dev only — do not share).
-         * Optional: still use ?acpLogToken=0 to suppress token in /api/me if you add that server-side later.
-         */
-        _logIdentityDebug: function () {
-            var q = new URLSearchParams(window.location.search);
-            var suppressToken = q.get("acpLogToken") === "0";
-            var url = "/api/me" + (suppressToken ? "" : "?acpLogToken=1");
-            fetch(url, {
-                credentials: "include",
-                headers: Object.assign({}, DevAuth.authorizationHeaders())
-            })
-                .then(function (res) {
-                    return res.json().then(function (body) {
-                        if (!res.ok) {
-                            throw new Error(body && body.error ? body.error : "HTTP " + res.status);
-                        }
-                        return body;
-                    });
-                })
-                .then(function (data) {
-                    if (data.debug) {
-                        console.group("[acp] identity on login");
-                        console.info("xsUserAttributes:", data.debug.xsUserAttributes);
-                        console.info("gatedDeptEffective:", data.debug.gatedDeptEffective);
-                        console.info("claimPairs:", data.debug.claimPairs);
-                        console.info("capUserAttr:", data.debug.capUserAttr);
-                        console.info("jwtTopLevelClaimKeys:", data.debug.jwtTopLevelClaimKeys);
-                        console.info("full debug:", data.debug);
-                        console.groupEnd();
-                    } else {
-                        console.group("[acp] identity on login (no debug — set ACP_DEBUG_IDENTITY=true in .env)");
-                        console.info("id:", data.id);
-                        console.info("roles:", data.roles);
-                        console.info("attrKeys:", data.attrKeys);
-                        console.info("deptEffective:", data.deptEffective);
-                        console.groupEnd();
-                    }
-                    if (data.accessToken) {
-                        console.warn("[acp] raw access JWT (dev only — do not share):", data.accessToken);
-                        console.log("[acp] JWT length:", data.accessToken.length);
-                    } else if (data.debug && !suppressToken) {
-                        console.warn(
-                            "[acp] no accessToken in /api/me — set ACP_DEBUG_IDENTITY=true on CAP, or use ?acpLogToken=0 if you disabled token echo."
-                        );
-                    }
-                })
-                .catch(function (err) {
-                    console.warn("[acp] /api/me identity debug failed", err);
-                });
-        },
-
         _loadAgents: function () {
+            this._oAgentsModel.setProperty("/agentsLoading", true);
             fetch("/api/agents", {
                 credentials: "include",
                 headers: Object.assign({}, DevAuth.authorizationHeaders())
@@ -142,19 +85,20 @@ sap.ui.define([
                 })
                 .then(function (data) {
                     var list = Array.isArray(data) ? data : (data.agents || []);
-                    this._oAgentsModel.setData({ agents: list });
+                    this._oAgentsModel.setData({ agents: list, agentsLoading: false });
                     if (list.length > 0) {
                         this.byId("agentSelect").setSelectedKey(list[0].id);
                     }
                 }.bind(this))
                 .catch(function (err) {
                     console.error("Failed to load agents", err);
+                    this._oAgentsModel.setData({ agents: [], agentsLoading: false });
                     MessageToast.show("Failed to load agents", {
                         at: "center top",
                         my: "center top",
                         offset: "0 100"
                     });
-                });
+                }.bind(this));
         },
 
         onAgentChange: function (oEvent) {

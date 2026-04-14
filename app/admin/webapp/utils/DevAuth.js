@@ -14,14 +14,8 @@ sap.ui.define([], function () {
         return { Authorization: "Basic " + btoa(u + ":" + p) };
     }
 
-    function basicAuthorizationValue() {
-        var h = authorizationHeaders();
-        return h.Authorization || "";
-    }
-
     return {
         useDummyAuth: useDummyAuth,
-        authorizationHeaders: authorizationHeaders,
-        basicAuthorizationValue: basicAuthorizationValue
+        authorizationHeaders: authorizationHeaders
     };
 });

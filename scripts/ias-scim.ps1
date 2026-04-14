@@ -28,8 +28,8 @@
   UserOidcClaims — Resource Owner Password grant (if enabled on tenant) + decode JWT + optional UserInfo.
   Set IAS_ROPC_USER and IAS_ROPC_PASSWORD in .env (gitignored). Never commit passwords.
   Prints a summary: whether top-level claims include `dept` vs `customAttribute1` (IAS often keeps the directory name).
-  For the subscribed app JWT, verify `xs.user.attributes.dept` via GET /api/me (ACP_DEBUG_IDENTITY) — that is XSUAA, not raw IAS.
-  If ROPC is disabled, use browser Network tab id_token or CAP /api/me debug instead.
+  For the subscribed app JWT, verify `xs.user.attributes.dept` by decoding the access token (browser Network tab for a CAP request, or scripts/decode-jwt.ps1) — that is XSUAA, not raw IAS.
+  If ROPC is disabled, use browser Network tab id_token or access token decode instead.
 #>
 param(
   [ValidateSet('ListUsers', 'ListGroups', 'Token', 'GetUser', 'CreateUser', 'SetPassword', 'OpenIdMetadata', 'UserOidcClaims')]

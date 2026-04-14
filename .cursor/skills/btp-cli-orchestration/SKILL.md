@@ -20,7 +20,7 @@ description: Orchestrates SAP BTP subaccount security via scripts/btp-platform.p
 
 **How to verify (terminal-adjacent):** After login, the **access token** is authoritative. Decode it (e.g. copy `Authorization: Bearer …` from the browser Network tab for a CAP request, or use a **jwt** decoder). **Inspect `xs.user.attributes`** (and `dept` after mapping). **`btp list security/trust`** confirms **trust** and **origin** but **not** JWT claims.
 
-**This repo:** Set **`ACP_DEBUG_IDENTITY=true`** on CAP and call **`GET /api/me`** — the JSON includes **`debug`** (claim keys, `xs.user.attributes`, `claimPairs`). In the browser, enable **`?acpIdentityDebug=1`** or **`localStorage.acpIdentityDebug=1`** so the UI logs **`/api/me`** to the console.
+**This repo:** Decode the access token after login (browser Network tab for a CAP request, or **`scripts/decode-jwt.ps1`**). Inspect **`xs.user.attributes`** and claim pairs.
 
 **Yes — role collection assignment is what the BTP CLI is for** (among other security operations). Authoritative syntax evolves; run **`btp help assign security/role-collection`** before scripting.
 

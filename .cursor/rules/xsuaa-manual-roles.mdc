@@ -70,7 +70,7 @@ This can **automatically** assign collections at login when **`xs.user.attribute
 ## Verify
 
 - Decode the **XSUAA access token** (after App Router login): **`xs.user.attributes.dept`** present with expected codes.
-- Locally: **`scripts/decode-jwt.ps1`**, or **`GET /api/me?acpLogToken=1`** with **`ACP_DEBUG_IDENTITY=true`** (dev only; do not leak tokens).
+- Locally: **`scripts/decode-jwt.ps1`**, or copy **`Authorization: Bearer …`** from the browser Network tab for a CAP request and decode the JWT (do not leak tokens).
 
 ---
 

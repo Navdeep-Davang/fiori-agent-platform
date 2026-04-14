@@ -110,6 +110,10 @@ function attrForAgentGating(user, authHeader) {
   return raw
 }
 
+/**
+ * Flat (key,value) pairs from merged CAP user.attr + JWT `xs.user.attributes` (e.g. dept → procurement).
+ * `/api/agents` allows an agent only if some pair matches `AgentGroup.claimKey` + `AgentGroupClaimValue.value` (case-insensitive).
+ */
 function claimPairs(user, authHeader) {
   const attr = attrForAgentGating(user, authHeader)
   const out = []
@@ -118,53 +122,6 @@ function claimPairs(user, authHeader) {
     for (const val of Array.isArray(v) ? v : [v]) out.push({ key, value: String(val) })
   }
   return out
-}
-
-function identityDebugEnabled() {
-  return process.env.ACP_DEBUG_IDENTITY === 'true' || process.env.ACP_DEBUG_IDENTITY === '1'
-}
-
-function maskSubject(sub) {
-  if (!sub || typeof sub !== 'string') return null
-  return sub.length <= 12 ? `${sub.slice(0, 3)}…` : `${sub.slice(0, 8)}…`
-}
-
-/** Safe structured snapshot for troubleshooting IAS → XSUAA `dept` (enable with ACP_DEBUG_IDENTITY). */
-function buildIdentityDebug(user, authHeader) {
-  const payload = decodeJwtPayloadFromBearer(authHeader)
-  const gated = attrForAgentGating(user, authHeader)
-  const pairs = claimPairs(user, authHeader)
-  const xs = payload && (payload['xs.user.attributes'] || payload['xs_user_attributes'])
-  const xsKeys = xs && typeof xs === 'object' ? Object.keys(xs) : []
-  const xsCopy = xs && typeof xs === 'object' ? { ...xs } : null
-  let jwtKeys = []
-  if (payload) {
-    jwtKeys = Object.keys(payload).filter(k => k !== 'xs.user.attributes' && k !== 'xs_user_attributes')
-  }
-  let hint = null
-  if (!payload && !pairs.length) {
-    hint =
-      'Bearer JWT not decoded from this request (no Authorization / x-forwarded-access-token). App Router should forward the token to CAP.'
-  } else if (!xsKeys.length && !pairs.length) {
-    hint =
-      'No xs.user.attributes and no claim pairs after gating — configure BTP Trust / role attribute mapping from IAS (e.g. customAttribute1 → dept). Use GetUser via scripts/ias-scim.ps1 to confirm IAS stores the attribute.'
-  }
-  return {
-    bearerPresent: !!authHeader,
-    jwtDecoded: !!payload,
-    jwtTopLevelClaimKeys: jwtKeys,
-    maskedSubject: maskSubject(user?.id),
-    capUserAttrKeys: Object.keys(user?.attr || {}),
-    capUserAttr: user?.attr && typeof user.attr === 'object' ? { ...user.attr } : {},
-    xsUserAttributesKeys: xsKeys,
-    xsUserAttributes: xsCopy,
-    claimPairs: pairs,
-    gatedDeptEffective: deptValueEmpty(gated.dept)
-      ? null
-      : String(Array.isArray(gated.dept) ? gated.dept[0] : gated.dept).trim(),
-    gatedAttrKeys: Object.keys(gated),
-    hint
-  }
 }
 
 async function allowedAgentIdsForUser(user, authHeader) {
@@ -191,58 +148,8 @@ async function allowedAgentIdsForUser(user, authHeader) {
   return ids
 }
 
-/**
- * Hybrid dev fallback: list all Active agents only for **dummy** auth when claims match nothing.
- * For **xsuaa/jwt/ias**, do not list every agent unless `ACP_HYBRID_XSUAA_AGENT_FALLBACK=true` (dev escape hatch).
- */
-function hybridAgentFallbackEnabled() {
-  if (process.env.ACP_STRICT_AGENT_GATING === 'true') return false
-  const profiles = cds.env.profiles || []
-  const envHybrid = (process.env.CDS_ENV || '')
-    .split(',')
-    .map(s => s.trim())
-    .includes('hybrid')
-  const isHybrid = profiles.includes('hybrid') || envHybrid
-  if (!isHybrid) return false
-  const kind = cds.requires.auth?.kind
-  if (kind === 'dummy') return true
-  if (kind === 'xsuaa' || kind === 'jwt' || kind === 'ias') {
-    return process.env.ACP_HYBRID_XSUAA_AGENT_FALLBACK === 'true'
-  }
-  return false
-}
-
-let _warnedHybridAgentFallback = false
-
-async function allActiveAgentIds(db) {
-  const rows = await db.run(`SELECT ID FROM acp_Agent WHERE status = 'Active'`)
-  return new Set((rows || []).map(r => r.ID ?? r.id))
-}
-
-/**
- * Group/claim-based IDs when data is deployed; otherwise in hybrid+dummy only, all Active agents
- * (so the chat UI works until `npm run deploy:hana` loads CSV seeds).
- */
-async function resolvedAllowedAgentIdsForUser(user, precomputedClaimIds, authHeader) {
-  const ids = precomputedClaimIds != null ? precomputedClaimIds : await allowedAgentIdsForUser(user, authHeader)
-  if (ids.size) return ids
-  if (!hybridAgentFallbackEnabled()) return ids
-  const db = await cds.connect.to('db')
-  const all = await allActiveAgentIds(db)
-  if (!all.size) return ids
-  if (!_warnedHybridAgentFallback) {
-    _warnedHybridAgentFallback = true
-    console.warn(
-      '[acp] hybrid: no AgentGroup match for user attributes; listing all Active agents (dummy or ACP_HYBRID_XSUAA_AGENT_FALLBACK). ' +
-        'For XSUAA users, set IAS/BTP attribute mapping so JWT includes `dept` matching `acp-AgentGroupClaimValue`. ' +
-        'Set ACP_STRICT_AGENT_GATING=true to disable fallback.'
-    )
-  }
-  return all
-}
-
 async function userMayUseAgent(user, agentId, authHeader) {
-  const ids = await resolvedAllowedAgentIdsForUser(user, null, authHeader)
+  const ids = await allowedAgentIdsForUser(user, authHeader)
   return ids.has(agentId)
 }
 
@@ -320,63 +227,27 @@ cds.on('bootstrap', app => {
     app.use('/api', (req, res, next) => {
       req.user = cds.context.user
       if (!req.user) return res.status(401).json({ error: 'Unauthorized' })
+      // Dev-only JWT log (keep commented in production):
+      // if (process.env.ACP_LOG_JWT === 'true' || process.env.ACP_LOG_JWT === '1') {
+      //   const h = getAuthHeader(req)
+      //   const m = h.match(/^Bearer\s+(.+)$/i)
+      //   if (m) console.info('[acp] CAP access JWT:\n' + m[1].trim())
+      // }
       next()
     })
   }
-
-  app.get('/api/me', async (req, res) => {
-    try {
-      const user = req.user
-      if (!user) return res.status(401).json({ error: 'Unauthorized' })
-      const authHeader = getAuthHeader(req)
-      const roles = user.roles ? Object.keys(user.roles).filter(k => k && user.roles[k]) : []
-      const pairs = claimPairs(user, authHeader)
-      const gated = attrForAgentGating(user, authHeader)
-      const origDept = user.attr?.dept
-      const de = gated.dept
-      const deptEffective = deptValueEmpty(de) ? null : String(Array.isArray(de) ? de[0] : de).trim()
-      const body = {
-        id: user.id,
-        roles,
-        attrKeys: Object.keys(user.attr || {}),
-        claimPairCount: pairs.length,
-        deptEffective,
-        deptMappedFromFallback: deptValueEmpty(origDept) && deptEffective != null && deptEffective !== ''
-      }
-      if (identityDebugEnabled()) {
-        body.debug = buildIdentityDebug(user, authHeader)
-        const wantToken =
-          req.query &&
-          (req.query.acpLogToken === '1' || String(req.query.acpLogToken).toLowerCase() === 'true')
-        if (wantToken) {
-          const m = authHeader.match(/^Bearer\s+(.+)$/i)
-          body.accessToken = m ? m[1].trim() : null
-          body._acpLogTokenNote =
-            'Dev only: raw access JWT for decode-jwt.ps1 / jwt.io. Do not paste into chat or commit logs. Rotate if leaked.'
-        }
-      }
-      res.json(body)
-    } catch (e) {
-      console.error(e)
-      res.status(500).json({ error: e.message })
-    }
-  })
 
   app.get('/api/agents', async (req, res) => {
     try {
       const user = req.user
       if (!user?.is?.('Agent.User')) return res.status(403).json({ error: 'Agent.User required' })
       const authHeader = getAuthHeader(req)
-      const idsFromClaims = await allowedAgentIdsForUser(user, authHeader)
-      const ids = await resolvedAllowedAgentIdsForUser(user, idsFromClaims, authHeader)
+      const ids = await allowedAgentIdsForUser(user, authHeader)
       const gated = attrForAgentGating(user, authHeader)
       const deptMissing = deptValueEmpty(gated.dept)
-      if (identityDebugEnabled()) {
-        console.info('[acp] identity-debug /api/agents', JSON.stringify(buildIdentityDebug(user, authHeader)))
-      }
       if (!ids.size && deptMissing) {
         console.warn(
-          '[acp] No agents: no usable department value after mapping (`dept` or customAttribute1/department). Set IAS user attribute and/or BTP trust mapping to XSUAA `dept`. Values must match ACP_AGENTGROUPCLAIMVALUE (e.g. procurement, finance, it). Set ACP_DEBUG_IDENTITY=true for structured JWT claim logging.'
+          '[acp] No agents: no usable department value after mapping (`dept` or customAttribute1/department). Set IAS user attribute and/or BTP trust mapping to XSUAA `dept`. Values must match ACP_AGENTGROUPCLAIMVALUE (e.g. procurement, finance, it).'
         )
       }
       if (!ids.size) return res.json({ agents: [] })
@@ -456,7 +327,6 @@ cds.on('bootstrap', app => {
         history = (msgs || []).map(m => ({ role: m.role, content: m.content }))
       }
 
-      const authHeader = getAuthHeader(req)
       const a = bundle.agent
       const payload = {
         agentConfig: {

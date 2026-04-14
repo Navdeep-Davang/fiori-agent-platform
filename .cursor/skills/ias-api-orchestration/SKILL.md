@@ -50,7 +50,7 @@ The BTP Cockpit link only opens the admin UI; it does **not** print the OAuth/SC
 
 **Mapping IAS `customAttribute1` (or similar) into the XSUAA JWT as `dept`** is **not** done via **`btp`** subcommands. **`btp`** can list **trust** and assign **role collections**; **Cockpit** (or XSUAA Authorization APIs) is where **IdP → XSUAA attribute mapping** is configured. **IAS SCIM** (`scripts/ias-scim.ps1`) **sets** the user attribute in IAS; **BTP** **maps** it into the token.
 
-**Verify end-to-end:** (1) **`GetUser`** via SCIM — confirm **`customAttribute1`** in IAS. (2) **Decode the access token** after login — confirm **`xs.user.attributes.dept`** (or equivalent). **This repo** exposes **`GET /api/me`** with **`debug`** when **`ACP_DEBUG_IDENTITY=true`** on CAP; browser: **`?acpIdentityDebug=1`** logs to the console.
+**Verify end-to-end:** (1) **`GetUser`** via SCIM — confirm **`customAttribute1`** in IAS. (2) **Decode the access token** after login — confirm **`xs.user.attributes.dept`** (or equivalent). **This repo:** use the browser Network tab for a CAP request or **`scripts/decode-jwt.ps1`** on a copied Bearer token.
 
 ## Recommended orchestration order (this repo)
 
@@ -106,7 +106,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ias-scim.ps1 -Action
 
 - **`Token`** — prints only token length and `expires_in` (sanity check; no raw token).  
 - **`OpenIdMetadata`** — GET `/.well-known/openid-configuration` (OIDC discovery). Needs **`IAS_TOKEN_URL`** only (tenant host is derived); no SCIM base. Use to confirm issuer, `authorization_endpoint`, `jwks_uri`, and supported grant types.  
-- **`UserOidcClaims`** — **Resource Owner Password** grant (only if enabled on the OAuth client / tenant) + prints **decoded JWT payload** JSON (no raw `id_token` / `access_token`). Requires **`IAS_ROPC_USER`** and **`IAS_ROPC_PASSWORD`** in `.env` (gitignored). If ROPC is disabled, verify claims via browser **`id_token`** after login or **`GET /api/me`** with **`ACP_DEBUG_IDENTITY=true`**.  
+- **`UserOidcClaims`** — **Resource Owner Password** grant (only if enabled on the OAuth client / tenant) + prints **decoded JWT payload** JSON (no raw `id_token` / `access_token`). Requires **`IAS_ROPC_USER`** and **`IAS_ROPC_PASSWORD`** in `.env` (gitignored). If ROPC is disabled, verify claims via browser **`id_token`** or access token after login.  
 - **`ListUsers` / `ListGroups`** — SCIM JSON to stdout.  
 - **`GetUser`** — SCIM filter `userName eq "…"` (adjust if your tenant uses a different login). **SCIM shows `customAttribute1`**, not the OIDC claim name **`dept`**; trust mapping affects tokens, not SCIM field names.
 

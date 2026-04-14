@@ -10,31 +10,36 @@
       "source": "^/admin/(.*)",
       "target": "/admin/$1",
       "destination": "cap",
-      "csrfProtection": true
+      "csrfProtection": true,
+      "identityProvider": "sap.custom"
     },
     {
       "source": "^/chat(\\?.*)?$",
       "target": "/chat/webapp/index.html$1",
       "destination": "cap",
-      "csrfProtection": true
+      "csrfProtection": true,
+      "identityProvider": "sap.custom"
     },
     {
       "source": "^/chat/(.*)",
       "target": "/chat/$1",
       "destination": "cap",
-      "csrfProtection": true
+      "csrfProtection": true,
+      "identityProvider": "sap.custom"
     },
     {
       "source": "^/api/(.*)",
       "target": "/api/$1",
       "destination": "cap",
-      "csrfProtection": false
+      "csrfProtection": false,
+      "identityProvider": "sap.custom"
     },
     {
       "source": "^/odata/(.*)",
       "target": "/odata/$1",
       "destination": "cap",
-      "csrfProtection": false
+      "csrfProtection": false,
+      "identityProvider": "sap.custom"
     }
   ]
 }

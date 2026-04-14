@@ -103,7 +103,11 @@ module.exports = cds.service.impl(async function () {
     if (!tool) return req.reject(404, 'Tool not found')
     const mcp = await SELECT.one.from(McpServers).where({ ID: tool.server_ID })
     if (!mcp) return req.reject(404, 'McpServer not found')
-    const base = await resolveMcpBaseUrl(mcp)
+    try {
+      await resolveMcpBaseUrl(mcp)
+    } catch (e) {
+      return e.message || String(e)
+    }
     let args = {}
     try {
       args = typeof req.data.args === 'string' ? JSON.parse(req.data.args || '{}') : req.data.args || {}
@@ -112,7 +116,7 @@ module.exports = cds.service.impl(async function () {
     }
     const { data } = await axios.post(
       `${PYTHON_URL()}/tool-test`,
-      { mcpServerUrl: base, toolName: tool.name, args },
+      { toolName: tool.name, args },
       { timeout: 120000, headers: forwardHeadersForPython(req.user) }
     )
     return data?.result != null ? String(data.result) : JSON.stringify(data)

@@ -14,8 +14,7 @@
                 "uri": "/odata/v4/chat/",
                 "type": "OData",
                 "settings": {
-                    "odataVersion": "4.0",
-                    "localUri": "localService/metadata.xml"
+                    "odataVersion": "4.0"
                 }
             }
         }

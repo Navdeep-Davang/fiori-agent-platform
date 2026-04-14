@@ -69,12 +69,24 @@
                                             <Title text="{i18n>chatWith}" class="acpChatTitle" />
                                         </contentLeft>
                                         <contentRight>
-                                            <Select id="agentSelect"
-                                                    items="{path: 'agentsModel>/agents'}"
-                                                    change=".onAgentChange"
-                                                    width="14rem">
-                                                <core:Item key="{agentsModel>id}" text="{agentsModel>name}" />
-                                            </Select>
+                                            <HBox alignItems="Center" justifyContent="End" class="acpAgentSelectWrap">
+                                                <!-- BusyIndicator placeholder: sap.m.Skeleton is not in OpenUI5 1.120 -->
+                                                <HBox alignItems="Center"
+                                                      justifyContent="Center"
+                                                      visible="{agentsModel>/agentsLoading}"
+                                                      width="14rem"
+                                                      height="2.5rem"
+                                                      class="acpAgentSelectPlaceholder">
+                                                    <BusyIndicator size="1.125rem" />
+                                                </HBox>
+                                                <Select id="agentSelect"
+                                                        visible="{= !${agentsModel>/agentsLoading} }"
+                                                        items="{path: 'agentsModel>/agents'}"
+                                                        change=".onAgentChange"
+                                                        width="14rem">
+                                                    <core:Item key="{agentsModel>id}" text="{agentsModel>name}" />
+                                                </Select>
+                                            </HBox>
                                         </contentRight>
                                         <layoutData>
                                             <FlexItemData growFactor="0" shrinkFactor="0" />

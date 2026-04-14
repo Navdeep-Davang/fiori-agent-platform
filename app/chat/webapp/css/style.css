@@ -797,3 +797,11 @@ html.sap-desktop .sapUiBody,
 .sapMSplitter {
     height: 100%;
 }
+
+/* Agent dropdown placeholder while /api/agents loads (OpenUI5 1.120 has no sap.m.Skeleton) */
+.acpChatShell .acpAgentSelectPlaceholder {
+    box-sizing: border-box;
+    border-radius: 0.25rem;
+    background: var(--sapField_ReadOnly_Background, #f5f6f7);
+    border: 1px solid var(--sapField_BorderColor, #dee2e5);
+}
