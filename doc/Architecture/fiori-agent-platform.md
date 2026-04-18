@@ -1,13 +1,130 @@
 # Architecture: Agent Control Plane (SAP BTP)
 
 > **Audience:** developers implementing this system. For product requirements and "why" reasoning, see `doc/PRD/agent-control-plane.md`.
-> Last updated: 2026-04-08.
+> Last updated: 2026-04-18.
+>
+> **Reading order:** **§1.1** is a fast end-to-end map (current + target). **§2–§12** describe the **current implementation** (CAP-centric policy, fat CAP→Python payload, ADK engine, MCP server embedded in `python/`). **§13** lists **target deltas** (Skills, thin id-only payload, Python loads by id, DeepAgent option, MCP pool as separate service, chat summarization).
 
 ---
 
 ## 1. Overview
 
 Agent Control Plane is a governance and chat product running on SAP BTP Cloud Foundry. It consists of two SAPUI5 frontend apps (`app/admin/` for Fiori Elements governance screens, `app/chat/` for freestyle streaming chat), an `@sap/approuter` OAuth2 gateway, a CAP Node.js service (`srv/`) that exposes OData V4 endpoints for all governed entities plus custom SSE routes in `server.js`, and a separate FastAPI Python service (`python/`) that runs LLM inference and MCP tool calls. SAP HANA Cloud (HDI container) is the sole datastore. **On Cloud Foundry** and in **hybrid** local development, authentication is **XSUAA** (JWT, role collections, scopes) via **`cds bind`** — see **ADR-7** and `doc/Action-Plan/05-cap-public-python-private-production-path.md`. All components deploy as a single MTA on Cloud Foundry.
+
+> **Target direction (see §13):** add **Skill** (procedure pack) alongside **Tool**, send **ids only** from CAP to Python, let Python **load bodies by id** (tools, skills, session + summary), support **DeepAgent (LangChain/LangGraph)** as an orchestrator option, and optionally split **MCP server** into its own `services/mcp-pool/` microservice.
+
+### 1.1 End-to-end quick map
+
+**One-line idea:** **CAP** decides **who may use what**; **Python** decides **how the agent runs**; **MCP servers** do the **real work**; **HANA** is the **source of truth**; **Skills** (target) are **procedure packs** on top of tools.
+
+#### Components (what runs where)
+
+| Component | Deploy | Role |
+|---|---|---|
+| **App Router** | CF app | Login, HTTPS; forwards to **CAP only** (not Python) |
+| **CAP (Node)** | CF app | Fiori static + OData governance + `/api/chat` SSE hop to Python |
+| **Fiori Admin UI** | Static in CAP | Agents, tools, MCP servers, groups; **Skills** when §13 lands |
+| **Fiori Chat UI** | Static in CAP | Chat + SSE |
+| **Python executor** | CF app / container | LLM + MCP host (today: ADK/loops + `mcp_client`; target: + DeepAgent option) |
+| **MCP server (tool pool)** | Same app as Python today; optional `services/mcp-pool/` later | Many tools, one HTTP surface |
+| **HANA Cloud (HDI)** | Managed | Governance + chat + audit |
+| **MCP gateway** (optional) | Separate CF app later | Federation when many external MCPs |
+
+Public browser traffic only reaches **App Router → CAP**. Python and MCP are **private** to the platform network.
+
+#### Objects (what lives where)
+
+**Governance (HANA, via CAP OData)** — identity comes from **XSUAA JWT claims** (e.g. `dept`), not a separate login table.
+
+| Object | Role |
+|---|---|
+| `Agent`, `Tool`, `McpServer`, `AgentTool` | As in `db/schema.cds` today |
+| `AgentGroup`, `AgentGroupClaimValue`, `AgentGroupAgent` | JWT claim → which agents a user sees |
+| `Skill`, `AgentSkill` | **Target (§13.1)** — procedure packs + mapping |
+
+**Chat (HANA)**
+
+| Object | Fields (short) |
+|---|---|
+| `ChatSession` | user, agent, title; **target:** `summary`, `summaryWatermark` (§13.6) |
+| `ChatMessage` | session, role, content, timestamp |
+| `ToolCallRecord` | tool name, args/result summary, duration, elevation flag |
+
+**Runtime (Python RAM, per request — target thin path)**
+
+| Object | Role |
+|---|---|
+| `RunContext` | User/session/agent ids, **allowlisted** `toolIds` / `skillIds` |
+| DeepAgent / ADK / loop | Orchestration harness for this turn |
+| MCP client | HTTP to MCP base URLs (from hydrated `Tool` → `McpServer`) |
+
+#### Enforcement (no short-circuit)
+
+| Layer | Responsibility |
+|---|---|
+| **HANA + CDS** | Authoritative mappings: agent ↔ tool, agent ↔ group, tool status |
+| **CAP** | Validates JWT, resolves allowed agents, builds allowlist (ids or, today, `effectiveTools`) |
+| **Python** | Session ownership, re-fetch by id, **reject tool calls outside allowlist** |
+| **MCP server** | Optional defense-in-depth (tenant); **not** where primary per-tool RBAC lives (§13.5.1) |
+
+#### Flows (target thin payload; today CAP still sends full `effectiveTools` + `history`)
+
+**Admin setup**
+
+1. Dev ships MCP server (tool handlers); DevOps deploys; Admin registers `McpServer`, **Sync Tools**, activates `Tool`.
+2. **Target:** Admin authors `Skill`, links **Skill** + **Tool** on `Agent`, maps **AgentGroup** → agent for visibility.
+
+**First user message**
+
+1. Browser → CAP: `{ agentId, message, sessionId? }` + JWT.
+2. CAP validates JWT and agent access; **target:** POST to Python with `toolIds[]`, `skillIds[]`, session id, message (+ internal auth headers).
+3. Python hydrates agent, tools, skill metadata, history/summary; runs LLM/MCP; streams SSE; CAP persists on `done`.
+
+**Next messages**
+
+Same as above with existing `sessionId`; Python confirms session owner; **target:** load summary + messages after watermark only for the model.
+
+**Summarization (long chats, §13.6)**
+
+When context is too large, update `ChatSession.summary` + `summaryWatermark`; model sees summary + tail; UI still loads full history via OData.
+
+#### Skills & MCP (concise)
+
+- **Skill** = how to do the job (markdown procedure); **Tool** = callable action. Progressive disclosure: metadata always in context, **full body on demand** (§13.1).
+- **MCP:** start with **one tool-pool service**; add **gateway/federation** only when multiple MCPs need unification (§13.5).
+
+#### Security boundaries
+
+- Only **App Router** is public to browsers.
+- **CAP → Python:** internal URL + `X-Internal-Token` / headers (`srv/python-trust.js`); Python does not re-verify JWT in v1 but **does** verify session + allowlist on the target path.
+- **Python → MCP:** private network; audience-bound tokens for delegated vs elevated tools (`chat_tooling.py`); do not pass the user JWT through unchanged to MCP.
+
+#### Roles & responsibilities
+
+| Role | Owns |
+|---|---|
+| **Developer** | MCP tool handlers, CAP, Python executor, tests |
+| **DevOps** | Deploy modules, secrets, routes, internal networking |
+| **Admin (Fiori)** | Agents, tools, servers, groups — **Skills** when shipped |
+| **End user** | Chat only |
+
+#### Roadmap (one line per stage)
+
+- **Stage 1:** App Router → CAP → Python → MCP (embedded pool today); add Skills + thin payload + summarization per §13.
+- **Stage 2:** Split **`services/mcp-pool/`** when load or team boundaries require it.
+- **Stage 3:** **MCP gateway** for federation + centralized OAuth only when multiple external MCPs justify the complexity.
+
+#### Rules to remember
+
+1. **Public = App Router only.**
+2. **Target: CAP sends ids, not blobs** (today: still sends `effectiveTools` + history until migration).
+3. **Python loads definitions by id** on the target path; tool name in MCP must match HANA `Tool.name`.
+4. **Skill metadata in prompt; body on demand.**
+5. **Session ownership checked every turn** on the target path.
+6. **Model may only call tools in the allowlist** the executor received from CAP.
+7. **Canonical detail** for implementation: **§2–§12**; **target specs: §13**.
+
+**Folder layout:** see **§7** (actual tree) and **§7.1** (planned paths). Detailed API contracts: **§5**.
 
 ---
 
@@ -578,33 +695,50 @@ sequenceDiagram
 
 ## 7. Repository Folder Structure
 
+> Reflects the **actual** tree as of 2026-04-18. Generated artifacts (`gen/`, `node_modules/`, `python/venv/`) and local-only files (`.env`, `.cdsrc-private.json`) are included for completeness but gitignored.
+
 ```
 fiori-agent-platform/
 ├── app/
 │   ├── admin/                              # Fiori Elements admin app
+│   │   ├── annotations.cds                 # Root annotations entry (LR/OP for McpServer, Tool, Agent, AgentGroup)
 │   │   ├── annotations/
-│   │   │   └── annotations.cds             # LR/OP annotations for McpServer, Tool, Agent, AgentGroup
+│   │   │   └── annotations.cds             # Split/legacy annotations file (kept in sync with the root one)
 │   │   ├── webapp/
+│   │   │   ├── Component.js                # UI5 component bootstrap
+│   │   │   ├── Component-preload.js        # Build output; regenerated on ui5 build
 │   │   │   ├── manifest.json               # App descriptor (OData service binding, routes)
-│   │   │   └── index.html                  # Bootstrap entry point
-│   │   └── ui5.yaml                        # UI5 Tooling config (serve + build)
+│   │   │   ├── index.html                  # Bootstrap entry point
+│   │   │   └── i18n/
+│   │   │       ├── i18n.properties
+│   │   │       ├── i18n_en.properties
+│   │   │       └── i18n_en_US.properties
+│   │   ├── package.json                    # ui5 tooling devDependencies
+│   │   └── ui5.yaml
 │   └── chat/                               # Freestyle SAPUI5 chat app
 │       ├── webapp/
 │       │   ├── controller/
-│       │   │   ├── App.controller.js        # Root controller: auth state, shell nav
-│       │   │   └── Chat.controller.js       # Chat logic: send, SSE stream, session load/save
+│       │   │   ├── App.controller.js
+│       │   │   └── Chat.controller.js      # Send, SSE stream, session load/save
 │       │   ├── view/
-│       │   │   ├── App.view.xml             # Shell + layout container
-│       │   │   └── Chat.view.xml            # Three-panel: session list, thread, input bar
+│       │   │   ├── App.view.xml
+│       │   │   └── Chat.view.xml           # Three-panel: session list, thread, input bar
 │       │   ├── fragment/
-│       │   │   └── ToolTrace.fragment.xml   # Collapsible tool call detail panel
+│       │   │   └── ToolTrace.fragment.xml
 │       │   ├── css/
-│       │   │   └── style.css               # Chat bubble styles, streaming cursor animation
+│       │   │   └── style.css
 │       │   ├── i18n/
-│       │   │   └── i18n.properties         # All UI text strings (no hardcoded text in views)
-│       │   ├── Component.js                # UI5 component bootstrap
-│       │   ├── manifest.json               # App descriptor (OData + REST service config)
+│       │   │   ├── i18n.properties
+│       │   │   ├── i18n_en.properties
+│       │   │   └── i18n_en_US.properties
+│       │   ├── vendor/
+│       │   │   ├── marked.min.js           # Markdown → HTML renderer for assistant messages
+│       │   │   └── purify.min.js           # DOMPurify sanitizer (XSS guard before innerHTML)
+│       │   ├── Component.js
+│       │   ├── Component-preload.js
+│       │   ├── manifest.json
 │       │   └── index.html
+│       ├── package.json
 │       └── ui5.yaml
 │
 ├── srv/                                    # CAP service layer
@@ -612,6 +746,7 @@ fiori-agent-platform/
 │   ├── governance-service.js               # Handlers: testConnection, syncTools, runTest; role guards
 │   ├── chat-service.cds                    # OData V4: ChatSession, ChatMessage, ToolCallRecord
 │   ├── chat-service.js                     # Handlers: user-scoped session reads, message writes
+│   ├── python-trust.js                     # Internal-token + X-AC-* header injector for CAP → Python
 │   └── server.js                           # Custom HTTP: GET /api/agents, POST /api/chat (SSE)
 │
 ├── db/
@@ -631,41 +766,84 @@ fiori-agent-platform/
 │       ├── acp.demo-InvoiceHeader.csv
 │       └── acp.demo-InvoiceItem.csv
 │
-├── python/                                 # Python AI executor + MCP server (separate CF app)
+├── python/                                 # Python AI executor + (today) embedded MCP server
 │   ├── app/
+│   │   ├── __init__.py
 │   │   ├── main.py                         # FastAPI app; mounts /chat, /tool-test, and /mcp routers
 │   │   ├── executor.py                     # LLM routing; Anthropic/OpenAI loops; delegates Gemini to adk_engine
 │   │   ├── adk_engine.py                   # Google ADK Runner + LlmAgent (Gemini); governed MCP toolset; SSE mapping
 │   │   ├── chat_tooling.py                 # Shared MCP auth helper (delegated vs machine token)
-│   │   ├── mcp_server.py                   # FastAPI router: POST /mcp/tools/list, POST /mcp/tools/call
+│   │   ├── mcp_server.py                   # FastAPI router: POST /mcp/tools/list, POST /mcp/tools/call  (→ §13.5 extract)
 │   │   ├── mcp_client.py                   # MCP HTTP client; dispatches tool calls to MCP servers
-│   │   ├── db.py                           # HANA connection (hdbcli) only; no local file DB fallback
+│   │   ├── db.py                           # HANA connection (hdbcli)
 │   │   ├── config.py                       # Env vars: LLM_PROVIDER, LLM_API_KEY, GOOGLE_API_KEY, LLM_MODEL
 │   │   └── tools/
 │   │       ├── __init__.py
-│   │       ├── procurement.py              # get_vendors, get_purchase_orders, get_po_detail
-│   │       ├── finance.py                  # get_invoices, get_invoice_detail, match_invoice_to_po, get_spend_summary
+│   │       ├── procurement.py
+│   │       ├── finance.py
 │   │       └── registry.py                 # Dict: tool name → handler function + JSON Schema
-│   ├── requirements.txt                    # fastapi, uvicorn, httpx, anthropic, openai, google-adk (pulls google-genai), hdbcli
+│   ├── venv/                               # Local virtualenv (gitignored; see python-venv-policy rule)
+│   ├── requirements.txt                    # fastapi, uvicorn, httpx, anthropic, openai, google-adk, hdbcli
 │   ├── Procfile                            # web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 │   └── manifest.yml                        # CF push manifest for Python app
 │
 ├── approuter/                              # @sap/approuter gateway
 │   ├── xs-app.json                         # Route table: /admin→CAP, /chat→CAP, /api→CAP server.js
+│   ├── xs-app.local.json                   # Local dev variant with authenticationMethod:"none"
 │   ├── default-env.json                    # Local dev: mock VCAP_SERVICES for XSUAA + Destination
 │   └── package.json                        # { "dependencies": { "@sap/approuter": "^21.x" } }
 │
-├── xs-security.json                        # XSUAA descriptor: scopes, attributes, role-templates, oauth2 (no role-collections — roles created in BTP)
+├── scripts/                                # Operator tooling (PowerShell + helpers)
+│   ├── btp-platform.ps1                    # btp CLI orchestration (subaccount, role collections, users)
+│   ├── btp-auth-api.ps1                    # XSUAA/apiaccess REST calls (role collections, apps)
+│   ├── ias-scim.ps1                        # IAS SCIM user + custom-attribute management
+│   └── xsuaa-role-attrs-dept-idp.json      # Example payload for manually created IdP-mapped role
+│
+├── gen/                                    # cds build output (gitignored; produced by `npx cds build --production`)
+│   └── db/                                 # HDI artifacts consumed by acp-db-deployer module
+│
+├── xs-security.json                        # XSUAA descriptor: scopes, attributes, role-templates (no role-collections)
 ├── mta.yaml                                # MTA build + deploy descriptor (all modules + resources)
-├── package.json                            # Root: workspaces, cds dependency, shared scripts
-├── .cdsrc.json                             # CAP overrides (optional); primary `cds.requires` in root `package.json` (`[hybrid]` hana + xsuaa auth)
+├── package.json                            # Root: workspaces, cds dependency, shared scripts, cds.requires profiles
+├── package-lock.json
+├── .cdsrc.json                             # CAP overrides (optional)
+├── .cdsrc-private.json                     # Local-only cds.requires overrides (gitignored)
+├── .env                                    # Local-only runtime env (gitignored)
 ├── .env.example                            # Local dev env var template
+├── .gitignore
+├── README.md
 └── doc/
     ├── Architecture/
-    │   └── fiori-agent-platform.md         # THIS FILE
+    │   └── fiori-agent-platform.md         # THIS FILE: §1.1 quick map + §2–§12 current + §13 target deltas
+    ├── Action-Plan/                        # Execution plans (hybrid setup, public/private split, etc.)
     ├── PRD/
-    │   └── agent-control-plane.md          # Product requirements
+    │   └── agent-control-plane.md
+    ├── SeedData/                           # Notes and fixtures for CSV seed generation
     └── .manifest.json                      # Doc artifact registry
+```
+
+### 7.1 Planned additions (target state, see §13)
+
+The following paths **do not exist yet**; they are the concrete destinations for the §13 deltas and are listed here so the file layout target is unambiguous.
+
+```
+python/app/
+├── deepagent_engine.py     # §13.4  LangGraph deepagents harness (create_deep_agent + subagents + virtual FS)
+├── hydrator.py             # §13.3  HANA read-only loader (agent, tool defs, skill meta, session + summary watermark)
+├── session_store.py        # §13.3  Session ownership + message append helpers (today inlined in adk_engine/executor)
+└── skills/                 # §13.1  Optional local cache for skill bodies fetched by id (progressive disclosure)
+
+services/
+└── mcp-pool/               # §13.5  Extract of python/app/mcp_server.py + tools/ into its own CF module
+    ├── app/
+    │   ├── main.py         #         POST /mcp/tools/list, POST /mcp/tools/call
+    │   ├── registry.py
+    │   └── tools/          #         procurement.py, finance.py, ...
+    ├── requirements.txt
+    └── manifest.yml
+
+db/
+└── schema.cds              # §13.1, §13.6  adds Skill, AgentSkill, ChatSession.summary, ChatSession.summaryWatermark, Agent.engine
 ```
 
 ---
@@ -965,7 +1143,9 @@ Role templates use an **`ACP`** suffix (**`AgentUserACP`**, **`AgentAuthorACP`**
 
 **Decision:** CAP `server.js` is the sole component that resolves which agents and tools a user may access. Python receives a fully computed `effectiveTools` list and cannot add to or override it.
 
-**Rationale:** Python is an AI executor, not a policy engine. Allowing Python to query HANA directly or decide its own tool list would make the governance model unenforceable — a compromised Python process could call any registered tool. CAP is the trust boundary: it holds the XSUAA binding, the HANA binding, and the role-enforcement annotations. All policy decisions happen before the request reaches Python.
+**Rationale:** Python is an AI executor, not a policy engine. Allowing Python to *decide* its own tool list would make the governance model unenforceable — a compromised Python process could call any registered tool. CAP is the trust boundary: it holds the XSUAA binding and the role-enforcement annotations. All **policy decisions** happen in CAP before the request reaches Python.
+
+**Target refinement (see §13):** CAP still owns the *decision* (which agent / which tool-ids / which skill-ids are allowed for this user). In the **thin-payload** target, CAP sends **only the allowed ids**, and Python **reads HANA read-only** to hydrate tool metadata, skill bodies, and session+summary. Python must **never** expand the id set it received; it only materializes what CAP already authorized. The trust boundary stays in CAP.
 
 ---
 
@@ -976,3 +1156,190 @@ Role templates use an **`ACP`** suffix (**`AgentUserACP`**, **`AgentAuthorACP`**
 **Rationale:** CAP **`cds bind`** lets local hybrid match **production JWT and roles** before CF deploy. The database and seeds are **production-shaped**. Historical Spectrum 1 notes live in **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**.
 
 **Operational note:** Open the **App Router** URL (same-origin **`/api`** + session cookie; forwarded Bearer token to CAP). See README and §9 **SOP**.
+
+---
+
+## 13. Target Architecture Deltas (end-to-end plan)
+
+This section lists the **planned deltas** between the current implementation (Sections 1–12) and the **target** summarized in **§1.1**. Each delta is a discrete increment; they are independent and can land in any order.
+
+### 13.1 Skills (new first-class entity)
+
+A **Skill** is a short procedure pack (markdown body + JSON metadata) that teaches an agent *how* to use a tool or handle a repeating workflow. Skills complement MCP tools (which are *capabilities*); a skill is *procedure*.
+
+Planned CDS additions (`db/schema.cds`):
+
+```cds
+entity Skill {
+  key ID         : UUID;
+  name           : String(100);
+  description    : String(500);   // metadata sent to LLM for progressive disclosure
+  body           : LargeString;   // full markdown procedure, loaded only when agent selects it
+  status         : String(20) enum { Draft; Active; Disabled } default 'Draft';
+  modifiedAt     : Timestamp;
+}
+
+entity AgentSkill {
+  key ID         : UUID;
+  agent          : Association to Agent;
+  skill          : Association to Skill;
+}
+```
+
+Admin UI: new List Report + Object Page for `Skill`; Agent Object Page gains a `Skills` facet (same pattern as `AgentTool`).
+
+**Progressive disclosure:** the agent prompt receives only `{name, description}` for every assigned skill. The full `body` is fetched by Python on demand (when the agent decides to use that skill), keeping the context window small.
+
+### 13.2 Thin CAP → Python payload (ids only)
+
+Current (§5, `POST /chat`): CAP sends full `effectiveTools`, full `history`, and `userToken`.
+
+Target payload:
+
+```json
+{
+  "sessionId": "uuid-or-null",
+  "agentId": "uuid",
+  "toolIds": ["uuid", "..."],
+  "skillIds": ["uuid", "..."],
+  "message": "new user message",
+  "userInfo": { "userId": "...", "dept": "...", "roles": ["..."] }
+}
+```
+
+CAP still runs the full authorization pipeline (JWT → agent resolution → `AgentTool` / `AgentSkill` filter by status) and produces `toolIds` / `skillIds`. It does **not** ship tool schemas, skill bodies, or chat history over the wire.
+
+### 13.3 Python loads by id (read-only HANA access)
+
+Python `/chat` handler steps (replaces current fat-payload path):
+
+1. Verify internal token (`ACP_INTERNAL_TOKEN`) and required `X-AC-*` user headers.
+2. Verify session ownership: `ChatSession(sessionId).userId == userInfo.userId` (or create new session).
+3. Hydrate from HANA (read-only):
+   - `Agent` row (system prompt, model profile, identity mode).
+   - `Tool` rows for `toolIds` (re-checks `status = 'Active'`; any inactive id → reject).
+   - `Skill` metadata for `skillIds` (name + description only; body loaded lazily).
+   - Session history **from the latest summary watermark onward** (see §13.6).
+4. Build DeepAgent/ADK session state; stream SSE back.
+5. On `done`, write `ChatMessage` + `ToolCallRecord` rows (same as today).
+
+Python's DB role is **read-only** for hydration + **append-only** for chat persistence. Governance writes (CRUD on `McpServer` / `Tool` / `Skill` / `Agent` / `AgentGroup`) remain CAP-only.
+
+### 13.4 DeepAgent (LangChain / LangGraph) as an orchestrator option
+
+Current (`executor.py` + `adk_engine.py`): Anthropic/OpenAI hand-rolled loops + Google ADK for Gemini.
+
+Target: add a **DeepAgent** path (the [`deepagents`](https://github.com/langchain-ai/deepagents) package on top of LangGraph) for agents that benefit from an explicit planner, sub-agent delegation, and a virtual filesystem for offloading large tool outputs. Engine selection is per-agent:
+
+```
+Agent.engine ∈ { Loop, ADK, DeepAgent }   -- NEW column (replaces implicit provider-based routing)
+```
+
+**Actual `deepagents` API (v0.5, April 2026):**
+
+```python
+# python/app/deepagent_engine.py
+from deepagents import create_deep_agent, SubAgent  # AsyncSubAgent available in v0.5+
+
+def build_agent(model, mcp_tools, agent_cfg, skill_metadata):
+    system_prompt = render_prompt(agent_cfg.systemPrompt, skill_metadata)  # §13.1 progressive disclosure
+    subagents = [
+        SubAgent(
+            name="tool-researcher",
+            description="Explores a tool's schema and sample responses before the main agent commits to a call.",
+            prompt="...",
+            tools=[t for t in mcp_tools if t.name.startswith("query_")],
+        ),
+    ]
+    return create_deep_agent(
+        model=model,
+        tools=mcp_tools,            # AcpGovernedMcpToolset-bridged MCP tools
+        system_prompt=system_prompt,
+        subagents=subagents,
+    )
+```
+
+What we get for free from the harness:
+
+- `write_todos` planning tool — decomposes long-horizon tasks, visible to the UI as a structured todo panel.
+- Virtual filesystem tools (`read_file`, `write_file`, `edit_file`, `ls`, `glob`, `grep`) — used to **offload large tool responses** (e.g. full PO dumps, CSV exports) out of the LLM context window and reference them by filename in later turns.
+- Sub-agents — each has an **isolated context window**, so a long tool-exploration trace does not pollute the main planner's context.
+- `AsyncSubAgent` (v0.5+) — non-blocking background work (e.g. a long summarization or RAG retrieval) that completes after the main response streams.
+
+**Integration rules:**
+
+1. The `tools=` argument receives the **same governed MCP bridge** used by ADK (`AcpGovernedMcpToolset` / `_AcpMcpBridgeTool`). DeepAgent never gets a tool the executor didn't authorize.
+2. `system_prompt` includes skill **metadata only** (§13.1). Skill bodies are fetched by id via a dedicated `load_skill(skill_id)` tool (added to `tools=`), implementing progressive disclosure.
+3. The virtual filesystem is **per-request, in-memory** — not persisted across chat turns in v1. Persisting selected "artifacts" to HANA is a later increment.
+4. DeepAgent's LangGraph stream events (`on_tool_start`, `on_tool_end`, `on_chat_model_stream`) are mapped to the same SSE event shapes the chat UI already expects (`token`, `tool_call`, `tool_result`, `done`), mirroring what `adk_engine.py` does today.
+
+### 13.5 MCP Pool as a separate microservice (optional)
+
+Current (§7): MCP router is embedded in `python/app/mcp_server.py` (same CF app as the executor).
+
+Target: extract to `services/mcp-pool/` as an independent CF module:
+
+```
+services/
+└── mcp-pool/
+    ├── app/
+    │   ├── main.py          # FastAPI: POST /mcp/tools/list, POST /mcp/tools/call
+    │   ├── registry.py      # dynamic tool registry (all tools live here)
+    │   └── tools/           # procurement.py, finance.py, ...
+    ├── requirements.txt
+    └── manifest.yml
+```
+
+Python executor then speaks to `mcp-pool` over HTTP (same transport as any external MCP server). Benefits: independent scaling, separate deploy cadence, clean "tool host" vs "agent host" split. Not required for v1.
+
+#### 13.5.1 MCP governance & tool-level authorization
+
+Research note (industry state, April 2026): the MCP specification mandates **OAuth 2.1 with PKCE** for remote (HTTP/SSE) servers and treats each MCP server as an **OAuth Resource Server** that delegates trust to an external IdP via **Protected Resource Metadata (PRM)**. However, the **core spec does not define per-tool authorization** — OAuth scopes authorize access to the MCP server as a whole, not to individual tools. Enterprises close that gap with an **MCP-aware gateway** (Bifrost / Teleport / Kong AI Gateway / custom) that intercepts `tools/call` and enforces RBAC, audit, and token-audience checks before forwarding to the pool. ([MCP auth spec](https://modelcontextprotocol.io/docs/tutorials/security/authorization), [Teleport: enterprise MCP](https://goteleport.com/blog/complicating-mcp-enterprise/), [WorkOS: MCP 2026 roadmap](https://workos.com/blog/2026-mcp-roadmap-enterprise-readiness))
+
+**How this system maps to those patterns:**
+
+| Industry role                  | In this architecture                                                                 |
+|--------------------------------|--------------------------------------------------------------------------------------|
+| IdP                            | **IAS → XSUAA** (JWT to the user; `dept` claim for agent visibility)                 |
+| OAuth Resource Server (MCP)    | `services/mcp-pool/` (target) or embedded `python/app/mcp_server.py` (today)         |
+| MCP governance gateway         | **CAP `server.js`** — decides `toolIds` per user/agent before Python is ever invoked |
+| Per-tool RBAC enforcement      | **HANA `AgentTool` join + `Tool.status = 'Active'`**, re-verified by Python on hydrate |
+| Tool-call audit trail          | `ToolCallRecord` rows written by CAP on SSE `done`                                   |
+
+**Rules we adopt from the research:**
+
+1. **Never rely on in-server tool authz.** The MCP pool treats any authenticated caller as allowed to call any tool it exposes. The allow-list is CAP-decided (`toolIds`) + Python-re-checked on hydrate. A compromised MCP pool cannot escalate a user's tool set because the executor only *asks for* the tools CAP already approved.
+2. **Audience-bound tokens (no passthrough).** When Python calls `mcp-pool` (or any external MCP) it presents a token whose `aud` is the specific MCP resource. The end-user JWT is **never** forwarded unchanged to the MCP pool; the executor mints/uses a delegated or machine token scoped to that audience (current behavior in `chat_tooling.py` — keep it).
+3. **Central audit at the gateway, not in the tool.** Every tool call is logged by CAP (`ToolCallRecord`) — who / which agent / which tool / args summary / elevation flag / duration. Individual MCP servers do not need their own audit pipeline.
+4. **Extensions, not spec forks.** Per-tool scopes, virtual keys, and elevation flags live in **our governance schema** (`Tool.elevated`, `AgentTool.permissionOverride`), not as bespoke MCP-protocol additions. This keeps the MCP pool swappable for a hosted gateway later without schema changes.
+5. **Optional future: MCP gateway microservice.** If the tool fleet grows beyond a single `mcp-pool`, insert a thin `services/mcp-gateway/` in front of N pool instances. Its only jobs: token-audience check, CAP allow-list re-verification (defense in depth), audit mirror. CAP remains the source of truth; the gateway is a data-plane enforcement point.
+
+### 13.6 Chat summarization (context-window safety)
+
+Planned `ChatSession` additions:
+
+```cds
+entity ChatSession {
+  // ... existing fields ...
+  summary              : LargeString;    // rolling summary up to summaryWatermark
+  summaryWatermark     : Timestamp;      // messages older than this are already summarized
+}
+```
+
+Python history loader: pass `{ summary, messages where timestamp > summaryWatermark }` to the LLM. A background summarization job (or inline trigger when recent-window token count crosses a threshold) updates `summary` + `summaryWatermark`. The UI still renders the full message list (unchanged) from `ChatMessage` rows; only the LLM context is trimmed.
+
+### 13.7 New/updated ADRs (target)
+
+- **ADR-8 (planned): Thin id-only payload between CAP and Python.** Reason: bandwidth, single source of truth in DB, Python hydrates per-request.
+- **ADR-9 (planned): Skills as first-class, stored in HANA, loaded by id.** Reason: procedural guidance separate from capability (tool), progressive disclosure via metadata.
+- **ADR-10 (planned): Summary + watermark on `ChatSession`.** Reason: bounded LLM context regardless of user-visible history length.
+- **ADR-11 (planned): Multi-engine executor (Loop / ADK / DeepAgent).** Reason: right-size the harness per agent (simple Q&A vs long-horizon autonomous task).
+- **ADR-12 (planned): CAP is the MCP governance gateway; tool-level RBAC lives in HANA, not in MCP servers.** Reason: MCP core spec authorizes *servers*, not *tools*; per-tool authz must be enforced by an external layer. CAP already owns identity + allow-list + audit — making it the gateway avoids a second policy store. Audience-bound tokens (no JWT passthrough to MCP) are mandatory.
+
+### 13.8 Migration order (suggested)
+
+1. **§13.6** summary fields (schema-only, no behavior change).
+2. **§13.1** Skill + AgentSkill entities + Admin UI (governance-only, no chat impact).
+3. **§13.2 + §13.3** flip payload to ids + move hydration into Python (single cut-over, feature-flagged).
+4. **§13.4** DeepAgent engine (additive, opt-in per agent).
+5. **§13.5** extract `services/mcp-pool/` when tool count or load justifies it.
