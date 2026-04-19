@@ -22,6 +22,18 @@ service GovernanceService @(path: '/odata/v4/governance') {
 
   @(restrict: [
     { grant: ['READ'], to: ['Agent.Author', 'Agent.Admin', 'Agent.Audit'] },
+    { grant: ['WRITE', 'CREATE', 'UPDATE', 'DELETE'], to: ['Agent.Admin'] }
+  ])
+  entity Skills as projection on acp.Skill;
+
+  @(restrict: [
+    { grant: ['READ'], to: ['Agent.Author', 'Agent.Admin', 'Agent.Audit'] },
+    { grant: ['WRITE', 'CREATE', 'UPDATE', 'DELETE'], to: ['Agent.Admin'] }
+  ])
+  entity AgentSkills as projection on acp.AgentSkill;
+
+  @(restrict: [
+    { grant: ['READ'], to: ['Agent.Author', 'Agent.Admin', 'Agent.Audit'] },
     { grant: ['WRITE', 'CREATE', 'UPDATE', 'DELETE'], to: ['Agent.Author', 'Agent.Admin'] }
   ])
   entity Agents as projection on acp.Agent;

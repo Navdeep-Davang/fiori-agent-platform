@@ -2,7 +2,7 @@
   "version": "1.0",
   "project_id": "fiori-agent-platform",
   "created": "2026-03-15T00:00:00Z",
-  "last_updated": "2026-04-18T00:00:00Z",
+  "last_updated": "2026-04-19T12:00:00Z",
   "artifacts": {
     "architectures": {
       "fiori-agent-platform": {
@@ -15,9 +15,10 @@
     "action_plans": {
       "06-architecture-aligned-e2e": {
         "path": "doc/Action-Plan/06-architecture-aligned-e2e.md",
-        "last_modified": "2026-04-18T00:00:00Z",
+        "last_modified": "2026-04-19T12:00:00Z",
         "status": "in_progress",
         "current_phase": "phase-0",
+        "note": "06: Phase 3 schema+seeds in repo; Phase 3.3 deploy pending; Phase 4.1.1 README thin contract done",
         "description": "Master roadmap: baseline verification, identity/CF, Skills schema, thin CAP→Python payload, Python hydration, summarization, optional DeepAgent/MCP pool; maps Plans 01–05"
       },
       "04-hybrid-hana-spectrum-1": {

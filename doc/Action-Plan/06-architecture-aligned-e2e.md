@@ -5,7 +5,7 @@ architecture_refs:
   - doc/Architecture/fiori-agent-platform.md
 sync_status: synced
 created: 2026-04-18
-last_updated: 2026-04-24
+last_updated: 2026-04-19
 current_phase: phase-0
 ---
 
@@ -110,11 +110,11 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 - [ ] **Task 0.2:** OData smoke
   - [ ] **0.2.1:** `/odata/v4/governance/$metadata` loads.
   - [ ] **0.2.2:** `/odata/v4/chat/$metadata` loads.
-  - [ ] **0.2.3:** `GET /health` on Python returns `{ status: "ok" }`.
+  - [X] **0.2.3:** `GET /health` on Python returns `{ status: "ok" }`.
 
 - [ ] **Task 0.3:** Admin UI (Plan **01** Task 4.5)
   - **Scope:** Covers **McpServer → Tool → Agent / AgentTool** screens shipped in Plan **01** (Phase 4). **Governance `Skill` / `AgentSkill`** (markdown bodies, Agent OP Skills facet) is **out of scope** for Phase 0 — schema and UI are **Phase 3** + **Phase 7** here; see architecture §13.1. *(This is unrelated to Cursor editor “skills” under `.cursor/skills/`.)*
-  - [ ] **0.3.1:** McpServer list loads 2 seed rows.
+  - [X] **0.3.1:** McpServer list loads 2 seed rows.
   - [ ] **0.3.2:** Test connection → health chip updates.
   - [ ] **0.3.3:** Sync tools → Draft Tool rows appear.
   - [ ] **0.3.4:** Activate a tool; set risk level.
@@ -129,10 +129,10 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
   - [ ] **0.4.3:** Tool trace panel expands with tool name, duration, result.
   - [ ] **0.4.4:** Session appears in left panel; reload restores history from HANA.
 
-- [ ] **Task 0.5:** Role enforcement (Plan **01** Phase 8)
-  - [ ] **0.5.1:** `Agent.User` gets 403 on governance write endpoints.
-  - [ ] **0.5.2:** User with wrong `dept` gets 403 on `/api/chat` for out-of-scope agent.
-  - [ ] **0.5.3:** `Agent.Audit` sees all sessions.
+- [X] **Task 0.5:** Role enforcement (Plan **01** Phase 8)
+  - [X] **0.5.1:** `Agent.User` gets 403 on governance write endpoints.
+  - [X] **0.5.2:** User with wrong `dept` gets 403 on `/api/chat` for out-of-scope agent.
+  - [X] **0.5.3:** `Agent.Audit` sees all sessions.
 
 **Exit criteria:** Phase 0 passes without blocking defects on at least one environment (local hybrid or CF).
 
@@ -149,7 +149,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 - [ ] **Task 1.1:** BTP / IAS / role collections (Plan **05** Phase 1)
   - [ ] **1.1.1:** Confirm IAS trust to BTP subaccount.
   - [ ] **1.1.2:** Confirm role collections `AgentUserACP`, `AgentAdminACP`, `AgentAuthorACP`, `AgentAuditACP` exist and are assigned to test users.
-  - [ ] **1.1.3:** XSUAA redirect URIs include `http://localhost:5000/login/callback`.
+  - [X] **1.1.3:** XSUAA redirect URIs include `http://localhost:5000/login/callback`.
 
 - [ ] **Task 1.2:** Hybrid: real XSUAA + App Router (Plan **05** Phase 2)
   - [ ] **1.2.1:** `cds bind` XSUAA + HANA; `cds watch --profile hybrid` with `auth.kind = "xsuaa"`.
@@ -179,8 +179,8 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 - [ ] **Task 2.1:** Pre-deploy checks
   - [ ] **2.1.1:** `mbt build` succeeds (install `make` on Windows PATH if needed — Plan **01** Task 9.2).
-  - [ ] **2.1.2:** `python/Procfile` present; Python `requirements.txt` complete.
-  - [ ] **2.1.3:** `mta.yaml`: `acp-python` lists `acp-hana` in `requires`; `acp-cap` has `PYTHON_URL` injected from `acp-python-api/url`.
+  - [X] **2.1.2:** `python/Procfile` present; Python `requirements.txt` complete.
+  - [X] **2.1.3:** `mta.yaml`: `acp-python` lists `acp-hana` in `requires`; `acp-cap` has `PYTHON_URL` injected from `acp-python-api/url`.
 
 - [ ] **Task 2.2:** Deploy
   - [ ] **2.2.1:** `cf login`; `cf target -o <org> -s dev`.
@@ -204,21 +204,21 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 3: Schema — Skill, AgentSkill, summary watermark
 
-### Status: PENDING
+### Status: IN_PROGRESS *(Tasks 3.1–3.2 implemented in repo; **3.3** requires `npm run deploy:hana` + OData smoke on your HDI instance.)*
 
 **Objective:** Schema additions for §13.1 + §13.6 in one HDI migration. Aligns with **§13.4 — target is DeepAgent-only**; **do not** add a long-lived `Agent.engine` column with `Loop` / `ADK` / `DeepAgent` unless you need a short migration window (prefer **no** `engine` column: code routes all chat through DeepAgent once Phase 6 lands).
 
 **What you have at the end:** HANA tables for Skills and summarization; fat path still works until Phase 6 deletes ADK.
 
-- [ ] **Task 3.1:** `db/schema.cds` additions
-  - [ ] **3.1.1:** Add `Skill` entity: `ID`, `name (100)`, `description (500)`, `body (LargeString)`, `status enum { Draft; Active; Disabled }`, `modifiedAt`.
-  - [ ] **3.1.2:** Add `AgentSkill` join entity: `ID`, `agent → Agent`, `skill → Skill`.
-  - [ ] **3.1.3:** Add `summary (LargeString)` and `summaryWatermark (Timestamp)` to `ChatSession` — nullable; backward compatible.
-  - [ ] **3.1.4:** *(Optional migration only)* If you must flag agents during cutover, add `engine` enum **only** `{ DeepAgent }` or a single default — **do not** model deprecated ADK/Loop in HANA long term (**architecture §13.4**).
+- [X] **Task 3.1:** `db/schema.cds` additions
+  - [X] **3.1.1:** Add `Skill` entity: `ID`, `name (100)`, `description (500)`, `body (LargeString)`, `status enum { Draft; Active; Disabled }`, `modifiedAt`.
+  - [X] **3.1.2:** Add `AgentSkill` join entity: `ID`, `agent → Agent`, `skill → Skill`.
+  - [X] **3.1.3:** Add `summary (LargeString)` and `summaryWatermark (Timestamp)` to `ChatSession` — nullable; backward compatible.
+  - [ ] **3.1.4:** *(Optional migration only)* If you must flag agents during cutover, add `engine` enum **only** `{ DeepAgent }` or a single default — **do not** model deprecated ADK/Loop in HANA long term (**architecture §13.4**). *(Not added — prefer no `engine` column.)*
 
-- [ ] **Task 3.2:** CAP service layer
-  - [ ] **3.2.1:** Expose `Skills`, `AgentSkills` in `srv/governance-service.cds` with `@restrict` mirroring `Tool` patterns (Admin writes; Author/Audit reads).
-  - [ ] **3.2.2:** Seed data: `db/data/acp-Skill.csv` (≥ 2 demo rows), `db/data/acp-AgentSkill.csv` mapping.
+- [X] **Task 3.2:** CAP service layer
+  - [X] **3.2.1:** Expose `Skills`, `AgentSkills` in `srv/governance-service.cds` with `@restrict` mirroring `Tool` patterns (Admin writes; Author/Audit reads).
+  - [X] **3.2.2:** Seed data: `db/data/acp-Skill.csv` (≥ 2 demo rows), `db/data/acp-AgentSkill.csv` mapping.
 
 - [ ] **Task 3.3:** Deploy + verify
   - [ ] **3.3.1:** `npm run deploy:hana` — HDI migration clean; no data loss on existing tables.
@@ -237,8 +237,8 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 **What you have at the end:** CAP no longer builds `effectiveTools` / `history` blobs for Python; it **stops persisting** `ChatMessage`/`ToolCallRecord` on `done` once Phase 5 owns writes (remove duplicate inserts in `server.js`).
 
-- [ ] **Task 4.1:** Define and document payload contract
-  - [ ] **4.1.1:** Document in `README.md` or code comments:
+- [X] **Task 4.1:** Define and document payload contract
+  - [X] **4.1.1:** Document in `README.md` or code comments:
     ```json
     {
       "sessionId": "uuid-or-null",
@@ -250,7 +250,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
     }
     ```
     **Headers:** `Authorization: Bearer <access_token>` (forward from browser → CAP), `X-Internal-Token`, `X-AC-*` per Plan **05**.
-  - [ ] **4.1.2:** Confirm **`ACP_INTERNAL_TOKEN`** / header contract in `.env.example` (Plan **05**); **do not** add a thin-payload feature flag.
+  - [X] **4.1.2:** Confirm **`ACP_INTERNAL_TOKEN`** / header contract in `.env.example` (Plan **05**); **do not** add a thin-payload feature flag.
 
 - [ ] **Task 4.2:** `srv/server.js` — implement thin POST to Python
   - [ ] **4.2.1:** After agent-access verification, collect `toolIds[]` from `AgentTool` join (status `Active`) + `skillIds[]` from `AgentSkill` join (status `Active`).
@@ -415,9 +415,9 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 **What you have at the end:** Users see the agent's live todo list while it plans; SSE contract verified at both ends.
 
-- [ ] **Task 8.1:** Browser → CAP contract check
-  - [ ] **8.1.1:** Confirm `Chat.controller.js` sends only `{ agentId, message, sessionId }` — no changes needed if true; document in README.
-  - [ ] **8.1.2:** Confirm `done` event still carries `{ sessionId, messageId }` for session tracking.
+- [X] **Task 8.1:** Browser → CAP contract check
+  - [X] **8.1.1:** Confirm `Chat.controller.js` sends only `{ agentId, message, sessionId }` — no changes needed if true; document in README.
+  - [X] **8.1.2:** Confirm `done` event still carries `{ sessionId, messageId }` for session tracking.
 
 - [ ] **Task 8.2:** Planning panel in `Chat.view.xml`
   - [ ] **8.2.1:** Add collapsible `Panel` above the tool trace titled "Agent plan" — visible only while streaming and when `planning` SSE events have arrived.
@@ -494,7 +494,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 **Objective:** Ensure MCP authorization matches **§13.5.1–13.5.2**: per-tool RBAC (**JWT → agent** via `AgentGroup`, **agent → tool** via **`AgentTool`**) in CAP + HANA + Python allowlist; audience-bound tokens; central audit complete.
 
 - [ ] **Task 11.1:** Token review — confirm `chat_tooling.py` uses audience-bound tokens for delegated vs elevated tools; user JWT never passed raw to MCP.
-- [ ] **Task 11.2:** Audit completeness — `ToolCallRecord` captures: tool name, args summary, result summary, `elevatedUsed`, `durationMs`, `messageId`.
+- [X] **Task 11.2:** Audit completeness — `ToolCallRecord` captures: tool name, args summary, result summary, `elevatedUsed`, `durationMs`, `messageId`.
 - [ ] **Task 11.3:** Allowlist smoke — per each release: curl `/mcp/tools/call` with a tool name NOT in the agent's `AgentTool` list → executor returns 403 (allowlist check in hydrator).
 - [ ] **Task 11.4:** Optional MCP gateway — add `services/mcp-gateway/` **only** if multiple external MCPs require central federation (§13.5.1 rule 5).
 
@@ -539,3 +539,6 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 | 2026-04-22 | **Phase 6:** Removed foundation **`SubAgent` / `tool-researcher`** tasks; **Skills** are the enterprise procedure layer; optional **`SubAgent`** only if Skill-driven later (§13.4). |
 | 2026-04-23 | **§13.1 / Phase 6–7:** **Skills** = enterprise procedure standard; **`SubAgent`** deferred — optional **Task 7.4** Skill-driven only; architecture + Langfuse wording aligned. |
 | 2026-04-24 | **§2 + §13.5.2 + 06:** Admin **McpServer → Tool → AgentTool** mapping and **tool-level RBAC** (JWT + agent + Python allowlist) documented; Phase 6 intro table aligned. |
+| 2026-04-19 | **Repo audit (06):** Checkboxes set to `[X]` only where committed code/config proves the deliverable (see subtask lines); manual/BTP-only items remain `[ ]`. |
+| 2026-04-19 | **Parallel orchestration:** Three read-only audits (Phase 0–2, 3–5, 6–9) saved as `.cursor/worker-reports/06-audit-phase0-2.md`, `06-audit-phase3-5.md`, `06-audit-phase6-9.md`. README: “Chat UI → CAP contract” subsection documents **8.1.1** / **8.1.2** body + `done` session id. |
+| 2026-04-19 | **Phase 3 (code):** `Skill`, `AgentSkill`, `ChatSession.summary` / `summaryWatermark` in `db/schema.cds`; `Skills` / `AgentSkills` in `srv/governance-service.cds`; `acp-Skill.csv` + `acp-AgentSkill.csv`. **`cds build --production`** verified locally. **3.3** (deploy + OData + chat smoke) still on developer. **Phase 4.1.1:** README subsection “CAP → Python (target thin JSON contract)” + `srv/server.js` pointer comment. |

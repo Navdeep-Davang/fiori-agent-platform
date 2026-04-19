@@ -33,6 +33,17 @@ entity Tool {
   modifiedAt          : Timestamp;
 }
 
+// ─── Skill (enterprise procedure bodies; not Cursor editor skills) ───────────
+
+entity Skill {
+  key ID              : UUID;
+  name                : String(100);
+  description         : String(500);
+  body                : LargeString;
+  status              : String(20) enum { Draft; Active; Disabled } default 'Draft';
+  modifiedAt          : Timestamp;
+}
+
 // ─── Agent ────────────────────────────────────────────────────────────────────
 
 entity Agent {
@@ -45,6 +56,7 @@ entity Agent {
   status              : String(20) enum { Draft; Active; Archived } default 'Draft';
   createdBy           : String(200);
   tools               : Composition of many AgentTool on tools.agent = $self;
+  skills              : Composition of many AgentSkill on skills.agent = $self;
   groups              : Association to many AgentGroupAgent on groups.agent = $self;
 }
 
@@ -53,6 +65,12 @@ entity AgentTool {
   agent                 : Association to Agent;
   tool                  : Association to Tool;
   permissionOverride    : String(30) enum { Inherit; ForceDelegated; ForceElevated } default 'Inherit';
+}
+
+entity AgentSkill {
+  key ID                : UUID;
+  agent                 : Association to Agent;
+  skill                 : Association to Skill;
 }
 
 entity AgentGroup {
@@ -84,6 +102,8 @@ entity ChatSession {
   title               : String(200);
   createdAt           : Timestamp;
   updatedAt           : Timestamp;
+  summary             : LargeString;
+  summaryWatermark    : Timestamp;
   messages            : Composition of many ChatMessage on messages.session = $self;
 }
 

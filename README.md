@@ -137,6 +137,24 @@ cd app/chat && npx ui5 serve --port 3002
 
 (proxies `/api` and OData to CAP on **4004**; see [`app/chat/ui5.yaml`](app/chat/ui5.yaml)).
 
+### Chat UI → CAP contract (baseline)
+
+The browser sends **only** `{ agentId, message, sessionId }` in the JSON body of **POST `/api/chat`** (no access token in the body; the App Router forwards **`Authorization: Bearer`** to CAP per destination). Implementation: [`app/chat/webapp/controller/Chat.controller.js`](app/chat/webapp/controller/Chat.controller.js). On **SSE `done`**, the server may return **`sessionId`** (and related ids); the controller persists the session id when present.
+
+### CAP → Python (target thin JSON contract)
+
+**Action Plan 06 — Phase 4 Task 4.1.1** defines the **target** body and headers for CAP’s private **`POST`** to the Python executor (`/chat` on the Python service). This is the **thin** contract: identifiers and message only; Python loads tool/skill metadata and session history from HANA (see architecture and [`doc/Action-Plan/06-architecture-aligned-e2e.md`](doc/Action-Plan/06-architecture-aligned-e2e.md) Phase 4).
+
+**Target JSON body fields:** `sessionId`, `agentId`, `toolIds`, `skillIds`, `message`, `userInfo` — no access token in the JSON body; the user JWT is carried only in **`Authorization`**.
+
+**Target HTTP headers:**
+
+- **`Authorization: Bearer`** — end-user access token (RFC 6750), forwarded from the request CAP received (same pattern as App Router → CAP).
+- **`X-Internal-Token`** — when `ACP_INTERNAL_TOKEN` is set, shared secret for the CAP → Python hop (defense in depth).
+- **`X-AC-*`** — user-context mirrors per **Plan 05** ([`doc/Action-Plan/05-cap-public-python-private-production-path.md`](doc/Action-Plan/05-cap-public-python-private-production-path.md)); built in [`srv/python-trust.js`](srv/python-trust.js) (e.g. `X-AC-User-Id`, `X-AC-Dept`, `X-AC-Roles`).
+
+**Implementation note:** Until **Phase 4.2** is implemented, [`srv/server.js`](srv/server.js) may still send the **legacy fat** payload to Python (e.g. `agentConfig`, `effectiveTools`, `history`, `userToken` in the body). The thin JSON above is the **target**; migrate the server in Phase 4.2 per the action plan.
+
 ---
 
 ## BTP trial and Cloud Foundry (repeatable setup)

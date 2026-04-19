@@ -251,6 +251,7 @@ cds.on('bootstrap', app => {
     }
   })
 
+  // Target thin CAP→Python contract: README "CAP → Python (target thin JSON contract)"; legacy fat payload until Phase 4.2.
   app.post('/api/chat', async (req, res) => {
     const user = req.user
     if (!user?.is?.('Agent.User')) return res.status(403).json({ error: 'Agent.User required' })

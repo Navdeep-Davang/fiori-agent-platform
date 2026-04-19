@@ -1,31 +1,13 @@
-# Orchestration Scratchpad — Action Plan 05
+# Orchestration scratchpad — Plan 06
 
-## Session Info
-- Action Plan: `doc/Action-Plan/05-cap-public-python-private-production-path.md`
-- Started: 2026-04-12
-- Architecture Sync: see `doc/.manifest.json`
+## Session (2026-04-19)
 
-## Current Cycle: 1
-## Status: CYCLE_1_REVIEWED
+- **Parallel subagents:** 3× explore audits (Phase 0–2, 3–5, 6–9) → reports written under `.cursor/worker-reports/06-audit-phase*.md`.
+- **Implementation:** Phase 3 schema + governance + seeds (verified `npx cds build --production`); Phase 4.1.1 README + `srv/server.js` comment (doc agent).
+- **Action plan:** `doc/Action-Plan/06-architecture-aligned-e2e.md` updated — Phase 3 Tasks **3.1**, **3.2** `[X]`; **3.3** open; **Task 4.1** `[X]`; Phase 4 **4.2+** still open.
+- **Manifest:** `doc/.manifest.json` `last_updated` + `06` note.
+- **Venv:** No pip/venv used in this cycle (CDS/Node/docs only). Future Python installs: `python/venv/Scripts/pip.exe` or activate per `python-venv-policy.mdc`.
 
-## Task Analysis
-| ID | Description | Track | Status |
-|----|-------------|-------|--------|
-| P1 | Phase 1 BTP & identity (trust, XSUAA, role collections, redirect URI checklist) | btp-expert | PARTIAL (btp not logged in) |
-| P2-P3 | Hybrid xsuaa + App Router; fence dummy/Basic; CAP→Python headers + Python trust | code worker | COMPLETE (code review + `node --check`) |
+## Next
 
-## Parallel Groups
-- Group A: btp-expert (Phase 1)
-- Group B: code implementation (Phases 2–3, repo changes)
-
-## Spawned Subagents
-| Task | Model | Status | Report |
-|------|-------|--------|--------|
-| ap05-phase1-btp | fast | PARTIAL | `.cursor/worker-reports/ap05-phase1-btp.md` |
-| ap05-phase2-3-code | default | COMPLETE | `.cursor/worker-reports/ap05-phase2-3-code.md` |
-
-## Review Notes
-- After reports: verify per `.cursor/rules/subagent-verification.mdc`; update action plan checkboxes only for verified items.
-
-## DONE
-- Parallel workers finished 2026-04-12; action plan 05 updated; Phase 1.1–1.2 remain for user after `btp login`.
+- Run **`npm run deploy:hana`** when HDI is available, then tick **3.3.x** and smoke **`GET /odata/v4/governance/Skills`**.
