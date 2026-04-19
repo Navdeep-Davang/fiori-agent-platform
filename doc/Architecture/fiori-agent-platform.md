@@ -1,9 +1,9 @@
 # Architecture: Agent Control Plane (SAP BTP)
 
-> **Audience:** developers implementing this system. For product requirements and "why" reasoning, see `doc/PRD/agent-control-plane.md`.
-> Last updated: 2026-04-18.
+> **Audience:** developers implementing this system. For product requirements and "why" reasoning, see `doc/PRD/agent-control-plane.md`. For phased delivery (tasks, exit criteria), see `doc/Action-Plan/06-architecture-aligned-e2e.md`.
+> Last updated: 2026-04-24.
 >
-> **Reading order:** **§1.1** is a fast end-to-end map (current + target). **§2–§12** describe the **current implementation** (CAP-centric policy, fat CAP→Python payload, ADK engine, MCP server embedded in `python/`). **§13** lists **target deltas** (Skills, thin id-only payload, Python loads by id, DeepAgent option, MCP pool as separate service, chat summarization).
+> **Reading order:** **§1.1** is a fast end-to-end map (current + target). **§2–§12** describe the **current codebase** (CAP-centric policy, fat CAP→Python payload, **legacy** Google ADK + hand-rolled loops in `python/`). **§13** is the **target architecture**: Skills, **thin JSON payload (ids only)** + **end-user JWT in `Authorization: Bearer`** (RFC 6750), Python hydration + **Python-owned chat writes**, **DeepAgent as the sole orchestrator** (Google ADK and self-managed loops **deprecated** — see **§13.4**), optional MCP pool, summarization.
 
 ---
 
@@ -11,7 +11,7 @@
 
 Agent Control Plane is a governance and chat product running on SAP BTP Cloud Foundry. It consists of two SAPUI5 frontend apps (`app/admin/` for Fiori Elements governance screens, `app/chat/` for freestyle streaming chat), an `@sap/approuter` OAuth2 gateway, a CAP Node.js service (`srv/`) that exposes OData V4 endpoints for all governed entities plus custom SSE routes in `server.js`, and a separate FastAPI Python service (`python/`) that runs LLM inference and MCP tool calls. SAP HANA Cloud (HDI container) is the sole datastore. **On Cloud Foundry** and in **hybrid** local development, authentication is **XSUAA** (JWT, role collections, scopes) via **`cds bind`** — see **ADR-7** and `doc/Action-Plan/05-cap-public-python-private-production-path.md`. All components deploy as a single MTA on Cloud Foundry.
 
-> **Target direction (see §13):** add **Skill** (procedure pack) alongside **Tool**, send **ids only** from CAP to Python, let Python **load bodies by id** (tools, skills, session + summary), support **DeepAgent (LangChain/LangGraph)** as an orchestrator option, and optionally split **MCP server** into its own `services/mcp-pool/` microservice.
+> **Target direction (see §13):** add **Skill** (procedure pack) alongside **Tool**, send **ids + `userInfo` in JSON** and **forward the user access token as `Authorization: Bearer`** to Python (not full tool/history blobs), let Python **load bodies by id** (tools, skills, session + summary) and **persist chat rows**, standardize on **DeepAgent** ([`deepagents`](https://github.com/langchain-ai/deepagents) / LangGraph) as the **only** production orchestrator (replacing **Google ADK** and hand-rolled `executor.py` loops — **deprecated**, removal per **§13.4**), and optionally split **MCP** into `services/mcp-pool/`.
 
 ### 1.1 End-to-end quick map
 
@@ -25,7 +25,7 @@ Agent Control Plane is a governance and chat product running on SAP BTP Cloud Fo
 | **CAP (Node)** | CF app | Fiori static + OData governance + `/api/chat` SSE hop to Python |
 | **Fiori Admin UI** | Static in CAP | Agents, tools, MCP servers, groups; **Skills** when §13 lands |
 | **Fiori Chat UI** | Static in CAP | Chat + SSE |
-| **Python executor** | CF app / container | LLM + MCP host (today: ADK/loops + `mcp_client`; target: + DeepAgent option) |
+| **Python executor** | CF app / container | **Target:** DeepAgent + governed MCP client. **Legacy (deprecated):** ADK (`adk_engine.py`) + hand-rolled loops — remove after migration (**§13.4**). |
 | **MCP server (tool pool)** | Same app as Python today; optional `services/mcp-pool/` later | Many tools, one HTTP surface |
 | **HANA Cloud (HDI)** | Managed | Governance + chat + audit |
 | **MCP gateway** (optional) | Separate CF app later | Federation when many external MCPs |
@@ -55,7 +55,7 @@ Public browser traffic only reaches **App Router → CAP**. Python and MCP are *
 | Object | Role |
 |---|---|
 | `RunContext` | User/session/agent ids, **allowlisted** `toolIds` / `skillIds` |
-| DeepAgent / ADK / loop | Orchestration harness for this turn |
+| **DeepAgent** (LangGraph harness) | **Target** orchestration for every agent turn |
 | MCP client | HTTP to MCP base URLs (from hydrated `Tool` → `McpServer`) |
 
 #### Enforcement (no short-circuit)
@@ -64,10 +64,10 @@ Public browser traffic only reaches **App Router → CAP**. Python and MCP are *
 |---|---|
 | **HANA + CDS** | Authoritative mappings: agent ↔ tool, agent ↔ group, tool status |
 | **CAP** | Validates JWT, resolves allowed agents, builds allowlist (ids or, today, `effectiveTools`) |
-| **Python** | Session ownership, re-fetch by id, **reject tool calls outside allowlist** |
+| **Python** | Session ownership, re-fetch by id, **reject tool calls outside allowlist** (defense in depth — §13.5.2) |
 | **MCP server** | Optional defense-in-depth (tenant); **not** where primary per-tool RBAC lives (§13.5.1) |
 
-#### Flows (target thin payload; today CAP still sends full `effectiveTools` + `history`)
+#### Flows (target: thin CAP→Python payload + Python-owned persistence)
 
 **Admin setup**
 
@@ -77,8 +77,10 @@ Public browser traffic only reaches **App Router → CAP**. Python and MCP are *
 **First user message**
 
 1. Browser → CAP: `{ agentId, message, sessionId? }` + JWT.
-2. CAP validates JWT and agent access; **target:** POST to Python with `toolIds[]`, `skillIds[]`, session id, message (+ internal auth headers).
-3. Python hydrates agent, tools, skill metadata, history/summary; runs LLM/MCP; streams SSE; CAP persists on `done`.
+2. CAP validates JWT and agent access; POST to Python with **thin JSON** (`toolIds[]`, `skillIds[]`, `sessionId`, `agentId`, `message`, `userInfo`) plus **`Authorization: Bearer <user_jwt>`** (forwarded from the browser request) and **`X-Internal-Token`** / `X-AC-*` headers (see §13.2). CAP does **not** send `effectiveTools` or `history` blobs — Python hydrates from HANA.
+3. Python hydrates agent, tools, skill metadata, history/summary; runs LLM/MCP; **writes** `ChatSession` / `ChatMessage` / `ToolCallRecord` to HANA; streams SSE **through** CAP to the browser. CAP **proxies** the stream and forwards `done` (with `sessionId`, `messageId`) — **no** duplicate persistence in CAP on the target path.
+
+**Implemented today (legacy, pre-§13 migration):** CAP still builds fat `effectiveTools` + `history` and persists chat rows on `done` in `server.js`. Refactor replaces that with the flow above.
 
 **Next messages**
 
@@ -96,8 +98,8 @@ When context is too large, update `ChatSession.summary` + `summaryWatermark`; mo
 #### Security boundaries
 
 - Only **App Router** is public to browsers.
-- **CAP → Python:** internal URL + `X-Internal-Token` / headers (`srv/python-trust.js`); Python does not re-verify JWT in v1 but **does** verify session + allowlist on the target path.
-- **Python → MCP:** private network; audience-bound tokens for delegated vs elevated tools (`chat_tooling.py`); do not pass the user JWT through unchanged to MCP.
+- **CAP → Python:** internal URL (Python **not** internet-facing). **`X-Internal-Token`** (shared secret) proves the caller is **CAP**, not an arbitrary client. The **end-user access token** is forwarded per **[RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750)** as **`Authorization: Bearer <access_token>`** — **not** duplicated in the JSON body. Python uses that Bearer token for **delegated** MCP calls where required; **`userInfo`** must stay **consistent** with the JWT subject and session ownership checks.
+- **Python → MCP:** private network; use **delegated** or **machine** tokens per tool (`chat_tooling.py` / `Tool.elevated`) — follow audience-bound patterns; do **not** forward the raw browser JWT to MCP pools unless a specific integration explicitly requires it.
 
 #### Roles & responsibilities
 
@@ -117,7 +119,7 @@ When context is too large, update `ChatSession.summary` + `summaryWatermark`; mo
 #### Rules to remember
 
 1. **Public = App Router only.**
-2. **Target: CAP sends ids, not blobs** (today: still sends `effectiveTools` + history until migration).
+2. **Target: CAP sends ids (+ `userInfo`) in JSON and Bearer in `Authorization`, not tool/history blobs** — Python hydrates from HANA.
 3. **Python loads definitions by id** on the target path; tool name in MCP must match HANA `Tool.name`.
 4. **Skill metadata in prompt; body on demand.**
 5. **Session ownership checked every turn** on the target path.
@@ -134,11 +136,13 @@ When context is too large, update `ChatSession.summary` + `summaryWatermark`; mo
 **Technology:** Fiori Elements (SAPUI5), UI5 Tooling
 
 **Responsibilities:**
-1. List Report + Object Page for `McpServer` — register, test connection, sync tools, disable.
-2. List Report + Object Page for `Tool` — review Draft tools, set risk level and elevated flag, activate, run test.
-3. List Report + Object Page for `Agent` — create agents, assign tools, set system prompt, model profile, identity mode.
-4. List Report + Object Page for `AgentGroup` — map JWT claim keys/values to agent bundles.
+1. List Report + Object Page for `McpServer` — register **connection** (`destinationName` and/or `baseUrl`), **test connection**, **sync tools** (discovers tool names from the MCP server), enable/disable server.
+2. List Report + Object Page for `Tool` — each row is **linked to one `McpServer`**; admin reviews **Draft** tools from sync, sets **risk** / **elevated**, **activates**; **run test** calls Python. At runtime, CAP/Python resolve the **MCP base URL** from the tool’s server (**BTP Destination** or `baseUrl` on `McpServer` — same rules as `testConnection` / `syncTools` in `governance-service.js`).
+3. List Report + Object Page for `Agent` — create agents; **Tool Assignments** sub-table (**`AgentTool`**) **maps this agent to governed tools** (with `permissionOverride`). This is where **which agent may call which tool** is configured; it is **not** inferred only from the JWT.
+4. List Report + Object Page for `AgentGroup` — map **JWT claim** keys/values (e.g. `dept`) to **which agents** a user may **see** in chat (`GET /api/agents`).
 5. All pages driven by OData V4 annotations in `app/admin/annotations/annotations.cds`; no custom controller logic for CRUD.
+
+**End-to-end mapping (admin):** `McpServer` (where MCP lives) → **`syncTools`** creates/updates `Tool` rows pointing at that server → **`Tool.status = Active`** and **`AgentTool`** rows on **`Agent`** assign allowed tools to an agent. **Chat-time enforcement** layers **user** (JWT → agent visibility) with **agent→tool** (`AgentTool`); see **§13.5.2**.
 
 ### 2. Chat UI (`app/chat/`)
 **Technology:** Freestyle SAPUI5 (no Fiori Elements)
@@ -169,26 +173,38 @@ When context is too large, update `ChatSession.summary` + `summaryWatermark`; mo
 2. Serve `ChatService` OData V4 at `/odata/v4/chat` for `ChatSession`, `ChatMessage`, `ToolCallRecord`.
 3. Implement bound actions: `testConnection`, `syncTools` on `McpServer`; `runTest` on `Tool`.
 4. `server.js` custom route `GET /api/agents`: resolve agent list from JWT claims → group lookup in HANA.
-5. `server.js` custom route `POST /api/chat`: validate JWT, build effective tool list, proxy to Python as SSE, persist `ChatMessage` and `ToolCallRecord` on completion.
+5. `server.js` custom route `POST /api/chat`: validate JWT, resolve allow-listed **`toolIds` / `skillIds`**, POST **thin JSON** to Python and **forward `Authorization: Bearer`** (user JWT) + internal-trust headers, **proxy SSE** to the browser. **Target:** persistence of chat rows is **only in Python** (see §13.3). **Legacy:** today CAP still builds fat payload (including `userToken` in body) and persists on `done` in `server.js` until migration.
 6. Enforce all role restrictions declared in CDS `@requires` and `@restrict` annotations.
 
 ### 5. Python Executor (`python/`)
-**Technology:** FastAPI, uvicorn, httpx, **Google Agent Development Kit (ADK)** for the Gemini stack, Anthropic/OpenAI SDKs for other providers, MCP client
 
-**LLM routing:**
-- **`LLM_PROVIDER=google-genai` (default):** Gemini runs **inside ADK** — `google.adk.runners.Runner` + `LlmAgent` + `Gemini` model. Tool declarations are built from CAP’s `effectiveTools`; execution still goes through the existing `mcp_client` HTTP transport (`AcpGovernedMcpToolset` / `_AcpMcpBridgeTool` in `app/adk_engine.py`). Streaming uses ADK `RunConfig(streaming_mode=SSE)` and is mapped to the same SSE event shapes the chat UI already expects (`token`, `tool_call`, `tool_result`).
-- **`LLM_PROVIDER=anthropic` / `openai`:** Unchanged hand-rolled loops in `executor.py` (no ADK).
+**Target technology:** FastAPI, uvicorn, httpx, **[`deepagents`](https://github.com/langchain-ai/deepagents)** (LangGraph), **LangChain** chat-model wrappers for **Anthropic, OpenAI, and Google Gemini** (same providers as today), governed MCP bridge (`AcpGovernedMcpToolset` / `_AcpMcpBridgeTool`), MCP client.
 
-**Why ADK as the “engine” for Gemini:** ADK is the supported framework for agents on Gemini — runners, session/event model, SSE streaming, tool orchestration, and hooks for **memory**, **artifacts**, **code execution**, **RAG / Vertex**, **MCP toolsets**, multi-agent flows, and deployment paths (e.g. Agent Engine). We keep CAP as the **source of truth for governance** (which tools exist, URLs, elevation, prompts) and inject that into ADK session state per request.
+**Target LLM routing:** One path — **`deepagent_engine.run_deep_agent(...)`.** Provider is selected by `LLM_PROVIDER` + `LLM_MODEL`; the model object is a LangChain `BaseChatModel` (e.g. `ChatGoogleGenerativeAI`, `ChatAnthropic`, `ChatOpenAI`). Tools and skills are injected per §13; SSE events unchanged (`token`, `tool_call`, `tool_result`, `done`, `error`, plus optional `planning`).
 
-**Request-scoped ADK sessions (current):** Each `POST /chat` creates an in-memory ADK session, replays CAP `history` into ADK `Event`s, then appends the new user turn. Canonical chat persistence remains **HANA** via CAP after the stream completes. A logical next step for scale is swapping `InMemorySessionService` for an external persistent store (e.g. a managed session backend) keyed by `ChatSession` ID so ADK state survives across requests and workers.
+**Deprecated (scheduled for removal — §13.4):**
+
+| Artifact | Role today | Status |
+|----------|------------|--------|
+| `python/app/adk_engine.py` | Gemini via **Google ADK** (`Runner`, `LlmAgent`) | **Deprecated** — replace with DeepAgent + `ChatGoogleGenerativeAI` |
+| `google-adk` in `requirements.txt` | ADK dependency | **Deprecated** — remove after migration |
+| Hand-rolled loops in `executor.py` | Anthropic / OpenAI without LangGraph | **Deprecated** — DeepAgent subsumes |
+
+**Why deprecate ADK:** ADK is excellent for **Gemini-first** Google Cloud deployments (Agent Engine, ADK Web UI, built-in evals), but this product requires **one** orchestration harness across **all** LLM providers with **planning** and **virtual filesystem** — that is **DeepAgent on LangGraph**. Optional **`SubAgent`** delegation exists in the library but is **not** a platform foundation requirement; enterprise **Skills** (§13.1) carry governed procedures and tool guidance first. Maintaining ADK + DeepAgent + two loop styles triples operational and security review surface.
+
+**Current codebase (legacy)** — until removed:
+
+- **`LLM_PROVIDER=google-genai`:** Gemini runs **inside ADK** — `adk_engine.run_adk_chat`; tool execution via `mcp_client` + `AcpGovernedMcpToolset`.
+- **`LLM_PROVIDER=anthropic` / `openai`:** Hand-rolled loops in `executor.py`.
+
+**Legacy flow (Gemini / ADK — deprecated):**
 
 ```mermaid
 flowchart LR
   subgraph cap [CAP Node.js]
     Chat[POST /api/chat]
   end
-  subgraph py [Python FastAPI]
+  subgraph py [Python FastAPI - legacy]
     EP["/chat"]
     EX[executor.run]
     ADK[adk_engine.run_adk_chat]
@@ -206,11 +222,13 @@ flowchart LR
   TS --> MC
 ```
 
+**Target flow (all providers — DeepAgent):** CAP → `/chat` → `executor` → **`deepagent_engine`** → LangGraph `create_deep_agent` → governed tools → `mcp_client` (same diagram shape as §13.4 code sample).
+
 **Responsibilities:**
-1. Accept `POST /chat` from CAP `server.js`; run LLM inference (ADK for Gemini); stream SSE back.
+1. Accept `POST /chat` from CAP `server.js`; run LLM inference (**target:** DeepAgent only; **legacy:** ADK or loops); stream SSE back.
 2. Accept `POST /tool-test` from CAP `runTest` action; invoke a single MCP tool and return result.
 3. Use the `effectiveTools` list provided by CAP — never decide its own tool list.
-4. Call MCP servers via HTTP streamable transport; use `userToken` for delegated tools, machine service token for elevated tools (flag communicated by CAP per tool).
+4. Call MCP servers via HTTP streamable transport; use the **forwarded Bearer token** (or derived delegated token) for delegated tools, machine service token for elevated tools (flag from hydrated `Tool` / `AgentTool`).
 5. Emit structured SSE events: `token`, `tool_call`, `tool_result`, `done`, `error`.
 
 **CAP → Python (private hop):** Python is **not** a public OAuth client. End users authenticate only to **App Router + CAP** (JWT). **CAP** is the only intended caller for **`python/`**; it forwards **user context** headers (`X-AC-User-Id`, `X-AC-Dept`, `X-AC-Roles`) and optional **`X-Internal-Token`** when **`ACP_INTERNAL_TOKEN`** is set (Python must match when configured). Identity is **vouched by CAP** on this internal hop; JWT verification is not duplicated in Python for v1.
@@ -485,11 +503,11 @@ Runs in the same CAP Node process. Registered via `cds.on('bootstrap', app => { 
    - `Inherit` → use tool's own `elevated` flag and agent's `identityMode`.
    - `ForceDelegated` → always delegated regardless of `elevated`.
    - `ForceElevated` → only allowed if agent `identityMode = 'Mixed'` AND tool `elevated = true`; otherwise reject.
-6. Load conversation history: if `sessionId` is not null, query all `ChatMessage` rows for that session ordered by `timestamp ASC`; map to `{ role, content }` array. Pass as `history` in the Python payload. If `sessionId` is null, `history = []`.
-7. Extract `userToken` from `req.headers.authorization`; extract `userId` and `email` from `SecurityContext` for `userInfo`.
-8. Set `Content-Type: text/event-stream`; POST to Python `/chat` with full payload: `{ agentConfig, effectiveTools, message, history, userInfo, userToken }`.
+6. **Legacy:** load conversation history from HANA and pass `history` in the Python payload. **Target (§13.2):** do not load history in CAP; send `toolIds`, `skillIds`, `sessionId`, `agentId`, `message`, `userInfo` in JSON only.
+7. **Target:** forward the browser’s **`Authorization: Bearer <jwt>`** header to Python unchanged (or rebuild it from the validated token). **Legacy:** also embed token in body as `userToken` — remove when migrating to §13.2. Extract `userId` and `email` from `SecurityContext` for `userInfo`.
+8. Set `Content-Type: text/event-stream`; POST to Python `/chat` — **legacy:** `{ agentConfig, effectiveTools, message, history, userInfo, userToken }`; **target:** thin JSON per §13.2 + **`Authorization: Bearer`** + internal-trust headers (**no** `userToken` in body).
 9. Pipe Python SSE stream to browser.
-10. On `done` event from Python: write `ChatMessage` (user role, original message) + `ChatMessage` (assistant role, accumulated tokens) + all `ToolCallRecord` rows to HANA. Update `ChatSession.updatedAt`. If `sessionId` was null, create new `ChatSession` (title = first 40 chars of user message) and return its ID in the forwarded `done` event.
+10. **Legacy:** on completion, CAP may persist `ChatMessage` / `ToolCallRecord` / `ChatSession` (current `server.js`). **Target:** Python persists all chat rows; CAP only forwards SSE including final `done` with `sessionId`, `messageId`.
 
 ---
 
@@ -568,7 +586,10 @@ data: {"type":"error","message":"Agent not accessible for this user"}
 
 #### `POST /chat`
 
-**Request:**
+**Target request (§13.2):** thin JSON body (ids + `userInfo` only) — Python hydrates the rest. **HTTP headers:** `Authorization: Bearer <access_token>` (end-user JWT forwarded from CAP), `X-Internal-Token` (and `X-AC-*` per `srv/python-trust.js`). **Do not** put the access token in the JSON body.
+
+**Legacy request (current `server.js`):** fat JSON including `userToken` in body (migrate to header-only Bearer per §13.2).
+
 ```json
 {
   "agentConfig": {
@@ -595,7 +616,7 @@ data: {"type":"error","message":"Agent not accessible for this user"}
     "email": "john.doe@example.com",
     "groups": ["Procurement Group"]
   },
-  "userToken": "Bearer eyJhbGciOiJSUzI1NiJ9..."
+  "userToken": "eyJhbGciOiJSUzI1NiJ9..."
 }
 ```
 
@@ -656,19 +677,18 @@ sequenceDiagram
     CAP->>CAP: checkLocalScope("Agent.User") → 403 if false
     CAP->>CAP: Read JWT claims (dept, role, etc.)
     CAP->>CAP: Query HANA: resolve AgentGroups → verify agent access
-    CAP->>CAP: Load agent config + build effectiveTools list
+    CAP->>CAP: Resolve allow-list → toolIds/skillIds (+ legacy: effectiveTools + history)
     CAP->>CAP: Set Content-Type: text/event-stream
 
-    CAP->>Python: POST /chat {agentConfig, effectiveTools, message, history, userInfo, userToken}
-    Python->>Python: LLM call with system prompt + history
-    Python->>Python: LLM returns tool_call decision
-    Python->>MCP: HTTP POST /tools/call {name, arguments} + userToken (or machine token if elevated)
+    CAP->>Python: POST /chat thin JSON + Authorization: Bearer + X-Internal-Token
+    Python->>Python: Hydrate from HANA; LLM + tools
+    Python->>MCP: tools/call + delegated or machine token per tool
     MCP-->>Python: Tool result
-    Python-->>CAP: SSE stream (token, tool_call, tool_result, done)
+    Python-->>CAP: SSE (token, tool_call, tool_result, …)
     CAP-->>AppRouter: SSE piped through
     AppRouter-->>Browser: Streaming tokens rendered
 
-    CAP->>CAP: On "done": INSERT ChatMessage + ToolCallRecords into HANA
+    Python->>Python: On completion: INSERT ChatMessage + ToolCallRecords + ChatSession
 ```
 
 ### Agent Group Resolution (plain text)
@@ -770,8 +790,8 @@ fiori-agent-platform/
 │   ├── app/
 │   │   ├── __init__.py
 │   │   ├── main.py                         # FastAPI app; mounts /chat, /tool-test, and /mcp routers
-│   │   ├── executor.py                     # LLM routing; Anthropic/OpenAI loops; delegates Gemini to adk_engine
-│   │   ├── adk_engine.py                   # Google ADK Runner + LlmAgent (Gemini); governed MCP toolset; SSE mapping
+│   │   ├── executor.py                     # Entry: routes to deepagent_engine (target); legacy loops until removed (§13.4)
+│   │   ├── adk_engine.py                   # DEPRECATED — Google ADK for Gemini; remove after DeepAgent+Gemini parity (§13.4)
 │   │   ├── chat_tooling.py                 # Shared MCP auth helper (delegated vs machine token)
 │   │   ├── mcp_server.py                   # FastAPI router: POST /mcp/tools/list, POST /mcp/tools/call  (→ §13.5 extract)
 │   │   ├── mcp_client.py                   # MCP HTTP client; dispatches tool calls to MCP servers
@@ -783,7 +803,7 @@ fiori-agent-platform/
 │   │       ├── finance.py
 │   │       └── registry.py                 # Dict: tool name → handler function + JSON Schema
 │   ├── venv/                               # Local virtualenv (gitignored; see python-venv-policy rule)
-│   ├── requirements.txt                    # fastapi, uvicorn, httpx, anthropic, openai, google-adk, hdbcli
+│   ├── requirements.txt                    # fastapi, uvicorn, httpx, deepagents, langchain-*; google-adk deprecated (§13.4)
 │   ├── Procfile                            # web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 │   └── manifest.yml                        # CF push manifest for Python app
 │
@@ -828,9 +848,10 @@ The following paths **do not exist yet**; they are the concrete destinations for
 
 ```
 python/app/
-├── deepagent_engine.py     # §13.4  LangGraph deepagents harness (create_deep_agent + subagents + virtual FS)
+├── deepagent_engine.py     # §13.4  LangGraph deepagents harness (create_deep_agent + virtual FS; SubAgent optional / Skill-driven)
 ├── hydrator.py             # §13.3  HANA read-only loader (agent, tool defs, skill meta, session + summary watermark)
-├── session_store.py        # §13.3  Session ownership + message append helpers (today inlined in adk_engine/executor)
+├── session_store.py        # §13.3  Session ownership + message append helpers (refactor from executor)
+├── langfuse_callbacks.py   # §13.4.1  optional: Langfuse CallbackHandler wiring for DeepAgent invoke (LANGFUSE_* env)
 └── skills/                 # §13.1  Optional local cache for skill bodies fetched by id (progressive disclosure)
 
 services/
@@ -843,7 +864,7 @@ services/
     └── manifest.yml
 
 db/
-└── schema.cds              # §13.1, §13.6  adds Skill, AgentSkill, ChatSession.summary, ChatSession.summaryWatermark, Agent.engine
+└── schema.cds              # §13.1, §13.6  adds Skill, AgentSkill, ChatSession.summary, ChatSession.summaryWatermark (optional transient Agent.engine — prefer omit; §13.4)
 ```
 
 ---
@@ -1190,11 +1211,27 @@ Admin UI: new List Report + Object Page for `Skill`; Agent Object Page gains a `
 
 **Progressive disclosure:** the agent prompt receives only `{name, description}` for every assigned skill. The full `body` is fetched by Python on demand (when the agent decides to use that skill), keeping the context window small.
 
-### 13.2 Thin CAP → Python payload (ids only)
+**Skills vs sub-agents (enterprise alignment):** Industry patterns distinguish **Skills** (reusable procedures, domain playbooks — *what to do and how*) from **sub-agents** (separate orchestrated workers with isolated context — *who delegates to whom*); see e.g. [Microsoft AI agent design patterns](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns) (orchestrator–worker, handoff) and practitioner literature on modular agent systems. This product standardizes on **governed Skills in HANA** as the primary way to encode enterprise procedure alongside **Tool** allowlists. **`deepagents.SubAgent` is not part of the v1 foundation** — the runtime uses `create_deep_agent(..., subagents=[])` unless a future, **Skill-driven** design explicitly maps a Skill to a delegated worker (optional; §13.4). Do **not** ship a hardcoded default such as `tool-researcher` in core.
 
-Current (§5, `POST /chat`): CAP sends full `effectiveTools`, full `history`, and `userToken`.
+### 13.2 Thin CAP → Python payload (ids in JSON + Bearer in header)
 
-Target payload:
+**No feature flag:** the product standard is this single contract (migrate code from the legacy fat payload in `server.js`).
+
+CAP still runs the full authorization pipeline (JWT → agent resolution → `AgentTool` / `AgentSkill` filter by status) and produces **`toolIds` / `skillIds`**. It does **not** ship tool schemas, skill bodies, or chat history over the wire.
+
+**End-user access token (required):** forward the same token the browser sent to CAP using the **`Authorization: Bearer <access_token>`** header ([RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750)). Python reads the Bearer token from the request for **identity** (aligned with `userInfo` / JWT claims) and **delegated MCP** tool calls where `Tool.elevated` is false. **Do not** duplicate the token in the JSON body.
+
+**Internal hop (separate concern):** `X-Internal-Token` (+ optional `X-AC-*` headers from `srv/python-trust.js`) proves the request **originates from CAP** on the private URL — orthogonal to the user Bearer token; it only blocks non-CAP callers.
+
+**HTTP request to Python (CAP → Python):**
+
+| Header | Purpose |
+|--------|---------|
+| `Authorization` | `Bearer <end-user access_token>` — forwarded from browser → CAP |
+| `X-Internal-Token` | Shared secret — proves caller is CAP |
+| `X-AC-*` | Optional user context mirrors (Plan **05**) |
+
+**JSON body (thin):**
 
 ```json
 {
@@ -1207,71 +1244,87 @@ Target payload:
 }
 ```
 
-CAP still runs the full authorization pipeline (JWT → agent resolution → `AgentTool` / `AgentSkill` filter by status) and produces `toolIds` / `skillIds`. It does **not** ship tool schemas, skill bodies, or chat history over the wire.
+### 13.3 Python loads by id; Python owns chat persistence
 
-### 13.3 Python loads by id (read-only HANA access)
+Python `/chat` handler steps (replaces the fat-payload + CAP-side persistence path):
 
-Python `/chat` handler steps (replaces current fat-payload path):
-
-1. Verify internal token (`ACP_INTERNAL_TOKEN`) and required `X-AC-*` user headers.
-2. Verify session ownership: `ChatSession(sessionId).userId == userInfo.userId` (or create new session).
-3. Hydrate from HANA (read-only):
+1. Verify **`X-Internal-Token`** matches `ACP_INTERNAL_TOKEN` — only **CAP** may call Python on the private URL.
+2. Require **`Authorization: Bearer`**; parse the access token; align **`userInfo`** and session rows with the JWT subject (ownership).
+3. Verify session ownership: `ChatSession(sessionId).userId == userInfo.userId` (or create new session when `sessionId` is null).
+4. Hydrate from HANA (read-only for governance data):
    - `Agent` row (system prompt, model profile, identity mode).
-   - `Tool` rows for `toolIds` (re-checks `status = 'Active'`; any inactive id → reject).
+   - `Tool` rows for `toolIds` (re-check `status = 'Active'`; any inactive id → reject).
    - `Skill` metadata for `skillIds` (name + description only; body loaded lazily).
    - Session history **from the latest summary watermark onward** (see §13.6).
-4. Build DeepAgent/ADK session state; stream SSE back.
-5. On `done`, write `ChatMessage` + `ToolCallRecord` rows (same as today).
+5. Build **DeepAgent** graph state; **stream SSE to CAP** (token, tool_call, tool_result, …).
+6. **Persist chat rows in HANA from Python** when the turn completes: `ChatSession`, `ChatMessage` (user + assistant), `ToolCallRecord`; emit **`done`** with `sessionId`, `messageId`. **CAP** proxies the stream and **does not** duplicate these inserts on the target path.
 
-Python's DB role is **read-only** for hydration + **append-only** for chat persistence. Governance writes (CRUD on `McpServer` / `Tool` / `Skill` / `Agent` / `AgentGroup`) remain CAP-only.
+Python's DB role is **read-only** for governance entities + **append-only** for chat tables. Governance writes (CRUD on `McpServer` / `Tool` / `Skill` / `Agent` / `AgentGroup`) remain CAP-only.
 
-### 13.4 DeepAgent (LangChain / LangGraph) as an orchestrator option
+### 13.4 DeepAgent as the sole orchestrator; deprecation of Google ADK and hand-rolled loops
 
-Current (`executor.py` + `adk_engine.py`): Anthropic/OpenAI hand-rolled loops + Google ADK for Gemini.
+**Decision:** Production chat uses **only** the [`deepagents`](https://github.com/langchain-ai/deepagents) harness on **LangGraph**. **Google ADK** (`adk_engine.py`, `google-adk` package) and **hand-rolled** tool loops in `executor.py` are **deprecated** and **scheduled for removal** after agents are migrated and tests pass on DeepAgent + LangChain chat models for each provider (Gemini via `langchain-google-genai`, not ADK).
 
-Target: add a **DeepAgent** path (the [`deepagents`](https://github.com/langchain-ai/deepagents) package on top of LangGraph) for agents that benefit from an explicit planner, sub-agent delegation, and a virtual filesystem for offloading large tool outputs. Engine selection is per-agent:
+**Rationale:** One orchestration surface for **all** LLM providers; planning (`write_todos`) and virtual filesystem without a Gemini-only fork. **Sub-agents** are an optional DeepAgents feature — **not** required for the enterprise baseline (**Skills** + tools). Reduces security review scope and avoids maintaining three execution paths.
 
-```
-Agent.engine ∈ { Loop, ADK, DeepAgent }   -- NEW column (replaces implicit provider-based routing)
-```
+**Schema note:** If an `Agent.engine` column was introduced for multi-engine experiments, **target state** is a single value **`DeepAgent`** only — or drop the column once legacy code is deleted.
 
-**Actual `deepagents` API (v0.5, April 2026):**
+**Removal checklist (engineering):**
+
+1. Implement `deepagent_engine.py` + provider-specific LangChain models (including Gemini).
+2. Route **all** `/chat` traffic through DeepAgent; parity tests vs legacy ADK/loop golden transcripts.
+3. Delete `adk_engine.py`, remove `google-adk` from `requirements.txt`, strip dead branches from `executor.py`.
+4. Update Admin UI / seeds so no agent references ADK or Loop.
+
+#### 13.4.1 Observability: Langfuse (open source) vs ADK Web
+
+**What ADK Web gives you (legacy Google-centric dev loop):** visual **trace** of runs, drill-down into tool calls, **evaluation** with evalsets / JSON session tests — see [Evaluating Agents with ADK](https://codelabs.developers.google.com/adk-eval/instructions). That UI is **not** replicated inside `deepagents`.
+
+**Chosen stack for this product — [Langfuse](https://langfuse.com/) (MIT license):**
+
+| Capability | ADK (legacy path) | This product (DeepAgent) |
+|------------|-------------------|---------------------------|
+| Trace UI (steps, tools, planning, optional sub-agents, latency, tokens) | ADK Web | **[Langfuse](https://langfuse.com/docs/observability/overview)** — project dashboard, drill-down spans; integrate via **`langfuse.langchain.CallbackHandler`** on `agent.invoke(..., config={"callbacks": [langfuse_handler]})` ([DeepAgents + Langfuse](https://langfuse.com/integrations/frameworks/langchain-deepagents)) |
+| Self-host / data sovereignty | N/A (Google-centric) | **[Self-hosted Langfuse](https://langfuse.com/self-hosting)** (Docker/K8s) — traces and prompts stay on your infrastructure; optional [Langfuse Cloud](https://cloud.langfuse.com) for dev |
+| Eval / regression | ADK `AgentEvaluator`, evalsets | Langfuse **datasets**, **scores**, experiments, LLM-as-judge ([docs](https://langfuse.com/docs/evaluation/overview)); export production traces into eval sets |
+| Optional graph debugging | — | **[LangGraph Studio](https://langchain-ai.github.io/langgraph/)** (local) for graph replay — orthogonal to Langfuse |
+
+**Environment (Python):** `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` (point `LANGFUSE_HOST` at self-hosted URL or regional cloud). Never commit keys; use CF user-provided service or Credential Store in prod.
+
+**Not used:** **LangSmith** — proprietary SaaS; this architecture standardizes on **Langfuse** for OSS alignment and self-hosting. **Arize Phoenix** (Apache 2.0) remains a valid alternative if teams standardize on it instead.
+
+**Migration note:** For **Gemini-only** experiments during cutover, teams may still run **ADK Web** against a **throwaway ADK agent outside this repo** — not wired to CAP — until DeepAgent + Langfuse parity is proven.
+
+**Actual `deepagents` API (v0.5, April 2026) — foundation (no default `SubAgent`):**
 
 ```python
 # python/app/deepagent_engine.py
-from deepagents import create_deep_agent, SubAgent  # AsyncSubAgent available in v0.5+
+from deepagents import create_deep_agent  # SubAgent optional — see §13.1 Skills vs sub-agents
 
 def build_agent(model, mcp_tools, agent_cfg, skill_metadata):
     system_prompt = render_prompt(agent_cfg.systemPrompt, skill_metadata)  # §13.1 progressive disclosure
-    subagents = [
-        SubAgent(
-            name="tool-researcher",
-            description="Explores a tool's schema and sample responses before the main agent commits to a call.",
-            prompt="...",
-            tools=[t for t in mcp_tools if t.name.startswith("query_")],
-        ),
-    ]
     return create_deep_agent(
         model=model,
         tools=mcp_tools,            # AcpGovernedMcpToolset-bridged MCP tools
         system_prompt=system_prompt,
-        subagents=subagents,
+        subagents=[],               # enterprise procedures live in Skills + tools, not hardcoded sub-agents
     )
 ```
+
+**Optional later:** `SubAgent(...)` / `AsyncSubAgent` only if **governed** via **Skill** metadata and tool allowlists (same trust model as CAP `toolIds`), not as a built-in `tool-researcher`.
 
 What we get for free from the harness:
 
 - `write_todos` planning tool — decomposes long-horizon tasks, visible to the UI as a structured todo panel.
 - Virtual filesystem tools (`read_file`, `write_file`, `edit_file`, `ls`, `glob`, `grep`) — used to **offload large tool responses** (e.g. full PO dumps, CSV exports) out of the LLM context window and reference them by filename in later turns.
-- Sub-agents — each has an **isolated context window**, so a long tool-exploration trace does not pollute the main planner's context.
-- `AsyncSubAgent` (v0.5+) — non-blocking background work (e.g. a long summarization or RAG retrieval) that completes after the main response streams.
+- **`SubAgent` / `AsyncSubAgent` (optional)** — isolated context for delegated workers; **not** part of the v1 product foundation — use **Skills** for procedure + tool patterns first.
 
 **Integration rules:**
 
-1. The `tools=` argument receives the **same governed MCP bridge** used by ADK (`AcpGovernedMcpToolset` / `_AcpMcpBridgeTool`). DeepAgent never gets a tool the executor didn't authorize.
+1. The `tools=` argument receives the **governed MCP bridge** (`AcpGovernedMcpToolset` / `_AcpMcpBridgeTool`). DeepAgent never gets a tool the executor didn't authorize.
 2. `system_prompt` includes skill **metadata only** (§13.1). Skill bodies are fetched by id via a dedicated `load_skill(skill_id)` tool (added to `tools=`), implementing progressive disclosure.
 3. The virtual filesystem is **per-request, in-memory** — not persisted across chat turns in v1. Persisting selected "artifacts" to HANA is a later increment.
-4. DeepAgent's LangGraph stream events (`on_tool_start`, `on_tool_end`, `on_chat_model_stream`) are mapped to the same SSE event shapes the chat UI already expects (`token`, `tool_call`, `tool_result`, `done`), mirroring what `adk_engine.py` does today.
+4. DeepAgent's LangGraph stream events (`on_tool_start`, `on_tool_end`, `on_chat_model_stream`) are mapped to the same SSE event shapes the chat UI already expects (`token`, `tool_call`, `tool_result`, `done`).
 
 ### 13.5 MCP Pool as a separate microservice (optional)
 
@@ -1304,15 +1357,28 @@ Research note (industry state, April 2026): the MCP specification mandates **OAu
 | OAuth Resource Server (MCP)    | `services/mcp-pool/` (target) or embedded `python/app/mcp_server.py` (today)         |
 | MCP governance gateway         | **CAP `server.js`** — decides `toolIds` per user/agent before Python is ever invoked |
 | Per-tool RBAC enforcement      | **HANA `AgentTool` join + `Tool.status = 'Active'`**, re-verified by Python on hydrate |
-| Tool-call audit trail          | `ToolCallRecord` rows written by CAP on SSE `done`                                   |
+| Tool-call audit trail          | **`ToolCallRecord` rows written by Python** when the turn completes (target); legacy path may still insert from CAP until migration |
 
 **Rules we adopt from the research:**
 
 1. **Never rely on in-server tool authz.** The MCP pool treats any authenticated caller as allowed to call any tool it exposes. The allow-list is CAP-decided (`toolIds`) + Python-re-checked on hydrate. A compromised MCP pool cannot escalate a user's tool set because the executor only *asks for* the tools CAP already approved.
 2. **Audience-bound tokens (no passthrough).** When Python calls `mcp-pool` (or any external MCP) it presents a token whose `aud` is the specific MCP resource. The end-user JWT is **never** forwarded unchanged to the MCP pool; the executor mints/uses a delegated or machine token scoped to that audience (current behavior in `chat_tooling.py` — keep it).
-3. **Central audit at the gateway, not in the tool.** Every tool call is logged by CAP (`ToolCallRecord`) — who / which agent / which tool / args summary / elevation flag / duration. Individual MCP servers do not need their own audit pipeline.
+3. **Central audit in the app tier.** Every tool call is logged as **`ToolCallRecord`** in HANA (written by **Python** on the target path; CAP still **authorizes** `toolIds` before invocation). Individual MCP servers do not need their own audit pipeline.
 4. **Extensions, not spec forks.** Per-tool scopes, virtual keys, and elevation flags live in **our governance schema** (`Tool.elevated`, `AgentTool.permissionOverride`), not as bespoke MCP-protocol additions. This keeps the MCP pool swappable for a hosted gateway later without schema changes.
 5. **Optional future: MCP gateway microservice.** If the tool fleet grows beyond a single `mcp-pool`, insert a thin `services/mcp-gateway/` in front of N pool instances. Its only jobs: token-audience check, CAP allow-list re-verification (defense in depth), audit mirror. CAP remains the source of truth; the gateway is a data-plane enforcement point.
+
+#### 13.5.2 Tool-level RBAC: user (JWT) + agent (`AgentTool`) — CAP and Python
+
+Per-tool access is **not** “JWT alone” and **not** “MCP server OAuth alone.” It is the intersection of **(A)** which **agents** the **user** may use and **(B)** which **tools** that **agent** may use.
+
+| Layer | Mechanism | Enforced in |
+|-------|-----------|-------------|
+| **User → agent** | JWT claims (e.g. `dept`) matched via **`AgentGroup` / `AgentGroupClaimValue` / `AgentGroupAgent`** to a set of **agent IDs** the user may chat with | **CAP** (`GET /api/agents`, `POST /api/chat` agent check) |
+| **Agent → tool** | **`AgentTool`** join: only tools **assigned** to this agent; `permissionOverride` + `Tool.elevated` + `Agent.identityMode` yield effective delegation vs elevated MCP token | **CAP** (when building `toolIds` / `effectiveTools`) |
+| **Tool → MCP URL** | Each **`Tool`** associates to **`McpServer`**; resolved **`mcpServerUrl`** (destination or `baseUrl`) is passed to Python **only after** the tool is in the allowlist | **CAP** (resolve URL in handler); **Python** (hydrate from HANA by id on thin path) |
+| **Defense in depth** | Even if the LLM names a tool, execution **must not** run unless `tool_name ∈ allowlist` built from CAP-authorized `toolIds` | **Python** (`RunContext.allowed_tool_names`, assert before `mcp_client.call_tool`) |
+
+**Summary:** **JWT** does not list tools directly; it constrains **which agents** appear for the user. **Tool-level RBAC** for chat is **`AgentTool`** (plus `Tool.status = Active`) for the **selected `agentId`**. CAP computes **`toolIds`** for each `/api/chat` request; Python **re-hydrates** and **re-checks** before every MCP call (§13.3, Phase **5–6** in `doc/Action-Plan/06-architecture-aligned-e2e.md`).
 
 ### 13.6 Chat summarization (context-window safety)
 
@@ -1330,16 +1396,17 @@ Python history loader: pass `{ summary, messages where timestamp > summaryWaterm
 
 ### 13.7 New/updated ADRs (target)
 
-- **ADR-8 (planned): Thin id-only payload between CAP and Python.** Reason: bandwidth, single source of truth in DB, Python hydrates per-request.
+- **ADR-8 (planned): Thin id-only JSON body + user JWT in `Authorization: Bearer`.** Reason: smaller wire format, single source of truth in DB, Python hydrates per-request; **RFC 6750** transport for the access token; **`X-Internal-Token`** only proves CAP origin. **No** long-lived env feature flag — one contract after migration.
 - **ADR-9 (planned): Skills as first-class, stored in HANA, loaded by id.** Reason: procedural guidance separate from capability (tool), progressive disclosure via metadata.
 - **ADR-10 (planned): Summary + watermark on `ChatSession`.** Reason: bounded LLM context regardless of user-visible history length.
-- **ADR-11 (planned): Multi-engine executor (Loop / ADK / DeepAgent).** Reason: right-size the harness per agent (simple Q&A vs long-horizon autonomous task).
+- **ADR-11 (target): DeepAgent-only orchestrator; deprecate Google ADK and hand-rolled executor loops.** Reason: one multi-provider harness (planning, filesystem); **Skills** for enterprise procedures; optional **`SubAgent`** only if Skill-governed; remove `adk_engine.py` and `google-adk` after migration; Gemini via LangChain `ChatGoogleGenerativeAI` inside DeepAgent.
 - **ADR-12 (planned): CAP is the MCP governance gateway; tool-level RBAC lives in HANA, not in MCP servers.** Reason: MCP core spec authorizes *servers*, not *tools*; per-tool authz must be enforced by an external layer. CAP already owns identity + allow-list + audit — making it the gateway avoids a second policy store. Audience-bound tokens (no JWT passthrough to MCP) are mandatory.
+- **ADR-13 (optional ops): Langfuse for trace + eval parity with ADK Web.** Reason: DeepAgent has no built-in “ADK Web”; **Langfuse** is MIT-licensed, self-hostable, and integrates with DeepAgents via LangChain callbacks ([Langfuse + DeepAgents](https://langfuse.com/integrations/frameworks/langchain-deepagents)). LangSmith is **not** adopted (proprietary).
 
 ### 13.8 Migration order (suggested)
 
 1. **§13.6** summary fields (schema-only, no behavior change).
 2. **§13.1** Skill + AgentSkill entities + Admin UI (governance-only, no chat impact).
-3. **§13.2 + §13.3** flip payload to ids + move hydration into Python (single cut-over, feature-flagged).
-4. **§13.4** DeepAgent engine (additive, opt-in per agent).
+3. **§13.2 + §13.3** flip payload to thin JSON + **Bearer forwarded**, move hydration and **chat persistence** into Python (replace CAP `done` inserts).
+4. **§13.4** DeepAgent-only engine; remove ADK + legacy loops after parity tests.
 5. **§13.5** extract `services/mcp-pool/` when tool count or load justifies it.

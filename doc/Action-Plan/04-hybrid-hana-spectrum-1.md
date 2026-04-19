@@ -14,7 +14,9 @@
 >
 > **Prerequisite:** BTP subaccount with **HANA Cloud** instance **running**, **Cloud Foundry** space, **`hana` / `hdi-shared`** service instance created and bound (or service key) for `cds bind`.
 >
-> Last updated: 2026-04-05
+> **Master roadmap:** **`doc/Action-Plan/06-architecture-aligned-e2e.md`** Phase **0** uses this plan as the **HANA hybrid baseline**. Production identity and CF sequencing follow **06 Phase 1–2** together with **`05-cap-public-python-private-production-path.md`** (Spectrum 2/3 detail here is **superseded** by Plan 05 — see Phase 5 below).
+>
+> Last updated: 2026-04-18
 
 ---
 

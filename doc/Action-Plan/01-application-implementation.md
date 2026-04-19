@@ -2,9 +2,10 @@
 
 > **Goal:** Implement the full Agent Control Plane codebase so the app runs locally and deploys to BTP Cloud Foundry out of the box.
 > **Reference:** `doc/Architecture/fiori-agent-platform.md` is the authoritative spec for every file's content.
+> **Master roadmap (architecture target):** **`doc/Action-Plan/06-architecture-aligned-e2e.md`** sequences verification, identity, CF cutover, Skills, thin payload, summarization, and optional DeepAgent / MCP pool. This file stays the **line-by-line developer checklist** (Phases 1–9). Open manual tests (Tasks 4.5, 5.9, Phase 8) map to **06 Phase 0**.
 > **Prerequisite:** BTP cockpit setup (Action Plan 02) must be complete before Phase 9 (deploy).
 > **DB / hybrid dev (Spectrum 1):** Local development uses **SAP HANA Cloud** with **`cds bind`** + **`npm run deploy:hana`** + **`npm run watch`**. Mock auth and full steps: **`doc/Action-Plan/04-hybrid-hana-spectrum-1.md`**.
-> Last updated: 2026-04-05 — checkboxes synced to **verified repo state**; orchestrators must keep this file current per `.cursor/rules/action-plan-guidelines.mdc` §5.
+> Last updated: 2026-04-18 — checkboxes synced to **verified repo state**; orchestrators must keep this file current per `.cursor/rules/action-plan-guidelines.mdc` §5.
 
 ---
 

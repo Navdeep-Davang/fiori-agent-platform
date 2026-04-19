@@ -10,7 +10,9 @@
 >
 > **Prerequisite:** BTP **IAS ↔ subaccount trust**, **XSUAA** service instance from **`xs-security.json`**, **role collections** assigned to test users (see Phase A in prior alignment). **HANA** bound as today.
 >
-> Last updated: 2026-04-08
+> **Master roadmap:** Phases **1–5** here map to **`doc/Action-Plan/06-architecture-aligned-e2e.md`** Phases **1–2** (identity + CF cutover). Complete open tasks here before calling **06 Phase 3+** (Skills / thin payload) “done” in production.
+>
+> Last updated: 2026-04-18
 
 ---
 

@@ -3,7 +3,8 @@
 > **Goal:** Provision every BTP service the app needs, configure JWT claim mapping for demo users, and verify the platform is ready for deploy.
 > **Audience:** The person with access to the BTP Cockpit (web UI) and a terminal. No SAP ABAP knowledge needed.
 > **Prerequisite:** A BTP Trial account. Sign up free at https://www.sap.com/products/technology-platform/trial.html if not done.
-> Last updated: 2026-03-28.
+> **Master roadmap:** Gates **`doc/Action-Plan/06-architecture-aligned-e2e.md`** Phases **1–2** together with **`02-btp-cockpit-setup.md`** (duplicate numbering — use whichever doc your team adopted).
+> Last updated: 2026-04-18.
 
 ---
 

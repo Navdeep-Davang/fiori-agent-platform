@@ -9,7 +9,9 @@
 > (Phases 8–9) before Phase 7 (deploy). There is no way to end-to-end verify them without
 > a live approuter URL. Doing so wastes significant time (lesson learned).
 >
-> Last updated: 2026-04-01.
+> **Master roadmap:** Infra and service provisioning gates **`doc/Action-Plan/06-architecture-aligned-e2e.md`** Phases **1–2** (deploy, destinations, smoke on CF).
+>
+> Last updated: 2026-04-18.
 
 ---
 

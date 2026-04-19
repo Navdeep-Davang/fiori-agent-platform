@@ -1,7 +1,8 @@
 # Product requirements: Agent Control Plane (SAP BTP)
 
 > **Living document** — we iterate here. **Audience:** anyone new to the project (including new grads). **Goal:** after reading this once, you know **what** we are building, **why** each part exists, and **how** it fits end to end.
-> Last updated: 2026-03-26. Sections 4.2–4.7 expanded with UI fields, actions, and execution path.
+> **Technical contract:** `doc/Architecture/fiori-agent-platform.md` is authoritative for APIs, security, and target runtime behavior. This PRD must stay **aligned** with it (no conflicting stories).
+> Last updated: 2026-04-24. Aligned with architecture **§13.5.2** (tool-level RBAC), **§13.2–13.3** (thin CAP→Python payload, Bearer header, Python-owned chat persistence target).
 
 ---
 
@@ -59,25 +60,26 @@ Every company has different department names (Procurement, Sourcing, Purchasing 
 
 **Solution:** We use **agent groups** as the middle layer. A group is a named bundle of **allowed agents**. Admins map groups to JWT claims (department, role) — not to individual users.
 
-#### How it works (three layers)
+#### How it works (two RBAC layers — same as architecture **§13.5.2**)
+
+**Layer A — User → agent (JWT, not per-tool):** The JWT does **not** list tool names. It carries claims (e.g. department). **Agent groups** map claim values → **which agents** this user may use in chat.
+
+**Layer B — Agent → tool (`AgentTool`):** Each **agent** has a **Tool assignments** table in the Admin UI. Only tools **linked there** (and **Active** in the catalog) may run for that agent. This is **tool-level RBAC for the agent**.
 
 ```
-Company IdP / BTP role collection
+User's XSUAA JWT (e.g. dept=procurement)
         │
         ▼
-  User's XSUAA JWT  ──►  carries department / role claim
+  Agent Group lookup  ──►  user may use agents [Invoice Analyst, …]
         │
         ▼
-  Agent Group lookup  ──►  "Procurement Group" → [Invoice Analyst, Doc Search]
+  User picks agent + chats  ──►  CAP resolves allow-listed tool IDs from AgentTool + Active Tool
         │
         ▼
-  Agent's own policy  ──►  "Invoice Analyst" can call [S/4 read, PDF parse]
-        │
-        ▼
-  Intersection runs  ──►  only tools that BOTH the group AND the agent allow
+  Python (executor)  ──►  may only call MCP for tools in that allow-list (defense in depth)
 ```
 
-The user does not pick tools manually. They are in a team → team maps to a group → group defines which agents they get.
+The user does not pick tools manually. They pick (or only see) **agents**; **tools** are fixed per agent by admins via **Tool assignments**.
 
 #### User-delegated vs agent-own identity
 
@@ -86,7 +88,11 @@ The user does not pick tools manually. They are in a team → team maps to a gro
 | **Delegated (user's JWT)** | Agent carries the user's token; can only do what the user can do directly. | Safe default for most tools. |
 | **Agent machine identity** | Agent has its own short-lived service token for a specific tool. User does not need direct access. | When the tool needs a privileged technical credential (e.g. read from an S/4 OData sandbox via a service user). Only allowed if the tool has `elevated: true` AND the agent is explicitly approved. |
 
-**Rule:** Neither the user alone nor the agent alone can override both controls. The user must be in the right group; the tool must be marked elevated; the agent must be approved for it.
+**Rule:** The user must be allowed the **agent** (via groups + JWT). The **agent** must be assigned the **tool** (via Tool assignments). For elevated tools, `Tool.elevated`, `Agent.identityMode`, and `AgentTool.permissionOverride` apply — same rules as the architecture doc.
+
+#### Tool-level RBAC — one sentence (architecture **§13.5.2**)
+
+**JWT constrains which agents a user may use; `AgentTool` constrains which tools that agent may call; CAP computes the allow-list for each chat request; Python re-checks before every MCP call.**
 
 #### Platform roles in XSUAA
 
@@ -139,6 +145,8 @@ Toolbar: **Register new**, **Test selected**, **Disable selected**.
 | **Test connection** | CAP action pings the server, updates health chip and last-checked timestamp. |
 | **Sync tools** | CAP action calls the server's tool-list endpoint; creates `Draft` tool records for each tool found. Admin reviews them in 4.3. |
 | **Disable / Enable** | Flips status; propagates instantly to all agents using this server. |
+
+**Admin chain (no ambiguity):** **McpServer** (where the MCP endpoint lives: Destination or base URL) → **Sync tools** creates **Draft Tool** rows **linked to that server** → admin **activates** tools in §4.3 → **Agent** OP **Tool assignments** attach allowed tools to each agent. At runtime the **MCP URL** for a tool comes from that tool’s **McpServer** (resolved by CAP / Python like test/sync).
 
 **Why:** The organisation must know which tool servers are official and be able to cut any of them off in seconds.
 
@@ -220,6 +228,8 @@ Toolbar: **Create**, **Archive selected**.
 **Section 4: Group membership (read-only)**
 - Shows which agent groups include this agent.
 - Groups are edited in 4.5; this section is display-only.
+
+**Roadmap (aligned with architecture §13.1):** a **Skills** sub-table (AgentSkill) will mirror **Tool assignments** — governed markdown procedures complementary to tools. Not required for the first MVP chat path.
 
 #### Action on object page
 
@@ -314,26 +324,31 @@ A **named bundle of agents** mapped to one or more JWT claim values. Users get t
 | `ChatMessage` | session ID, role (`user` / `assistant`), content, timestamp |
 | `ToolCallRecord` | message ID, tool name, arguments JSON, result summary, duration ms, elevated flag used |
 
+**Target (architecture §13.3):** these chat rows are **written by the Python executor** after each turn; **CAP** exposes them via OData for the chat UI. Until migration, some builds may still persist from CAP — same tables either way.
+
 **Why freestyle:** Streaming tokens, expandable tool traces, and custom bubbles do not fit Elements list/object patterns. SAP's own AI assistant samples use freestyle SAPUI5 for the same reason.
 
 ---
 
 ### 4.7 What happens when someone sends a message? (execution path)
 
-Simple numbered steps:
+**Aligned with** `doc/Architecture/fiori-agent-platform.md` **§5**, **§13.2–13.3**, **§13.5.2**.
 
-1. User selects an **agent** and sends a **message**.
-2. CAP checks: is this user in a **group** that includes this agent? If not → 403.
-3. CAP loads: agent config (prompt, tool list, identity mode) + **effective tool list** = intersection of group's agents and agent's tool policy.
-4. CAP's `server.js` opens an **SSE stream** back to the browser and calls the **Python service** with: message, agent config, effective tool list, user info.
-5. Python calls the **LLM** with the system prompt + conversation history.
-6. LLM decides to call a tool → Python checks the tool is in the effective list → calls the **MCP server** (user JWT for delegated tools; machine token for elevated tools).
-7. Tool result returns to the LLM → next response chunk is streamed to the browser.
-8. When done: CAP writes the **message record** and **tool-call records** to HANA.
+**Target path (control plane standard):**
 
-**Key rule enforced at step 6:** Python only calls tools that CAP sent in step 4. Python does not decide its own tool list. This is the trust boundary between the policy engine and the executor.
+1. User selects an **agent** and sends a **message** (and optional **session** id).
+2. **CAP** validates JWT and checks the user may use this **agent** (same **agent-group** rules as §4.1). If not → 403.
+3. **CAP** resolves the allow-listed **`toolIds`** / **`skillIds`** for this **agent** (from **AgentTool** / **AgentSkill**, **Active** tools/skills only) and builds a **thin JSON** body: `agentId`, `sessionId`, `message`, `userInfo`, ids — **not** full tool schemas or full history blobs.
+4. **CAP** forwards **`Authorization: Bearer <user access_token>`** to Python (RFC 6750 — same token the browser sent to CAP) and internal service headers (e.g. **only CAP may call Python** on the private URL). **Do not** put the access token in the JSON body.
+5. **Python** loads agent, tool definitions, and session/history from **HANA** by id (**hydration**), runs the **LLM** (target: **DeepAgent** / LangGraph — architecture **§13.4**), streams **SSE** back through **CAP** to the browser.
+6. LLM proposes a tool → **Python** asserts the tool name is in the **allow-list** → calls the **MCP** endpoint for that tool (URL from **Tool → McpServer**). Delegated vs **elevated** token follows **Tool** / **AgentTool** rules (architecture).
+7. **Target persistence:** **Python** writes **`ChatSession` / `ChatMessage` / `ToolCallRecord`** to HANA when the turn completes and emits **`done`** with ids; **CAP** only **proxies** SSE (no duplicate chat writes on the target path).
 
-**Why this split:** CAP is the **policy engine and record keeper**. Python is the **AI executor**. Neither can act without the other's data.
+**Legacy note (until migration is complete):** Older builds may still send a **fat** payload from CAP (`effectiveTools` + `history` in JSON) and **CAP** may persist chat rows on `done`. The **target** is thin payload + Bearer + Python persistence — see architecture.
+
+**Key rule:** **CAP** decides **which tool ids** the user may use for this agent; **Python** must **not** expand that set. **Python** still **re-checks** before each MCP call (**defense in depth** — §13.5.2).
+
+**Why this split:** **CAP** is the **policy gateway** (JWT, agent access, **tool id** allow-list). **Python** is the **AI executor** and **target** system of record for chat rows once hydration/persistence land; both read **HANA** under their respective roles.
 
 ---
 
@@ -343,16 +358,16 @@ Simple numbered steps:
 |-------|----------------|---------------|
 | **Fiori (SAPUI5)** | **Elements** for admin screens (4.2–4.5). **Freestyle** for chat (4.6). | Standard SAP UI for data; custom UI where streaming needs it. |
 | **App Router** | Login, routes browser traffic, passes JWT to APIs. | Single security front door. |
-| **CAP (Node.js)** | OData V4 for all governed data (agents, tools, servers, groups, sessions, messages). Actions for "test connection" and "sync tools". | CAP + HANA is how Elements binds to data and how we keep one governed API. |
-| **CAP `server.js`** | REST/SSE endpoint `/api/chat` for token streaming. Validates JWT, loads effective tool list, forwards to Python. | OData actions are a single HTTP response; streaming tokens needs a long-lived HTTP connection. Same Node process — no second app. |
-| **Python service** | LLM calls, MCP client, streaming. Respects effective tool list from CAP. | Best runtime for AI libraries and MCP. Cannot override CAP policy. |
-| **SAP HANA Cloud** | System of record: catalog, chat history, audit. | One DB on BTP. |
-| **Optional later** | BTP Destination to S/4 API Hub sandbox for a read-only tool. | Proves ERP integration without owning S/4. |
+| **CAP (Node.js)** | OData V4 for **governance** (McpServer, Tool, Agent, AgentTool, AgentGroup, …). Actions: test connection, sync tools, run test. **Chat** OData for sessions/messages where exposed. | Single governed API for admin and catalog data. |
+| **CAP `server.js`** | **`POST /api/chat`**: validates JWT, **agent access**, builds **`toolIds`/`skillIds` allow-list**, forwards **thin JSON** + **`Authorization: Bearer`** to Python, **proxies SSE** to browser. | Policy + streaming hop; **not** the long-term owner of chat writes on the **target** path (architecture **§13.3**). |
+| **Python service** | Hydrates from HANA by id, LLM (**DeepAgent** target), MCP client, **allow-list check** before each tool call, **target:** **writes chat rows** to HANA. | Executor; **cannot** expand tools beyond CAP’s ids (**§13.5.2**). |
+| **SAP HANA Cloud** | System of record: catalog (**AgentTool** = tool RBAC), chat history, audit. | One DB on BTP. |
+| **Optional later** | BTP Destination to external systems; optional **Skills** (procedures) per architecture **§13.1**. | Product roadmap items — see architecture for deltas. |
 
 **Short version:**
-- CAP + HANA = "what is allowed" and "what is stored."
-- Python = "how the AI runs and talks to MCP."
-- CAP `server.js` SSE = "how the browser gets live tokens without fighting OData."
+- **CAP** = who may use **which agent** (JWT + groups) and **which tool ids** for that agent (**AgentTool**).
+- **Python** = how the model runs and how MCP is called — **only** for allow-listed tools; **target:** persists chat + tool-call audit rows.
+- **App Router → CAP** = only public path; **Python** is private to CAP (architecture **Plan 05**).
 
 ---
 
@@ -374,9 +389,9 @@ Anyone opening the demo sees value in minutes, not after manual setup.
 
 | Phase | What we build |
 |-------|----------------|
-| **MVP** | HANA seed; Elements CRUD for MCP servers, tools, agents, groups; freestyle chat with SSE streaming; XSUAA roles; persist messages and tool-call records. |
-| **Next** | Sync tools from MCP action; Test tool panel; tighten secrets with Destinations / Credential Store. |
-| **Later** | Approval workflow (Draft → Pending → Active), multi-tenant, SAP AI Core swap-in, Work Zone tile. |
+| **MVP** | HANA seed; Elements CRUD for MCP servers, tools, agents, groups; freestyle chat with SSE streaming; XSUAA roles; persist messages and tool-call records (implementation may be CAP-side until thin-payload + Python persistence migration — architecture **§13**). |
+| **Next** | Sync tools from MCP action; Test tool panel; tighten secrets with Destinations / Credential Store; align execution path with architecture **§13.2–13.3** (thin payload, Bearer to Python). |
+| **Later** | **Skills** (procedures) per architecture **§13.1**; approval workflow (Draft → Pending → Active); multi-tenant; SAP AI Core swap-in; Work Zone tile. |
 
 ---
 
@@ -395,8 +410,11 @@ Anyone opening the demo sees value in minutes, not after manual setup.
 | **MCP server** | A service that exposes tools the agent can call. |
 | **SSE** | Server-Sent Events — one way to stream text from server to browser over HTTP. |
 | **HANA Cloud** | SAP's managed database on BTP; our main data store. |
-| **ADK** | Agent Development Kit style — Python patterns for building agentic LLM executors. |
-| **Agent group** | A named bundle of agents mapped to JWT claim values. Users get the bundle automatically. |
+| **ADK** | Google **Agent Development Kit** — **deprecated** in this product after **DeepAgent** cutover (architecture **§13.4**). |
+| **DeepAgent** | LangGraph-based harness (`deepagents`) — **target** sole production orchestrator for chat (architecture **§13.4**). |
+| **Skill** | Governed procedure pack (markdown) in HANA — **complements** tools; progressive disclosure (architecture **§13.1**). |
+| **AgentTool** | Join table: which **tools** an **agent** may use — **tool-level RBAC** for agents. |
+| **Agent group** | A named bundle of **agents** (not tools) mapped to JWT claim values. Users get those agents automatically. |
 | **Delegated identity** | Agent runs with the user's JWT — inherits the user's permissions. |
 | **Machine identity** | Agent uses its own short-lived service token for an elevated tool. Only when both tool and agent are explicitly approved. |
 | **ABAC** | Attribute-based access control — rules using attributes like department, amount, time. Extends RBAC. |
@@ -412,4 +430,4 @@ Anyone opening the demo sees value in minutes, not after manual setup.
 
 ---
 
-*End of PRD — for technical file layout and deployment steps, see `doc/Architecture/fiori-agent-platform.md`.*
+*End of PRD — for technical file layout, APIs, security boundaries, and target runtime (**§13**), see `doc/Architecture/fiori-agent-platform.md`. **Tool-level RBAC** detail: **§13.5.2**.*

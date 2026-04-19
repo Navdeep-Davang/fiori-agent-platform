@@ -3,7 +3,8 @@
 > **Goal:** Create all CDS entities for the ERP-like demo tables and write every CSV seed file so that one `cds deploy` or MTA deploy restores the full demo from scratch.
 > **Reference:** `doc/SeedData/scenario.md` is the authoritative source for every data value. This plan is the implementation checklist.
 > **Why this matters:** BTP Trial HANA instances reset nightly. Having all data in CSV files committed to the repo means `cf deploy` re-seeds everything automatically — zero manual data entry after restart.
-> Last updated: 2026-04-01 (task checkboxes synced to in-repo CSVs and schema).
+> **Master roadmap:** When **`Skill`** / **`AgentSkill`** entities ship (**`doc/Action-Plan/06-architecture-aligned-e2e.md`** Phase **3**), extend this plan with **`acp-Skill.csv`** and **`acp-AgentSkill.csv`** seed rows.
+> Last updated: 2026-04-18 (task checkboxes synced to in-repo CSVs and schema).
 
 ---
 
