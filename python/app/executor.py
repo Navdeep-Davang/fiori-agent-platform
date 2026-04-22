@@ -1,238 +1,150 @@
+"""
+Thin-payload chat: hydrate from HANA, DeepAgent stream, Python-owned persistence (Plan 06 Phases 5–6).
+"""
+from __future__ import annotations
+
 import json
 import logging
-import time
-from typing import AsyncIterator, List, Dict, Any
-from .config import LLM_PROVIDER, LLM_API_KEY, LLM_MODEL
-from . import mcp_client
-from . import adk_engine
-from .chat_tooling import token_for_mcp
+from typing import Any, AsyncIterator, Dict, List
+
+from . import db as dbmod
+from . import deepagent_engine
+from . import hydrator
+from . import session_store
 
 logger = logging.getLogger(__name__)
 
 
-async def run(payload: dict) -> AsyncIterator[str]:
-    """Orchestrates the LLM inference loop with MCP tool calls."""
-    # Gemini path: Google ADK owns prompt assembly, tools, and streaming (see adk_engine).
-    if LLM_PROVIDER == "google-genai":
-        try:
-            async for event in adk_engine.run_adk_chat(payload):
-                yield event
-        except Exception as e:
-            logger.exception(f"Exception in executor.run: {e}")
-            yield f'data: {json.dumps({"type": "error", "message": str(e)})}\n\n'
-        yield f'data: {json.dumps({"type": "done", "sessionId": payload.get("sessionId"), "messageId": None})}\n\n'
+def _user_token_from_auth(authorization_header: str) -> str:
+    h = authorization_header or ""
+    if h.lower().startswith("bearer "):
+        return h[7:].strip()
+    return h.strip()
+
+
+async def run(payload: Dict[str, Any], authorization_header: str = "") -> AsyncIterator[str]:
+    user_token = _user_token_from_auth(authorization_header)
+    message = (payload.get("message") or "").strip()
+    if not message:
+        yield f'data: {json.dumps({"type": "error", "message": "message required"})}\n\n'
+        yield f'data: {json.dumps({"type": "done", "sessionId": None, "messageId": None})}\n\n'
         return
 
-    agent_config = payload.get("agentConfig", {})
-    effective_tools = payload.get("effectiveTools", [])
-    user_message = payload.get("message", "")
-    history = payload.get("history", [])
-    user_token = payload.get("userToken", "")
+    tool_ids = payload.get("toolIds")
+    if not isinstance(tool_ids, list):
+        yield f'data: {json.dumps({"type": "error", "message": "Thin payload required: toolIds[] from CAP"})}\n\n'
+        yield f'data: {json.dumps({"type": "done", "sessionId": None, "messageId": None})}\n\n'
+        return
 
-    system_prompt = agent_config.get("systemPrompt", "You are a helpful assistant.")
-    messages = []
-    for h in history:
-        messages.append({"role": h["role"], "content": h["content"]})
-    messages.append({"role": "user", "content": user_message})
+    agent_id = str(payload.get("agentId") or "").strip()
+    if not agent_id:
+        yield f'data: {json.dumps({"type": "error", "message": "agentId required"})}\n\n'
+        yield f'data: {json.dumps({"type": "done", "sessionId": None, "messageId": None})}\n\n'
+        return
 
-    llm_tools = []
-    for tool in effective_tools:
-        llm_tools.append({
-            "name": tool["name"],
-            "description": tool["description"],
-            "input_schema": tool["inputSchema"]
-        })
+    session_id = payload.get("sessionId")
+    if session_id is not None:
+        session_id = str(session_id).strip() or None
 
+    skill_ids = payload.get("skillIds") or []
+    if not isinstance(skill_ids, list):
+        skill_ids = []
+
+    user_info = payload.get("userInfo") or {}
+    user_id = str(user_info.get("userId") or "").strip()
+    if not user_id:
+        yield f'data: {json.dumps({"type": "error", "message": "userInfo.userId required"})}\n\n'
+        yield f'data: {json.dumps({"type": "done", "sessionId": None, "messageId": None})}\n\n'
+        return
+
+    conn = None
     try:
-        if LLM_PROVIDER == "anthropic":
-            async for event in _run_anthropic(system_prompt, messages, llm_tools, effective_tools, user_token):
-                yield event
-        elif LLM_PROVIDER == "openai":
-            async for event in _run_openai(system_prompt, messages, llm_tools, effective_tools, user_token):
-                yield event
+        conn = dbmod.get_connection()
+        try:
+            agent_cfg = hydrator.hydrate_agent(conn, agent_id)
+            effective_tools, _allowed_names = hydrator.hydrate_tools_for_agent(
+                conn, agent_id, [str(x) for x in tool_ids]
+            )
+            try:
+                skill_meta = hydrator.hydrate_skill_metadata(conn, [str(x) for x in skill_ids])
+            except Exception:
+                skill_meta = []
+        except PermissionError as e:
+            yield f'data: {json.dumps({"type": "error", "message": str(e)})}\n\n'
+            yield f'data: {json.dumps({"type": "done", "sessionId": None, "messageId": None})}\n\n'
+            return
+        except ValueError as e:
+            yield f'data: {json.dumps({"type": "error", "message": str(e)})}\n\n'
+            yield f'data: {json.dumps({"type": "done", "sessionId": None, "messageId": None})}\n\n'
+            return
+
+        summary: str | None = None
+        history: List[Dict[str, str]] = []
+        if session_id:
+            try:
+                summary, history, _owner = hydrator.hydrate_session(conn, session_id, user_id)
+            except PermissionError as e:
+                yield f'data: {json.dumps({"type": "error", "message": str(e)})}\n\n'
+                yield f'data: {json.dumps({"type": "done", "sessionId": None, "messageId": None})}\n\n'
+                return
         else:
-            yield f'data: {json.dumps({"type": "error", "message": f"Unsupported LLM provider: {LLM_PROVIDER}"})}\n\n'
-            
-    except Exception as e:
-        logger.exception(f"Exception in executor.run: {e}")
-        yield f'data: {json.dumps({"type": "error", "message": str(e)})}\n\n'
-    
-    # Final done event
-    yield f'data: {json.dumps({"type": "done", "sessionId": payload.get("sessionId"), "messageId": None})}\n\n'
+            title = message[:40]
+            session_id = session_store.create_session(conn, user_id, agent_id, title)
 
-async def _run_anthropic(system_prompt: str, messages: List[Dict], anthropic_tools: List[Dict], effective_tools: List[Dict], user_token: str) -> AsyncIterator[str]:
-    import anthropic
-    client = anthropic.AsyncAnthropic(api_key=LLM_API_KEY)
-    
-    # Anthropic tools need 'input_schema'
-    # Wait, we need to handle the tool-call loop. 
-    # Anthropic streaming API simplifies token-by-token but we must manage recursion ourselves for tool results.
-    
-    current_messages = list(messages)
-    max_turns = 10
-    
-    for _ in range(max_turns):
-        async with client.messages.stream(
-            model=LLM_MODEL,
-            system=system_prompt,
-            messages=current_messages,
-            tools=anthropic_tools,
-            max_tokens=4096
-        ) as stream:
-            
-            # Accumulated assistant message to store in history
-            accumulated_content = []
-            tool_calls_this_turn = []
-            
-            async for chunk in stream:
-                if chunk.type == "text":
-                    yield f'data: {json.dumps({"type": "token", "content": chunk.text})}\n\n'
-                    accumulated_content.append({"type": "text", "text": chunk.text})
-                elif chunk.type == "tool_use":
-                    tool_calls_this_turn.append({
-                        "id": chunk.id,
-                        "name": chunk.name,
-                        "input": chunk.input
-                    })
-                    yield f'data: {json.dumps({"type": "tool_call", "toolName": chunk.name, "args": chunk.input})}\n\n'
+        assistant_text = ""
+        tool_records: List[Dict[str, Any]] = []
 
-            final_msg = await stream.get_final_message()
-            # If no tools were called, we are done
-            if not tool_calls_this_turn:
-                break
-                
-            # Execute tool calls
-            current_messages.append({"role": "assistant", "content": final_msg.content})
-            tool_results_content = []
-            
-            for tool_call in tool_calls_this_turn:
-                tool_name = tool_call["name"]
-                # Find tool metadata in effective_tools (it's a list)
-                tool_meta = next((t for t in effective_tools if t["name"] == tool_name), None)
-                if not tool_meta:
-                    result = json.dumps({"error": f"Tool {tool_name} not allowed"})
-                else:
-                    start_time = time.time()
-                    result = await mcp_client.call_tool(
-                        tool_meta["mcpServerUrl"],
-                        tool_name,
-                        tool_call["input"],
-                        token_for_mcp(tool_meta, user_token),
-                    )
-                    duration = int((time.time() - start_time) * 1000)
-                    yield f'data: {json.dumps({"type": "tool_result", "toolName": tool_name, "summary": "Found data", "durationMs": duration})}\n\n'
-                
-                tool_results_content.append({
-                    "type": "tool_result",
-                    "tool_use_id": tool_call["id"],
-                    "content": result
-                })
-            
-            current_messages.append({"role": "user", "content": tool_results_content})
+        async for line in deepagent_engine.run_deep_agent_stream(
+            agent_cfg=agent_cfg,
+            effective_tools=effective_tools,
+            skill_metadata=skill_meta,
+            history=history,
+            summary=summary,
+            user_message=message,
+            user_token=user_token,
+            conn=conn,
+        ):
+            if line.startswith("data: "):
+                try:
+                    evt = json.loads(line[6:].strip())
+                    et = evt.get("type")
+                    if et == "token":
+                        assistant_text += str(evt.get("content") or "")
+                    elif et == "tool_result":
+                        tool_records.append(
+                            {
+                                "toolName": evt.get("toolName"),
+                                "summary": evt.get("summary"),
+                                "durationMs": evt.get("durationMs") or 0,
+                                "args": evt.get("args"),
+                                "elevatedUsed": False,
+                            }
+                        )
+                except json.JSONDecodeError:
+                    pass
+            yield line
 
-
-async def _run_openai(
-    system_prompt: str,
-    messages: List[Dict],
-    tools_schema: List[Dict],
-    effective_tools: List[Dict],
-    user_token: str,
-) -> AsyncIterator[str]:
-    from openai import AsyncOpenAI
-
-    client = AsyncOpenAI(api_key=LLM_API_KEY)
-    oa_messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-    for m in messages:
-        oa_messages.append({"role": m["role"], "content": m["content"]})
-
-    oa_tools = []
-    for t in tools_schema:
-        schema = t.get("input_schema") if isinstance(t.get("input_schema"), dict) else {}
-        oa_tools.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": t["name"],
-                    "description": (t.get("description") or "")[:1024],
-                    "parameters": schema if schema else {"type": "object", "properties": {}},
-                },
-            }
+        asst_msg_id = session_store.append_messages(
+            conn,
+            session_id,
+            message,
+            assistant_text,
+            tool_records,
         )
 
-    max_turns = 10
-    current = list(oa_messages)
+        try:
+            session_store.summarize_if_needed(conn, session_id)
+        except Exception as e:
+            logger.warning("summarize_if_needed: %s", e)
 
-    for _ in range(max_turns):
-        kwargs: Dict[str, Any] = {"model": LLM_MODEL, "messages": current, "stream": True}
-        if oa_tools:
-            kwargs["tools"] = oa_tools
-
-        stream = await client.chat.completions.create(**kwargs)
-
-        acc_text = ""
-        tool_calls_map: Dict[int, Dict[str, str]] = {}
-
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            ch0 = chunk.choices[0]
-            delta = ch0.delta
-            if delta is None:
-                continue
-            if delta.content:
-                acc_text += delta.content
-                yield f'data: {json.dumps({"type": "token", "content": delta.content})}\n\n'
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_calls_map:
-                        tool_calls_map[idx] = {"id": "", "name": "", "arguments": ""}
-                    if tc.id:
-                        tool_calls_map[idx]["id"] = tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            tool_calls_map[idx]["name"] = tc.function.name
-                        if tc.function.arguments:
-                            tool_calls_map[idx]["arguments"] += tc.function.arguments or ""
-
-        if tool_calls_map:
-            sorted_indices = sorted(tool_calls_map.keys())
-            assistant_msg = {"role": "assistant", "content": acc_text or None, "tool_calls": []}
-            for i in sorted_indices:
-                t = tool_calls_map[i]
-                assistant_msg["tool_calls"].append(
-                    {
-                        "id": t["id"],
-                        "type": "function",
-                        "function": {"name": t["name"], "arguments": t["arguments"] or "{}"},
-                    }
-                )
-            current.append(assistant_msg)
-
-            for i in sorted_indices:
-                t = tool_calls_map[i]
-                name = t["name"]
-                try:
-                    args = json.loads(t["arguments"] or "{}")
-                except json.JSONDecodeError:
-                    args = {}
-                yield f'data: {json.dumps({"type": "tool_call", "toolName": name, "args": args})}\n\n'
-
-                tool_meta = next((t2 for t2 in effective_tools if t2["name"] == name), None)
-                if not tool_meta:
-                    result = json.dumps({"error": f"Tool {name} not allowed"})
-                else:
-                    start_time = time.time()
-                    result = await mcp_client.call_tool(
-                        tool_meta["mcpServerUrl"],
-                        name,
-                        args,
-                        token_for_mcp(tool_meta, user_token),
-                    )
-                    duration = int((time.time() - start_time) * 1000)
-                    yield f'data: {json.dumps({"type": "tool_result", "toolName": name, "summary": "Found data", "durationMs": duration, "args": args})}\n\n'
-
-                current.append({"role": "tool", "tool_call_id": t["id"], "content": result})
-        else:
-            break
-
+        yield f'data: {json.dumps({"type": "done", "sessionId": session_id, "messageId": asst_msg_id})}\n\n'
+    except Exception as e:
+        logger.exception("executor.run failed: %s", e)
+        yield f'data: {json.dumps({"type": "error", "message": str(e)})}\n\n'
+        yield f'data: {json.dumps({"type": "done", "sessionId": None, "messageId": None})}\n\n'
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass

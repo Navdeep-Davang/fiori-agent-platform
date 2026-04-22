@@ -1,16 +1,18 @@
-import os
 import logging
+import os
+
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+
 from . import config, executor, mcp_server, db
 from .tools.registry import TOOL_REGISTRY
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 INTERNAL_TOKEN = os.environ.get("ACP_INTERNAL_TOKEN", "").strip()
+
 
 class InternalTokenMiddleware(BaseHTTPMiddleware):
     """When ACP_INTERNAL_TOKEN is set, require matching X-Internal-Token on internal API routes (CAP → Python)."""
@@ -30,18 +32,24 @@ class InternalTokenMiddleware(BaseHTTPMiddleware):
         )
         if got != INTERNAL_TOKEN:
             return JSONResponse(status_code=403, content={"error": "Invalid or missing internal token"})
+        # Plan 05 / 06: prove user context on the hop (CAP sets these).
+        uid = request.headers.get("x-ac-user-id") or request.headers.get("X-AC-User-Id")
+        if not (uid and str(uid).strip()):
+            return JSONResponse(status_code=403, content={"error": "Missing X-AC-User-Id"})
         return await call_next(request)
+
 
 app = FastAPI(title="ACP Python Executor")
 app.add_middleware(InternalTokenMiddleware)
 
-# Mount MCP server routes
 app.include_router(mcp_server.router)
+
 
 @app.get("/health")
 def health():
     """Health check endpoint for CAP's testConnection action."""
     return {"status": "ok"}
+
 
 @app.post("/tool-test")
 async def tool_test(request: Request):
@@ -49,38 +57,40 @@ async def tool_test(request: Request):
     body = await request.json()
     tool_name = body.get("toolName")
     args = body.get("args", {})
-    
+
     if tool_name not in TOOL_REGISTRY:
         return JSONResponse(status_code=404, content={"error": f"Tool {tool_name} not found"})
-        
+
     info = TOOL_REGISTRY[tool_name]
     handler = info["handler"]
-    
+
     conn = db.get_connection()
     try:
-        import json
+        import json as _json
+
         result = handler(conn, **args)
-        return {"result": json.dumps(result)}
+        return {"result": _json.dumps(result)}
     except Exception as e:
-        logger.error(f"Error in tool-test for {tool_name}: {e}")
+        logger.error("Error in tool-test for %s: %s", tool_name, e)
         return JSONResponse(status_code=500, content={"error": str(e)})
     finally:
         conn.close()
 
-@app.post("/chat")
-async def chat(request: Request):
-    """Main chat endpoint forwarding to LLM executor."""
-    payload = await request.json()
-    
-    # Simple validation
-    if not payload.get("message") and not payload.get("history"):
-        return JSONResponse(status_code=400, content={"error": "Message or history required"})
-        
-    return StreamingResponse(
-        executor.run(payload),
-        media_type="text/event-stream"
+
+def _authorization_header(request: Request) -> str:
+    return (
+        request.headers.get("authorization")
+        or request.headers.get("Authorization")
+        or ""
     )
 
-# Note: In a production environment, you might want to add middleware
-# for JWT verification if this service is exposed. However, per 
-# architecture section 5, this service is internal and called by CAP only.
+
+@app.post("/chat")
+async def chat(request: Request):
+    """Thin JSON chat: toolIds, skillIds, agentId, sessionId, message, userInfo — Bearer token in header."""
+    payload = await request.json()
+    auth = _authorization_header(request)
+    return StreamingResponse(
+        executor.run(payload, authorization_header=auth),
+        media_type="text/event-stream",
+    )

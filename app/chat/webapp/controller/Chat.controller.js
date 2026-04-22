@@ -34,6 +34,14 @@ sap.ui.define([
             });
             this.getView().setModel(this._oChatModel, "chatModel");
 
+            this._oPlanningModel = new JSONModel({
+                visible: false,
+                expanded: true,
+                todos: []
+            });
+            this.getView().setModel(this._oPlanningModel, "planningModel");
+            this._bPlanningUserExpanded = false;
+
             this._oAgentsModel = new JSONModel({ agents: [], agentsLoading: true });
             this.getView().setModel(this._oAgentsModel, "agentsModel");
 
@@ -54,6 +62,13 @@ sap.ui.define([
                     }
                     this._bMessageInputKeydownWired = true;
                     oTA.attachBrowserEvent("keydown", this._onMessageInputKeydown.bind(this));
+                    var oPlan = this.byId("agentPlanPanel");
+                    if (oPlan && !this._bPlanningExpandWired) {
+                        this._bPlanningExpandWired = true;
+                        oPlan.attachExpand(function (e) {
+                            this._bPlanningUserExpanded = e.getParameter("expand");
+                        }.bind(this));
+                    }
                 }.bind(this)
             });
 
@@ -304,7 +319,11 @@ sap.ui.define([
 
         _openChatStream: async function (sAgentId, sMessage) {
             this._abortController = new AbortController();
-            
+            this._bPlanningUserExpanded = false;
+            this._oPlanningModel.setProperty("/todos", []);
+            this._oPlanningModel.setProperty("/visible", false);
+            this._oPlanningModel.setProperty("/expanded", true);
+
             try {
                 const response = await fetch("/api/chat", {
                     method: "POST",
@@ -461,6 +480,15 @@ sap.ui.define([
             const oCurrentMsg = aMessages[aMessages.length - 1];
 
             switch (oEvent.type) {
+                case "planning":
+                    this._oPlanningModel.setProperty("/visible", true);
+                    if (!this._bPlanningUserExpanded) {
+                        this._oPlanningModel.setProperty("/expanded", true);
+                    }
+                    if (oEvent.todos && oEvent.todos.length) {
+                        this._oPlanningModel.setProperty("/todos", oEvent.todos);
+                    }
+                    break;
                 case "token":
                     if (!oCurrentMsg || oCurrentMsg.role !== "assistant") {
                         break;
@@ -496,6 +524,15 @@ sap.ui.define([
                         // Refresh session list
                         this.getView().getModel().refresh();
                     }
+                    if (!this._bPlanningUserExpanded) {
+                        this._oPlanningModel.setProperty("/expanded", false);
+                        window.setTimeout(
+                            function () {
+                                this._oPlanningModel.setProperty("/visible", false);
+                            }.bind(this),
+                            400
+                        );
+                    }
                     // Defer so display RAF runs before _finalizeStream cancels pending frames (same sync batch as many tokens + done).
                     window.setTimeout(
                         function () {
@@ -516,6 +553,8 @@ sap.ui.define([
                         }.bind(this),
                         0
                     );
+                    break;
+                default:
                     break;
             }
         },

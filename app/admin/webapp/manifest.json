@@ -134,6 +134,16 @@
           "target": "ToolsObjectPage"
         },
         {
+          "name": "SkillsList",
+          "pattern": "Skills:?query:",
+          "target": "SkillsList"
+        },
+        {
+          "name": "SkillsObjectPage",
+          "pattern": "Skills({key}):?query:",
+          "target": "SkillsObjectPage"
+        },
+        {
           "name": "AgentsList",
           "pattern": "Agents:?query:",
           "target": "AgentsList"
@@ -209,6 +219,35 @@
           "options": {
             "settings": {
               "contextPath": "/Tools",
+              "navigation": {}
+            }
+          }
+        },
+        "SkillsList": {
+          "type": "Component",
+          "id": "SkillsList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "contextPath": "/Skills",
+              "entitySet": "Skills",
+              "navigation": {
+                "Skills": {
+                  "detail": {
+                    "route": "SkillsObjectPage"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "SkillsObjectPage": {
+          "type": "Component",
+          "id": "SkillsObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "contextPath": "/Skills",
               "navigation": {}
             }
           }

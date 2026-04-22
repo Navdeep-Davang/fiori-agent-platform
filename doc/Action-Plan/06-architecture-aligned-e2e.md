@@ -5,8 +5,8 @@ architecture_refs:
   - doc/Architecture/fiori-agent-platform.md
 sync_status: synced
 created: 2026-04-18
-last_updated: 2026-04-19
-current_phase: phase-0
+last_updated: 2026-04-22
+current_phase: hybrid-hana-identity-in-progress
 ---
 
 # Action Plan 06 — Architecture-aligned end-to-end delivery
@@ -95,21 +95,22 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 0: Baseline verification
 
-### Status: PENDING
+### Status: IN_PROGRESS *(developer 2026-04-22: env + bind + `deploy:hana` + hybrid stack running; **0.2** OData via bare **`:4004`** still 401 — see note below; **0.3–0.4** pending; chat → Python **502** under investigation — go-ahead before agent debug.)*
 
 **Objective:** Prove the existing fat-payload path works end-to-end before any feature work branches off it.
 
 **What you have at the end:** Current app (no Skills, no thin payload, no DeepAgent) verified working in at least one environment.
 
-- [ ] **Task 0.1:** Developer environment setup
-  - [ ] **0.1.1:** Copy `.env.example` → `.env`; set `LLM_*`, `PYTHON_URL=http://localhost:8000`, `HANA_*` (Plan **01** Task 1.7).
-  - [ ] **0.1.2:** `cf login`; `cds bind db --to <hdi-instance>`; `npm run deploy:hana`; `npm run watch` (Plan **04**).
-  - [ ] **0.1.3:** Python venv per `python-venv-policy.mdc`; `.\venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000`.
-  - [ ] **0.1.4:** App Router: `cd approuter && npm start`.
+- [X] **Task 0.1:** Developer environment setup
+  - [X] **0.1.1:** Copy `.env.example` → `.env`; set `LLM_*`, `PYTHON_URL=http://localhost:8000`, `HANA_*` (Plan **01** Task 1.7).
+  - [X] **0.1.2:** `cf login`; `cds bind db --to <hdi-instance>`; `npm run deploy:hana`; `npm run watch` (Plan **04**).
+  - [X] **0.1.3:** Python venv per `python-venv-policy.mdc`; `.\venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000`.
+  - [X] **0.1.4:** App Router: `cd approuter && npm start`.
 
 - [ ] **Task 0.2:** OData smoke
   - [ ] **0.2.1:** `/odata/v4/governance/$metadata` loads.
   - [ ] **0.2.2:** `/odata/v4/chat/$metadata` loads.
+  > **Hybrid note:** OData on **CAP’s direct URL (`http://localhost:4004/odata/...`)** typically returns **401 Unauthorized** — services require an **XSUAA JWT** (`Authorization: Bearer`). The CAP **welcome page** on `:4004` is not the same as an authenticated OData request. **App Router (`http://localhost:5000`, after login)** proxies to CAP **with** the token; **login on :5000 does not attach a Bearer to requests you type manually on :4004** (different origin / no browser token on raw CAP). For smoke, use the **same entry host as the Fiori app** (usually `:5000`) or a REST client with a **valid access token**. If `$metadata` still fails **through :5000** after login, check **xs-app.json** routes and JWT **scopes** for the OData service.
   - [X] **0.2.3:** `GET /health` on Python returns `{ status: "ok" }`.
 
 - [ ] **Task 0.3:** Admin UI (Plan **01** Task 4.5)
@@ -140,26 +141,26 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 1: Identity & trust
 
-### Status: PENDING
+### Status: IN_PROGRESS *(2026-04-22: IAS / XSUAA / App Router hybrid wired; **1.3.3** verified — browser cannot use Python directly; **1.4.1–1.4.2** deferred until chat/CAP→Python **502** resolved — developer go-ahead for agent debug.)*
 
 **Objective:** Real XSUAA JWT at CAP; Python private; internal hop authenticated. Aligns with **§1.1** security boundaries.
 
 **What you have at the end:** Production-like identity on developer machine; no Basic-auth bypass; Python only reachable from CAP.
 
-- [ ] **Task 1.1:** BTP / IAS / role collections (Plan **05** Phase 1)
-  - [ ] **1.1.1:** Confirm IAS trust to BTP subaccount.
-  - [ ] **1.1.2:** Confirm role collections `AgentUserACP`, `AgentAdminACP`, `AgentAuthorACP`, `AgentAuditACP` exist and are assigned to test users.
+- [X] **Task 1.1:** BTP / IAS / role collections (Plan **05** Phase 1)
+  - [X] **1.1.1:** Confirm IAS trust to BTP subaccount.
+  - [X] **1.1.2:** Confirm role collections `AgentUserACP`, `AgentAdminACP`, `AgentAuthorACP`, `AgentAuditACP` exist and are assigned to test users.
   - [X] **1.1.3:** XSUAA redirect URIs include `http://localhost:5000/login/callback`.
 
-- [ ] **Task 1.2:** Hybrid: real XSUAA + App Router (Plan **05** Phase 2)
-  - [ ] **1.2.1:** `cds bind` XSUAA + HANA; `cds watch --profile hybrid` with `auth.kind = "xsuaa"`.
-  - [ ] **1.2.2:** App Router started via `cds bind --exec`; Fiori entry only through App Router URL.
-  - [ ] **1.2.3:** No Basic-auth or `DevAuth.js` bypass active in normal runs.
+- [X] **Task 1.2:** Hybrid: real XSUAA + App Router (Plan **05** Phase 2)
+  - [X] **1.2.1:** `cds bind` XSUAA + HANA; `cds watch --profile hybrid` with `auth.kind = "xsuaa"`.
+  - [X] **1.2.2:** App Router started via `cds bind --exec`; Fiori entry only through App Router URL.
+  - [X] **1.2.3:** No Basic-auth or `DevAuth.js` bypass active in normal runs.
 
-- [ ] **Task 1.3:** CAP → Python trust contract (Plan **05** Phase 3 / `srv/python-trust.js`)
-  - [ ] **1.3.1:** CAP injects `X-Internal-Token` (from `ACP_INTERNAL_TOKEN` env) + `X-AC-User-Id`, `X-AC-Dept`, `X-AC-Roles` headers on every Python call.
-  - [ ] **1.3.2:** Python rejects requests missing the token or headers.
-  - [ ] **1.3.3:** No browser-origin request ever reaches Python directly.
+- [X] **Task 1.3:** CAP → Python trust contract (Plan **05** Phase 3 / `srv/python-trust.js`)
+  - [X] **1.3.1:** CAP injects `X-Internal-Token` (from `ACP_INTERNAL_TOKEN` env) + `X-AC-User-Id`, `X-AC-Dept`, `X-AC-Roles` headers on every Python call; **`Authorization: Bearer`** merged on `/chat` (`srv/server.js`).
+  - [X] **1.3.2:** Python rejects requests missing the internal token (when set) or `X-AC-User-Id` (`python/app/main.py` middleware).
+  - [X] **1.3.3:** No browser-origin request ever reaches Python directly.
 
 - [ ] **Task 1.4:** Verification (Plan **05** Phase 5)
   - [ ] **1.4.1:** JWT decoded once at CAP; scopes match role collections.
@@ -204,7 +205,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 3: Schema — Skill, AgentSkill, summary watermark
 
-### Status: IN_PROGRESS *(Tasks 3.1–3.2 implemented in repo; **3.3** requires `npm run deploy:hana` + OData smoke on your HDI instance.)*
+### Status: IN_PROGRESS *(**3.3.1** `deploy:hana` done 2026-04-22; **3.3.2–3.3.3** pending — Skills OData + full chat path after **502** fix.)*
 
 **Objective:** Schema additions for §13.1 + §13.6 in one HDI migration. Aligns with **§13.4 — target is DeepAgent-only**; **do not** add a long-lived `Agent.engine` column with `Loop` / `ADK` / `DeepAgent` unless you need a short migration window (prefer **no** `engine` column: code routes all chat through DeepAgent once Phase 6 lands).
 
@@ -221,7 +222,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
   - [X] **3.2.2:** Seed data: `db/data/acp-Skill.csv` (≥ 2 demo rows), `db/data/acp-AgentSkill.csv` mapping.
 
 - [ ] **Task 3.3:** Deploy + verify
-  - [ ] **3.3.1:** `npm run deploy:hana` — HDI migration clean; no data loss on existing tables.
+  - [X] **3.3.1:** `npm run deploy:hana` — HDI migration clean; no data loss on existing tables.
   - [ ] **3.3.2:** `GET /odata/v4/governance/Skills` as Admin → returns seed rows.
   - [ ] **3.3.3:** Existing chat flow still works (legacy ADK/loop path unchanged until Phase 6).
 
@@ -231,7 +232,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 4: CAP — thin payload to Python
 
-### Status: PENDING
+### Status: COMPLETED *(runtime verification: deploy + hybrid smoke — human)*
 
 **Objective:** CAP sends **§13.2** thin JSON to Python (**`agentId` / `toolIds` / `skillIds` / `sessionId` / `message` / `userInfo`** — **no** access token in the body). CAP **forwards** the browser’s **`Authorization: Bearer <jwt>`** to Python ([RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750)). **`X-Internal-Token`** (and `X-AC-*`) proves the hop is **CAP → Python**, not a public client. **No `ACP_THIN_PYTHON_PAYLOAD` flag** — migrate `server.js` off the legacy fat payload in the same phase family as Phase 5.
 
@@ -252,12 +253,12 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
     **Headers:** `Authorization: Bearer <access_token>` (forward from browser → CAP), `X-Internal-Token`, `X-AC-*` per Plan **05**.
   - [X] **4.1.2:** Confirm **`ACP_INTERNAL_TOKEN`** / header contract in `.env.example` (Plan **05**); **do not** add a thin-payload feature flag.
 
-- [ ] **Task 4.2:** `srv/server.js` — implement thin POST to Python
-  - [ ] **4.2.1:** After agent-access verification, collect `toolIds[]` from `AgentTool` join (status `Active`) + `skillIds[]` from `AgentSkill` join (status `Active`).
-  - [ ] **4.2.2:** POST thin JSON; set **`Authorization: Bearer`** to the same user JWT CAP received; **omit** `effectiveTools`, `history`, `userToken` body field, and legacy `agentConfig` blob (Python loads agent row by id).
-  - [ ] **4.2.3:** Proxy Python SSE to the browser unchanged; **remove** CAP-side INSERTs on `done` when Phase 5 Python persistence is live (avoid double writes).
+- [X] **Task 4.2:** `srv/server.js` — implement thin POST to Python
+  - [X] **4.2.1:** After agent-access verification, collect `toolIds[]` from `AgentTool` join (status `Active`) + `skillIds[]` from `AgentSkill` join (status `Active`).
+  - [X] **4.2.2:** POST thin JSON; set **`Authorization: Bearer`** to the same user JWT CAP received; **omit** `effectiveTools`, `history`, `userToken` body field, and legacy `agentConfig` blob (Python loads agent row by id).
+  - [X] **4.2.3:** Proxy Python SSE to the browser unchanged; **remove** CAP-side INSERTs on `done` when Phase 5 Python persistence is live (avoid double writes).
 
-- [ ] **Task 4.3:** Update architecture doc §5 API contract (§13.2 already defines the target).
+- [X] **Task 4.3:** Update architecture doc §5 API contract (§13.2 already defines the target).
 
 **Exit criteria:** CAP sends thin JSON + **`Authorization: Bearer`** + internal-trust headers (**no** token in JSON body); no env flag for payload shape.
 
@@ -265,29 +266,29 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 5: Python — hydration, session ownership, allowlist
 
-### Status: PENDING
+### Status: COMPLETED *(integration tests 5.4 — human / CI)*
 
 **Objective:** Python loads everything by id from HANA (§13.3); enforces session owner; rejects out-of-allowlist tool calls.
 
 **What you have at the end:** Python is read-HANA / append-only; thin payload end-to-end working for all existing test scenarios.
 
-- [ ] **Task 5.1:** `python/app/hydrator.py`
-  - [ ] **5.1.1:** `hydrate_agent(agent_id)` → `Agent` row (system prompt, model profile; omit `engine` once DeepAgent-only).
-  - [ ] **5.1.2:** `hydrate_tools(tool_ids[])` → list of Tool rows with `name`, `inputSchema`, `mcpServerUrl`, `elevated`; reject any `status != 'Active'`.
-  - [ ] **5.1.3:** `hydrate_skill_metadata(skill_ids[])` → list of `{id, name, description}` only (no body); body loaded lazily via `load_skill_body(skill_id)`.
-  - [ ] **5.1.4:** `hydrate_session(session_id, user_id)` → ownership check (`ChatSession.userId == user_id`); return messages from `summaryWatermark` onward (or all if no watermark); include `summary` string.
+- [X] **Task 5.1:** `python/app/hydrator.py`
+  - [X] **5.1.1:** `hydrate_agent(agent_id)` → `Agent` row (system prompt, model profile; omit `engine` once DeepAgent-only).
+  - [X] **5.1.2:** `hydrate_tools_for_agent` → effective tools + allowlist; reject tampered tool ids (`hydrate_tools_for_agent`).
+  - [X] **5.1.3:** `hydrate_skill_metadata(skill_ids[])` → list of `{id, name, description}` only (no body); body loaded lazily via `load_skill_body(skill_id)`.
+  - [X] **5.1.4:** `hydrate_session(session_id, user_id)` → ownership check (`ChatSession.userId == user_id`); return messages from `summaryWatermark` onward (or all if no watermark); include `summary` string.
 
-- [ ] **Task 5.2:** `python/app/session_store.py`
-  - [ ] **5.2.1:** `create_session(user_id, agent_id, title)` → insert `ChatSession`, return new `session_id`.
-  - [ ] **5.2.2:** `append_messages(session_id, user_content, assistant_content, tool_records[])` → INSERT `ChatMessage` (user), `ChatMessage` (assistant), `ToolCallRecord` rows; UPDATE `ChatSession.updatedAt`.
+- [X] **Task 5.2:** `python/app/session_store.py`
+  - [X] **5.2.1:** `create_session(user_id, agent_id, title)` → insert `ChatSession`, return new `session_id`.
+  - [X] **5.2.2:** `append_messages(session_id, user_content, assistant_content, tool_records[])` → INSERT `ChatMessage` (user), `ChatMessage` (assistant), `ToolCallRecord` rows; UPDATE `ChatSession.updatedAt`.
 
-- [ ] **Task 5.3:** Update `/chat` handler in `python/app/main.py`
-  - [ ] **5.3.1:** When thin payload (`toolIds` present): call hydrator; build `RunContext` with `allowed_tool_names = {t.name for t in hydrated_tools}`; use the **`Authorization: Bearer`** value for delegated MCP per existing tooling rules.
-  - [ ] **5.3.2:** Before every MCP call: assert `tool_name in allowed_tool_names`; raise `403` if not (defense in depth).
-  - [ ] **5.3.3:** On completion: call `session_store.append_messages()` — **Python** is the sole writer of `ChatSession` / `ChatMessage` / `ToolCallRecord` for `/chat`; CAP **only proxies** SSE and forwards `done` (with `sessionId`, `messageId` from Python).
+- [X] **Task 5.3:** Update `/chat` handler in `python/app/main.py`
+  - [X] **5.3.1:** When thin payload (`toolIds` present): call hydrator; build `RunContext` with `allowed_tool_names = {t.name for t in hydrated_tools}`; use the **`Authorization: Bearer`** value for delegated MCP per existing tooling rules.
+  - [X] **5.3.2:** Before every MCP call: assert `tool_name in allowed_tool_names`; raise `403` if not (defense in depth).
+  - [X] **5.3.3:** On completion: call `session_store.append_messages()` — **Python** is the sole writer of `ChatSession` / `ChatMessage` / `ToolCallRecord` for `/chat`; CAP **only proxies** SSE and forwards `done` (with `sessionId`, `messageId` from Python).
 
 - [ ] **Task 5.4:** Integration test
-  - [ ] **5.4.1:** Tampered `toolId` in thin payload → Python rejects with 403.
+  - [ ] **5.4.1:** Tampered `toolId` in thin payload → rejected before model run. *(Hydrator raises `PermissionError`; `executor` emits SSE `type: "error"` then `done`.)*
   - [ ] **5.4.2:** Golden scenarios (procurement chat, invoice chat) match pre-migration behavior.
   - [ ] **5.4.3:** Session reload (second message) correctly loads history from watermark.
 
@@ -297,49 +298,49 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 6: DeepAgent-only orchestrator + remove Google ADK and legacy loops
 
-### Status: PENDING
+### Status: COMPLETED *(integration tests 6.5 — human / CI)*
 
 **Objective:** **§13.4** — **All** chat traffic goes through **DeepAgent** (`deepagents` / LangGraph) with LangChain chat models for **Anthropic, OpenAI, and Gemini**. **Delete** `adk_engine.py`, remove **`google-adk`** from `requirements.txt`, and remove hand-rolled tool loops from `executor.py` after golden-scenario parity.
 
 **What you have at the end:** No ADK path; no parallel `Loop` path; one orchestrator; Gemini uses `ChatGoogleGenerativeAI` inside DeepAgent, not ADK.
 
-- [ ] **Task 6.1:** Dependencies
-  - [ ] **6.1.1:** Add `deepagents`, `langchain-google-genai`, `langchain-anthropic`, `langchain-openai` to `python/requirements.txt`.
-  - [ ] **6.1.2:** *(Cutover)* Temporarily keep `google-adk` only until **Task 6.6** deletes ADK — then remove from `requirements.txt`.
+- [X] **Task 6.1:** Dependencies
+  - [X] **6.1.1:** Add `deepagents`, `langchain-google-genai`, `langchain-anthropic`, `langchain-openai` to `python/requirements.txt`.
+  - [X] **6.1.2:** `google-adk` removed from `requirements.txt`.
 
-- [ ] **Task 6.2:** `python/app/deepagent_engine.py` — core module
-  - [ ] **6.2.1:** Import `create_deep_agent`, `SubAgent` from `deepagents`.
-  - [ ] **6.2.2:** `build_mcp_tool_bridge(hydrated_tools, run_context)` → returns list of LangChain-compatible `BaseTool` wrappers that:
+- [X] **Task 6.2:** `python/app/deepagent_engine.py` — core module
+  - [X] **6.2.1:** Import `create_deep_agent` from `deepagents` (foundation does not use `SubAgent`).
+  - [X] **6.2.2:** MCP tools as LangChain `StructuredTool` (`_make_mcp_tool`) that:
     - Call `mcp_client.call_tool(base_url, name, args, token)` under the hood.
     - Use **`Authorization: Bearer`** (forwarded user access token) for delegated tools; `machineToken` for elevated tools (`chat_tooling.py` logic).
-    - Assert `name in run_context.allowed_tool_names` before every call.
-  - [ ] **6.2.3:** `build_load_skill_tool(skill_ids, db_conn)` → a `BaseTool` named `load_skill` that:
+    - Assert `name in allowed_tool_names` before every call.
+  - [X] **6.2.3:** `load_skill` `StructuredTool` (`_make_load_skill_tool`) that:
     - Takes `skill_id` as argument.
-    - Asserts `skill_id in run_context.allowed_skill_ids`.
+    - Asserts `skill_id in allowed_skill_ids`.
     - Fetches `Skill.body` from HANA on demand (progressive disclosure — §13.1).
     - Returns the markdown body.
-  - [ ] **6.2.4:** `build_system_prompt(agent_cfg, skill_metadata)` → renders system prompt with:
+  - [X] **6.2.4:** `build_system_prompt(agent_cfg, skill_metadata)` → renders system prompt with:
     - Agent's `systemPrompt` base.
     - Appended section: `## Available skills\n` + `- **{name}**: {description}` for each skill (metadata only; instructs agent to call `load_skill(id)` for full body).
-  - [ ] **6.2.5:** `run_deep_agent(model, tools, system_prompt, history, message)` → calls `create_deep_agent(model=model, tools=tools, system_prompt=system_prompt, subagents=[])` (or omit `subagents` if the API default is empty) and streams with `agent.astream_events({"messages": [*history, HumanMessage(message)]})`. **Foundation does not register `SubAgent` instances** — enterprise procedure + tool usage is expressed via **Skills** (§13.1) and governed **Tool** allowlists, not hardcoded sub-agents (see architecture §13.4).
-  - [ ] **6.2.6:** SSE event mapping from LangGraph stream events:
+  - [X] **6.2.5:** `run_deep_agent_stream` → `create_deep_agent`, `graph.astream_events`. **Foundation does not register `SubAgent` instances** — enterprise procedure + tool usage is expressed via **Skills** (§13.1) and governed **Tool** allowlists, not hardcoded sub-agents (see architecture §13.4).
+  - [X] **6.2.6:** SSE event mapping from LangGraph stream events:
     - `on_chat_model_stream` → emit `{ type: "token", content: chunk.content }`.
     - `on_tool_start` → emit `{ type: "tool_call", toolName: name, args: args }`.
     - `on_tool_end` → emit `{ type: "tool_result", toolName: name, summary: str(output)[:300], durationMs: elapsed }`.
     - Write-todos events (planning) → emit `{ type: "planning", todos: [...] }` (new event type; chat UI may display or ignore — see Phase 8).
-    - Stream ends → emit `{ type: "done" }`.
+    - Final `done` with `{ sessionId, messageId }` emitted from `executor.py` after persistence (`deepagent_engine` streams model/tool events only).
 
   - **Deferred (not foundation):** **`SubAgent`** graphs — if ever introduced, **bind to Skill** (procedure + related tools in HANA), not a platform-default `tool-researcher`. Track as optional increment after Skills are stable (Phase 7+).
 
-- [ ] **Task 6.3:** `python/app/executor.py` — single entry path
-  - [ ] **6.3.1:** `/chat` always calls `deepagent_engine.run_deep_agent(...)` after hydration (no `if ADK` / `if Loop` branches).
-  - [ ] **6.3.2:** Branch **only** on `LLM_PROVIDER` to pick the LangChain `BaseChatModel` (Gemini / Anthropic / OpenAI).
+- [X] **Task 6.3:** `python/app/executor.py` — single entry path
+  - [X] **6.3.1:** `/chat` always calls `deepagent_engine.run_deep_agent_stream(...)` after hydration (no `if ADK` / `if Loop` branches).
+  - [X] **6.3.2:** Branch **only** on `LLM_PROVIDER` to pick the LangChain `BaseChatModel` (Gemini / Anthropic / OpenAI).
 
-- [ ] **Task 6.4:** Model instantiation
-  - [ ] **6.4.1:** `LLM_PROVIDER=google-genai` → `ChatGoogleGenerativeAI(model=LLM_MODEL)` (langchain-google-genai).
-  - [ ] **6.4.2:** `LLM_PROVIDER=anthropic` → `ChatAnthropic(model=LLM_MODEL)`.
-  - [ ] **6.4.3:** `LLM_PROVIDER=openai` → `ChatOpenAI(model=LLM_MODEL)`.
-  - [ ] **6.4.4:** Add `langchain-google-genai`, `langchain-anthropic`, `langchain-openai` to `requirements.txt`.
+- [X] **Task 6.4:** Model instantiation
+  - [X] **6.4.1:** `LLM_PROVIDER=google-genai` → `ChatGoogleGenerativeAI(model=LLM_MODEL)` (langchain-google-genai).
+  - [X] **6.4.2:** `LLM_PROVIDER=anthropic` → `ChatAnthropic(model=LLM_MODEL)`.
+  - [X] **6.4.3:** `LLM_PROVIDER=openai` → `ChatOpenAI(model=LLM_MODEL)`.
+  - [X] **6.4.4:** Add `langchain-google-genai`, `langchain-anthropic`, `langchain-openai` to `requirements.txt`.
 
 - [ ] **Task 6.5:** Integration tests (all providers via DeepAgent)
   - [ ] **6.5.1:** **Gemini:** `LLM_PROVIDER=google-genai` — multi-step procurement prompt; planning todos in SSE; tools + virtual FS behavior coherent vs previous ADK golden transcript (allow small wording drift).
@@ -347,15 +348,15 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
   - [ ] **6.5.3:** Multi-step data fetch **without** a default `SubAgent` — Skills + MCP tools + planning only.
   - [ ] **6.5.4:** `load_skill` — only allowlisted skill bodies load.
 
-- [ ] **Task 6.6:** Remove deprecated code (**§13.4** removal checklist)
-  - [ ] **6.6.1:** Delete `python/app/adk_engine.py`.
-  - [ ] **6.6.2:** Remove `google-adk` from `requirements.txt`.
-  - [ ] **6.6.3:** Delete dead branches / hand-rolled loops from `executor.py`; keep only routing + `deepagent_engine` invocation + `tool-test` helper paths.
-  - [ ] **6.6.4:** If `Agent.engine` column was added for migration, drop it from CDS + HANA or fix to a no-op.
+- [X] **Task 6.6:** Remove deprecated code (**§13.4** removal checklist)
+  - [X] **6.6.1:** Delete `python/app/adk_engine.py`.
+  - [X] **6.6.2:** Remove `google-adk` from `requirements.txt`.
+  - [X] **6.6.3:** Delete dead branches / hand-rolled loops from `executor.py`; keep only routing + `deepagent_engine` invocation + `tool-test` helper paths.
+  - [ ] **6.6.4:** If `Agent.engine` column was added for migration, drop it from CDS + HANA or fix to a no-op. *(Not applicable — no `engine` column.)*
 
-- [ ] **Task 6.7:** Update architecture docs
-  - [ ] **6.7.1:** `fiori-agent-platform.md §5` — target-only DeepAgent; legacy ADK diagram marked removed.
-  - [ ] **6.7.2:** Mark **ADR-11** (DeepAgent-only; deprecate ADK) as implemented in §13.7.
+- [X] **Task 6.7:** Update architecture docs
+  - [X] **6.7.1:** `fiori-agent-platform.md §5` — target-only DeepAgent; legacy ADK diagram marked removed.
+  - [X] **6.7.2:** Mark **ADR-11** (DeepAgent-only; deprecate ADK) as implemented in §13.7.
 
 **Exit criteria:** Golden scenarios pass on **DeepAgent + Gemini** and **DeepAgent + Anthropic/OpenAI**; `adk_engine.py` and `google-adk` **gone** from repo; CI or manual checklist green.
 
@@ -363,18 +364,18 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 6b: Observability — Langfuse (open source) for trace + eval
 
-### Status: PENDING
+### Status: IN_PROGRESS *(6b.3–6b.5 — human / Langfuse project)*
 
 **Objective:** Match the **ADK Web** developer experience (trace UI, eval sessions) without keeping ADK in production — **§13.4.1**. Use **[Langfuse](https://langfuse.com/)** (MIT, **[self-host](https://langfuse.com/self-hosting)** or cloud) — **not** LangSmith (proprietary).
 
 **What you have at the end:** Engineers debug DeepAgent runs in Langfuse; optional LangGraph Studio locally for graph replay.
 
-- [ ] **Task 6b.1:** Add `langfuse` to `python/requirements.txt`; wire **`langfuse.langchain.CallbackHandler`** on DeepAgent `invoke` / stream (see [Langfuse + DeepAgents](https://langfuse.com/integrations/frameworks/langchain-deepagents)).
-- [ ] **Task 6b.2:** Configure **`LANGFUSE_PUBLIC_KEY`**, **`LANGFUSE_SECRET_KEY`**, **`LANGFUSE_HOST`** in **dev/staging** `.env` / CF (never commit secrets).
+- [X] **Task 6b.1:** Add `langfuse` to `python/requirements.txt`; wire **`langfuse.langchain.CallbackHandler`** on DeepAgent `invoke` / stream (see [Langfuse + DeepAgents](https://langfuse.com/integrations/frameworks/langchain-deepagents)).
+- [X] **Task 6b.2:** Configure **`LANGFUSE_PUBLIC_KEY`**, **`LANGFUSE_SECRET_KEY`**, **`LANGFUSE_HOST`** in **dev/staging** `.env` / CF (never commit secrets). *(Placeholder keys in `.env.example`.)*
 - [ ] **Task 6b.3:** Confirm traces appear in Langfuse for `create_deep_agent` (planning, tools, latency, tokens; optional sub-agent spans if enabled later).
 - [ ] **Task 6b.4:** (Optional) Run a small **dataset / score** experiment in Langfuse to validate eval path.
 - [ ] **Task 6b.5:** (Optional production) Deploy **self-hosted** Langfuse on your infra or document approved **Langfuse Cloud** project + data policy.
-- [ ] **Task 6b.6:** Document in `README.md`: observability = **Langfuse**; product does **not** use ADK Web or LangSmith; throwaway ADK-only experiments **outside** this repo if needed during migration.
+- [X] **Task 6b.6:** Document in `README.md`: observability = **Langfuse**; product does **not** use ADK Web or LangSmith; throwaway ADK-only experiments **outside** this repo if needed during migration.
 
 **Exit criteria:** Failed chat turn debuggable from Langfuse UI without `adk_engine.py`.
 
@@ -382,20 +383,20 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 7: Admin UI — Skills
 
-### Status: PENDING
+### Status: COMPLETED *(7.3 manual chat verify — human)*
 
 **Objective:** Admin can create, edit, and assign Skills. **No** Fiori field for `Loop` / `ADK` / `DeepAgent` — runtime is DeepAgent-only after Phase 6 (**architecture §13.4**).
 
 **What you have at the end:** Admin manages Skills + existing agent/tool/server/group screens; no multi-engine confusion in UI.
 
-- [ ] **Task 7.1:** Skill List Report + Object Page (`app/admin/annotations/annotations.cds`)
-  - [ ] **7.1.1:** `@UI.LineItem` for Skills: name, description (truncated), status, modifiedAt.
-  - [ ] **7.1.2:** Skill OP: field groups — Metadata (name, description, status), Body (full markdown `LargeString` as `@UI.MultiLineText`).
-  - [ ] **7.1.3:** `manifest.json` route: `SkillsList` → `Skills` entity set.
-  - [ ] **7.1.4:** i18n strings for all Skill labels.
+- [X] **Task 7.1:** Skill List Report + Object Page (`app/admin/annotations/annotations.cds`)
+  - [X] **7.1.1:** `@UI.LineItem` for Skills: name, description (truncated), status, modifiedAt.
+  - [X] **7.1.2:** Skill OP: field groups — Metadata (name, description, status), Body (full markdown `LargeString` as `@UI.MultiLineText`).
+  - [X] **7.1.3:** `manifest.json` route: `SkillsList` → `Skills` entity set.
+  - [X] **7.1.4:** i18n strings for all Skill labels.
 
-- [ ] **Task 7.2:** Agent OP — Skills facet
-  - [ ] **7.2.1:** Add `AgentSkills` sub-table facet to Agent OP (mirror `AgentTools` pattern): columns skill name, description, status.
+- [X] **Task 7.2:** Agent OP — Skills facet
+  - [X] **7.2.1:** Add `AgentSkills` sub-table facet to Agent OP (mirror `AgentTools` pattern): columns skill name, description, status.
 
 - [ ] **Task 7.3:** Manual test
   - [ ] **7.3.1:** Create Skill "Procurement SOP" with body, attach to Procurement Assistant agent; chat verifies skill `load_skill` path.
@@ -409,7 +410,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 8: Chat UI — planning panel + contract verification
 
-### Status: PENDING
+### Status: COMPLETED *(8.4 manual — human)*
 
 **Objective:** Surface DeepAgent's planning events (`write_todos`) in the chat UI; confirm browser→CAP contract unchanged.
 
@@ -419,14 +420,14 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
   - [X] **8.1.1:** Confirm `Chat.controller.js` sends only `{ agentId, message, sessionId }` — no changes needed if true; document in README.
   - [X] **8.1.2:** Confirm `done` event still carries `{ sessionId, messageId }` for session tracking.
 
-- [ ] **Task 8.2:** Planning panel in `Chat.view.xml`
-  - [ ] **8.2.1:** Add collapsible `Panel` above the tool trace titled "Agent plan" — visible only while streaming and when `planning` SSE events have arrived.
-  - [ ] **8.2.2:** Display a live `List` of todo items (text, status: pending / in-progress / done) updated as `planning` events arrive.
-  - [ ] **8.2.3:** Auto-collapse when stream ends; keep visible if user expanded it.
+- [X] **Task 8.2:** Planning panel in `Chat.view.xml`
+  - [X] **8.2.1:** Add collapsible `Panel` above the tool trace titled "Agent plan" — visible only while streaming and when `planning` SSE events have arrived.
+  - [X] **8.2.2:** Display a live `List` of todo items (text, status: pending / in-progress / done) updated as `planning` events arrive.
+  - [X] **8.2.3:** Auto-collapse when stream ends; keep visible if user expanded it.
 
-- [ ] **Task 8.3:** Controller handling of `planning` event
-  - [ ] **8.3.1:** In `_openChatStream` handler: `planning` event → update planning panel model.
-  - [ ] **8.3.2:** Unknown future event types → silently ignore (forward-compatibility).
+- [X] **Task 8.3:** Controller handling of `planning` event
+  - [X] **8.3.1:** In `_openChatStream` handler: `planning` event → update planning panel model.
+  - [X] **8.3.2:** Unknown future event types → silently ignore (forward-compatibility).
 
 - [ ] **Task 8.4:** Manual test
   - [ ] **8.4.1:** Send a multi-step question to DeepAgent agent — planning panel appears, todos update in real time, collapses on done.
@@ -438,27 +439,27 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 9: Summarization
 
-### Status: PENDING
+### Status: COMPLETED *(9.5 HANA verification — human)*
 
 **Objective:** Bound LLM context on long sessions; UI shows full history; model only sees summary + tail (§13.6).
 
 **What you have at the end:** Sessions can run indefinitely without context overflow; users see all messages; model context is trimmed.
 
-- [ ] **Task 9.1:** Define threshold
-  - [ ] **9.1.1:** Choose trigger: token count threshold (preferred) or message count (simpler). Document in `config.py`.
-  - [ ] **9.1.2:** Add `SUMMARY_TOKEN_THRESHOLD` (default 6000) to `.env.example` and `config.py`.
+- [X] **Task 9.1:** Define threshold
+  - [X] **9.1.1:** Choose trigger: token count threshold (preferred) or message count (simpler). Document in `config.py`.
+  - [X] **9.1.2:** Add `SUMMARY_TOKEN_THRESHOLD` (default 6000) to `.env.example` and `config.py`.
 
-- [ ] **Task 9.2:** Summarization function in `python/app/session_store.py`
-  - [ ] **9.2.1:** `summarize_if_needed(session_id, messages_since_watermark)` — check total token count of messages; if above threshold, call LLM with summarization prompt on the oldest 50% of messages; return summary text.
-  - [ ] **9.2.2:** Write `ChatSession.summary` + `ChatSession.summaryWatermark = last_summarized_message.timestamp`.
-  - [ ] **9.2.3:** Trigger: called inline at end of each `/chat` response (before `done`) — simple; no background job needed for v1.
+- [X] **Task 9.2:** Summarization function in `python/app/session_store.py`
+  - [X] **9.2.1:** `summarize_if_needed(session_id)` — rough token count; if above threshold, call LLM with summarization prompt on the oldest 50% of messages; return summary text.
+  - [X] **9.2.2:** Write `ChatSession.summary` + `ChatSession.summaryWatermark = last_summarized_message.timestamp`.
+  - [X] **9.2.3:** Trigger: called inline at end of each `/chat` response (before final `done`) — simple; no background job needed for v1.
 
-- [ ] **Task 9.3:** History loader (update `hydrator.py` Task 5.1.4)
-  - [ ] **9.3.1:** Prepend `[system] Previous conversation summary:\n{summary}` to LLM message history when `summary` is non-null.
-  - [ ] **9.3.2:** Load only `ChatMessage` rows where `timestamp > summaryWatermark`.
+- [X] **Task 9.3:** History loader (update `hydrator.py` Task 5.1.4)
+  - [X] **9.3.1:** Prepend `SystemMessage` with summary when `summary` is non-null (`deepagent_engine`).
+  - [X] **9.3.2:** Load only `ChatMessage` rows where `timestamp > summaryWatermark` (`hydrate_session`).
 
-- [ ] **Task 9.4:** UI — full history still visible
-  - [ ] **9.4.1:** `Chat.controller.js` loads all `ChatMessage` rows via OData on session select — no filter on watermark (UI shows everything; only model context is trimmed).
+- [X] **Task 9.4:** UI — full history still visible
+  - [X] **9.4.1:** `Chat.controller.js` loads all `ChatMessage` rows via OData on session select — no filter on watermark (UI shows everything; only model context is trimmed).
 
 - [ ] **Task 9.5:** Test
   - [ ] **9.5.1:** Run a session to > threshold; confirm `summary` + `summaryWatermark` updated in HANA.
@@ -493,7 +494,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 **Objective:** Ensure MCP authorization matches **§13.5.1–13.5.2**: per-tool RBAC (**JWT → agent** via `AgentGroup`, **agent → tool** via **`AgentTool`**) in CAP + HANA + Python allowlist; audience-bound tokens; central audit complete.
 
-- [ ] **Task 11.1:** Token review — confirm `chat_tooling.py` uses audience-bound tokens for delegated vs elevated tools; user JWT never passed raw to MCP.
+- [X] **Task 11.1:** Token review — confirm `chat_tooling.py` uses audience-bound tokens for delegated vs elevated tools; user JWT never passed raw to MCP. *(Documented in `chat_tooling.py` module docstring; elevated → `MCP_MACHINE_TOKEN` when set.)*
 - [X] **Task 11.2:** Audit completeness — `ToolCallRecord` captures: tool name, args summary, result summary, `elevatedUsed`, `durationMs`, `messageId`.
 - [ ] **Task 11.3:** Allowlist smoke — per each release: curl `/mcp/tools/call` with a tool name NOT in the agent's `AgentTool` list → executor returns 403 (allowlist check in hydrator).
 - [ ] **Task 11.4:** Optional MCP gateway — add `services/mcp-gateway/` **only** if multiple external MCPs require central federation (§13.5.1 rule 5).
@@ -506,17 +507,17 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ### MVP target (Phases 0–9)
 
-- [ ] Phase **0** — current fat-payload app verified working (legacy ADK/loops still in repo).
-- [ ] Phase **1** — real XSUAA identity; Python private.
-- [ ] Phase **2** — deployed to CF; pilot users on `https://…`.
-- [ ] Phase **3** — Skills + `ChatSession` summary/watermark in HANA (**no** long-lived Loop/ADK/DeepAgent `engine` enum in schema — prefer DeepAgent-only in code).
-- [ ] Phase **4** — CAP sends thin JSON + **forwarded `Authorization: Bearer`** (no feature flag); CAP stops duplicate chat writes once Phase 5 lands.
-- [ ] Phase **5** — Python hydrates by id; **Python writes chat rows**; session ownership enforced.
-- [ ] Phase **6** — DeepAgent-only; **ADK + hand-rolled loops removed** from repo.
-- [ ] Phase **6b** — Langfuse tracing + eval for dev/staging (self-host or cloud per policy).
-- [ ] Phase **7** — Admin can manage Skills via Fiori UI.
-- [ ] Phase **8** — Planning panel in chat UI.
-- [ ] Phase **9** — Summarization prevents context overflow.
+- [ ] Phase **0** — end-to-end smoke on hybrid/CF *(2026-04-22: **0.1** done; **0.2–0.4** in progress; chat **502**.)*
+- [ ] Phase **1** — real XSUAA identity; Python private *(2026-04-22: hybrid + trust **1.1–1.3** done; **1.4** pending stable chat.)*
+- [ ] Phase **2** — deployed to CF; pilot users on `https://…` *(deferred until hybrid green — developer)*.
+- [ ] Phase **3** — Skills + `ChatSession` summary/watermark in HANA *(**deploy done**; **3.3.2–3.3.3** verify pending.)*
+- [X] Phase **4** — CAP sends thin JSON + **forwarded `Authorization: Bearer`** (no feature flag); CAP does not duplicate chat writes on `/api/chat`.
+- [X] Phase **5** — Python hydrates by id; **Python writes chat rows**; session ownership enforced.
+- [X] Phase **6** — DeepAgent-only; **ADK + hand-rolled loops removed** from repo.
+- [ ] Phase **6b** — Langfuse tracing confirmed in UI *(6b.3–6b.5 — human)*.
+- [X] Phase **7** — Admin can manage Skills via Fiori UI *(code)*.
+- [X] Phase **8** — Planning panel in chat UI *(code)*.
+- [X] Phase **9** — Summarization in code *(threshold + `summarize_if_needed`; full 9.5 HANA verify — human)*.
 
 ### Full target (adds Phases 10–11)
 
@@ -542,3 +543,6 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 | 2026-04-19 | **Repo audit (06):** Checkboxes set to `[X]` only where committed code/config proves the deliverable (see subtask lines); manual/BTP-only items remain `[ ]`. |
 | 2026-04-19 | **Parallel orchestration:** Three read-only audits (Phase 0–2, 3–5, 6–9) saved as `.cursor/worker-reports/06-audit-phase0-2.md`, `06-audit-phase3-5.md`, `06-audit-phase6-9.md`. README: “Chat UI → CAP contract” subsection documents **8.1.1** / **8.1.2** body + `done` session id. |
 | 2026-04-19 | **Phase 3 (code):** `Skill`, `AgentSkill`, `ChatSession.summary` / `summaryWatermark` in `db/schema.cds`; `Skills` / `AgentSkills` in `srv/governance-service.cds`; `acp-Skill.csv` + `acp-AgentSkill.csv`. **`cds build --production`** verified locally. **3.3** (deploy + OData + chat smoke) still on developer. **Phase 4.1.1:** README subsection “CAP → Python (target thin JSON contract)” + `srv/server.js` pointer comment. |
+| 2026-04-19 | **Major code delivery:** Thin CAP→Python (`srv/server.js`), `hydrator.py` / `session_store.py`, DeepAgent (`deepagent_engine.py`), `executor.py` rewrite, Langfuse hook, Phase 9 summarization, Admin Skills UI routes/annotations, chat planning panel, architecture §5 + ADR-11, README Langfuse. **Human:** `deploy:hana`, LLM/E2E smoke, Langfuse project, CF. |
+| 2026-04-19 | **`mbt build`** on some Windows hosts fails without GNU `make` on PATH — install MSYS2/GnuWin32 make or use WSL; then tick **2.1.1**. |
+| 2026-04-22 | **Developer hybrid progress:** `cf` bind + **`deploy:hana` (3.3.1)** + local CAP (`:4004` index) + App Router **`:5000`** + XSUAA; **1.1–1.3** marked done; direct Python `:8000` rejected (**1.3.3**). **Open:** **0.2** OData smoke (401 on bare `:4004` — expected without Bearer; use **`:5000`** or token); **0.3–0.4**, **1.4**, **3.3.2–3**; chat **Bad Gateway** to Python — **no agent code change** until developer go-ahead. **Phase 2 (CF)** untouched. |

@@ -11,6 +11,14 @@ LLM_API_KEY = os.getenv("LLM_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite-preview")
 
+# Phase 9 — bounded context (rough token estimate: len(text)//4)
+SUMMARY_TOKEN_THRESHOLD = int(os.getenv("SUMMARY_TOKEN_THRESHOLD", "6000"))
+
+# Langfuse (Phase 6b) — optional; never commit keys
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "").strip()
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "").strip()
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com").strip()
+
 # Python App Config
 PYTHON_INTERNAL_BASE_URL = os.getenv("PYTHON_URL", "http://localhost:8000")
 

@@ -140,6 +140,61 @@ annotate service.Tools with {
   riskLevel @Common.ValueListWithFixedValues: true;
 }
 
+// ── Skills ──────────────────────────────────────────────────────────────────
+
+annotate service.Skills with @(
+  UI.SelectionFields: [ name, status ],
+  UI.LineItem: [
+    { Value: name, Label: '{i18n>Name}' },
+    { Value: description, Label: '{i18n>Description}' },
+    { Value: status, Label: '{i18n>Status}' },
+    { Value: modifiedAt, Label: '{i18n>ModifiedAt}' }
+  ],
+  UI.HeaderInfo: {
+    TypeName: '{i18n>Skill}',
+    TypeNamePlural: '{i18n>Skills}',
+    Title: { Value: name },
+    Description: { Value: description }
+  },
+  UI.Facets: [
+    {
+      $Type: 'UI.CollectionFacet',
+      Label: '{i18n>GeneralInformation}',
+      ID: 'SkillGeneral',
+      Facets: [
+        { $Type: 'UI.ReferenceFacet', Target: '@UI.FieldGroup#SkillMetadata', Label: '{i18n>Metadata}' },
+        { $Type: 'UI.ReferenceFacet', Target: '@UI.FieldGroup#SkillBody', Label: '{i18n>Body}' }
+      ]
+    }
+  ],
+  UI.FieldGroup #SkillMetadata: {
+    Data: [
+      { Value: name },
+      { Value: description },
+      { Value: status },
+      { Value: modifiedAt }
+    ]
+  },
+  UI.FieldGroup #SkillBody: {
+    Data: [
+      { Value: body }
+    ]
+  }
+);
+
+annotate service.Skills with {
+  body @UI.MultiLineText: true;
+  status @Common.ValueListWithFixedValues: true;
+};
+
+annotate service.AgentSkills with @(
+  UI.LineItem: [
+    { Value: skill.name, Label: '{i18n>Skill}' },
+    { Value: skill.description, Label: '{i18n>Description}' },
+    { Value: skill.status, Label: '{i18n>Status}' }
+  ]
+);
+
 // ── Agents ────────────────────────────────────────────────────────────────
 
 annotate service.Agents with @(
@@ -168,6 +223,7 @@ annotate service.Agents with @(
       ]
     },
     { $Type: 'UI.ReferenceFacet', Target: 'tools/@UI.LineItem', Label: '{i18n>ToolAssignments}' },
+    { $Type: 'UI.ReferenceFacet', Target: 'skills/@UI.LineItem', Label: '{i18n>SkillAssignments}' },
     { $Type: 'UI.ReferenceFacet', Target: 'groups/@UI.LineItem', Label: '{i18n>GroupMembership}' }
   ],
   UI.FieldGroup #BasicInfo: {

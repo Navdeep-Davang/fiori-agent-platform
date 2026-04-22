@@ -1,4 +1,9 @@
-"""Shared helpers for chat tool execution (MCP tokens)."""
+"""Shared helpers for chat tool execution (MCP tokens).
+
+Plan 06 Phase 11.1: delegated tools use the forwarded user token string; elevated tools
+prefer MCP_MACHINE_TOKEN when set — do not pass a raw browser JWT to MCP unless the
+server is configured to accept it (see architecture §13.5).
+"""
 
 
 def token_for_mcp(tool_meta: dict, user_token: str) -> str:

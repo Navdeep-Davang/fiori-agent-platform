@@ -5,9 +5,6 @@ const { randomUUID } = require('crypto')
 
 const PYTHON_URL = () => process.env.PYTHON_URL || 'http://localhost:8000'
 
-/** Bearer token for MCP calls when a tool is elevated (optional; set on CF for delegated-identity servers). */
-const MCP_MACHINE_TOKEN = () => process.env.MCP_MACHINE_TOKEN || ''
-
 function deptValueEmpty(v) {
   if (v == null) return true
   if (Array.isArray(v)) return v.length === 0 || String(v[0]).trim() === ''
@@ -170,24 +167,7 @@ async function loadAgentBundle(agentId) {
   return { agent, tools: tools || [] }
 }
 
-function effectiveElevated(perm, toolElev, identityMode) {
-  if (perm === 'ForceDelegated') return false
-  if (perm === 'ForceElevated') {
-    if (identityMode === 'Mixed' && toolElev) return true
-    return null
-  }
-  return !!toolElev
-}
-
-function safeJson(s) {
-  try {
-    return typeof s === 'string' ? JSON.parse(s) : s || {}
-  } catch {
-    return {}
-  }
-}
-
-const { forwardHeadersForPython } = require('./python-trust')
+const { forwardHeadersForPython, userRolesList } = require('./python-trust')
 
 cds.on('bootstrap', app => {
   const express = require('express')
@@ -251,7 +231,8 @@ cds.on('bootstrap', app => {
     }
   })
 
-  // Target thin CAP→Python contract: README "CAP → Python (target thin JSON contract)"; legacy fat payload until Phase 4.2.
+  // Thin CAP→Python contract: README "CAP → Python (target thin JSON contract)".
+  // Python owns ChatSession / ChatMessage / ToolCallRecord persistence and emits the final `done` event.
   app.post('/api/chat', async (req, res) => {
     const user = req.user
     if (!user?.is?.('Agent.User')) return res.status(403).json({ error: 'Agent.User required' })
@@ -266,69 +247,55 @@ cds.on('bootstrap', app => {
       const bundle = await loadAgentBundle(agentId)
       if (!bundle?.agent) return res.status(404).json({ error: 'Agent not found' })
 
-      const effectiveTools = []
-      for (const row of bundle.tools) {
-        const toolName = row.name ?? row.NAME
-        if (!toolName) continue
-        const perm = (row.permissionOverride ?? row.PERMISSIONOVERRIDE) || 'Inherit'
-        const eff = effectiveElevated(perm, row.elevated ?? row.ELEVATED, bundle.agent.identityMode)
-        if (eff === null) {
-          return res.status(400).json({ error: 'Invalid permission override for tool ' + (toolName || '?') })
-        }
-        let mcpServerUrl = ''
-        const destName = row.destinationName ?? row.DESTINATIONNAME
-        if (destName) {
-          try {
-            const { getDestination } = require('@sap-cloud-sdk/connectivity')
-            const dest = await getDestination({ destinationName: destName })
-            mcpServerUrl = dest?.url?.replace(/\/$/, '') || ''
-          } catch {
-            mcpServerUrl = ''
-          }
-        }
-        const baseUrl = row.baseUrl ?? row.BASEURL
-        if (!mcpServerUrl && baseUrl) mcpServerUrl = String(baseUrl).replace(/\/$/, '')
-        const machineTok = eff ? MCP_MACHINE_TOKEN() : ''
-        effectiveTools.push({
-          name: toolName,
-          description: (row.description ?? row.DESCRIPTION) || '',
-          inputSchema: safeJson(row.inputSchema ?? row.INPUTSCHEMA),
-          mcpServerUrl,
-          elevated: eff,
-          machineToken: machineTok || null
-        })
-      }
-
       const db = await cds.connect.to('db')
-      let history = []
-      if (sessionId) {
-        const msgs = await db.run(
-          `SELECT role, content FROM acp_ChatMessage WHERE session_ID = ? ORDER BY timestamp ASC`,
-          [sessionId]
+      const toolRows = await db.run(
+        `SELECT t.ID AS ID FROM acp_AgentTool agt
+         INNER JOIN acp_Tool t ON t.ID = agt.tool_ID
+         WHERE agt.agent_ID = ? AND t.status = 'Active'`,
+        [agentId]
+      )
+      const toolIds = (toolRows || []).map(r => r.ID ?? r.id).filter(Boolean)
+
+      let skillIds = []
+      try {
+        const skillRows = await db.run(
+          `SELECT s.ID AS ID FROM acp_AgentSkill ags
+           INNER JOIN acp_Skill s ON s.ID = ags.skill_ID
+           WHERE ags.agent_ID = ? AND s.status = 'Active'`,
+          [agentId]
         )
-        history = (msgs || []).map(m => ({ role: m.role, content: m.content }))
+        skillIds = (skillRows || []).map(r => r.ID ?? r.id).filter(Boolean)
+      } catch (e) {
+        const msg = String(e.message || e)
+        if (msg.includes('invalid table') || msg.includes('not found') || msg.includes('Unknown')) {
+          skillIds = []
+        } else {
+          throw e
+        }
       }
 
-      const a = bundle.agent
+      const gated = attrForAgentGating(user, authHeader)
       const payload = {
-        agentConfig: {
-          systemPrompt: a.systemPrompt ?? a.SYSTEMPROMPT,
-          modelProfile: a.modelProfile ?? a.MODELPROFILE,
-          identityMode: a.identityMode ?? a.IDENTITYMODE
-        },
-        effectiveTools,
+        sessionId: sessionId || null,
+        agentId,
+        toolIds,
+        skillIds,
         message,
-        history,
         userInfo: {
           userId: user.id,
           email: user.email || user.id,
-          groups: []
-        },
-        userToken: authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader
+          dept: String(gated.dept ?? ''),
+          roles: userRolesList(user)
+        }
+      }
+
+      const pyHeaders = {
+        ...forwardHeadersForPython(user),
+        ...(authHeader && /^Bearer\s+/i.test(authHeader.trim()) ? { Authorization: authHeader.trim() } : {})
       }
 
       const py = await axios.post(`${PYTHON_URL()}/chat`, payload, {
-        headers: forwardHeadersForPython(user),
+        headers: pyHeaders,
         responseType: 'stream',
         timeout: 0,
         validateStatus: () => true
@@ -345,82 +312,9 @@ cds.on('bootstrap', app => {
       res.setHeader('Connection', 'keep-alive')
 
       const rl = readline.createInterface({ input: py.data })
-      let assistantText = ''
-      const toolRecords = []
-      let streamCompletedNormally = false
-
-      const handleLine = line => {
-        if (line.startsWith('data: ')) {
-          try {
-            const evt = JSON.parse(line.slice(6).trim())
-            if (evt.type === 'done') {
-              streamCompletedNormally = true
-              return
-            }
-            if (evt.type === 'token' && evt.content) assistantText += evt.content
-            if (evt.type === 'tool_result') {
-              toolRecords.push({
-                toolName: evt.toolName,
-                summary: evt.summary || '',
-                durationMs: evt.durationMs || 0,
-                args: evt.args
-              })
-            }
-          } catch {
-            /* ignore */
-          }
-        }
+      for await (const line of rl) {
         res.write(line + '\n')
       }
-
-      for await (const line of rl) handleLine(line)
-
-      if (streamCompletedNormally && user?.id) {
-        const uid = user.id
-        const now = new Date().toISOString()
-        let sid = sessionId
-        if (!sid) {
-          sid = randomUUID()
-          await db.run(
-            `INSERT INTO acp_ChatSession (ID, agentId, userId, title, createdAt, updatedAt) VALUES (?,?,?,?,?,?)`,
-            [sid, agentId, uid, String(message).slice(0, 40), now, now]
-          )
-        } else {
-          await db.run(`UPDATE acp_ChatSession SET updatedAt = ? WHERE ID = ? AND userId = ?`, [now, sid, uid])
-        }
-
-        const userMsgId = randomUUID()
-        const asstMsgId = randomUUID()
-        await db.run(
-          `INSERT INTO acp_ChatMessage (ID, session_ID, role, content, timestamp) VALUES (?,?,?,?,?)`,
-          [userMsgId, sid, 'user', message, now]
-        )
-        await db.run(
-          `INSERT INTO acp_ChatMessage (ID, session_ID, role, content, timestamp) VALUES (?,?,?,?,?)`,
-          [asstMsgId, sid, 'assistant', assistantText || '(empty)', new Date().toISOString()]
-        )
-
-        for (const tr of toolRecords) {
-          await db.run(
-            `INSERT INTO acp_ToolCallRecord (ID, message_ID, toolName, arguments, resultSummary, durationMs, elevatedUsed, timestamp) VALUES (?,?,?,?,?,?,?,?)`,
-            [
-              randomUUID(),
-              asstMsgId,
-              tr.toolName || 'unknown',
-              JSON.stringify(tr.args || {}),
-              tr.summary || '',
-              tr.durationMs || 0,
-              0,
-              new Date().toISOString()
-            ]
-          )
-        }
-
-        res.write(
-          `data: ${JSON.stringify({ type: 'done', sessionId: sid, messageId: asstMsgId })}\n\n`
-        )
-      }
-
       res.end()
     } catch (e) {
       console.error(e)

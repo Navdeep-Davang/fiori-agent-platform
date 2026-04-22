@@ -92,6 +92,21 @@
                                             <FlexItemData growFactor="0" shrinkFactor="0" />
                                         </layoutData>
                                     </Bar>
+                                    <Panel id="agentPlanPanel"
+                                           headerText="{i18n>agentPlanTitle}"
+                                           expandable="true"
+                                           expanded="{planningModel>/expanded}"
+                                           visible="{planningModel>/visible}"
+                                           class="acpAgentPlanPanel sapUiSmallMarginBottom">
+                                        <content>
+                                            <List id="planningList"
+                                                  items="{path: 'planningModel>/todos'}"
+                                                  showNoData="false"
+                                                  class="acpPlanningList">
+                                                <StandardListItem title="{planningModel>text}" info="{planningModel>status}" />
+                                            </List>
+                                        </content>
+                                    </Panel>
                                     <ScrollContainer width="100%" vertical="true" horizontal="false" focusable="true"
                                                      class="acpChatScroll acpChatScrollShell">
                                         <layoutData>

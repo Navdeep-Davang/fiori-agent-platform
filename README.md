@@ -153,7 +153,11 @@ The browser sends **only** `{ agentId, message, sessionId }` in the JSON body of
 - **`X-Internal-Token`** — when `ACP_INTERNAL_TOKEN` is set, shared secret for the CAP → Python hop (defense in depth).
 - **`X-AC-*`** — user-context mirrors per **Plan 05** ([`doc/Action-Plan/05-cap-public-python-private-production-path.md`](doc/Action-Plan/05-cap-public-python-private-production-path.md)); built in [`srv/python-trust.js`](srv/python-trust.js) (e.g. `X-AC-User-Id`, `X-AC-Dept`, `X-AC-Roles`).
 
-**Implementation note:** Until **Phase 4.2** is implemented, [`srv/server.js`](srv/server.js) may still send the **legacy fat** payload to Python (e.g. `agentConfig`, `effectiveTools`, `history`, `userToken` in the body). The thin JSON above is the **target**; migrate the server in Phase 4.2 per the action plan.
+**Implemented:** [`srv/server.js`](srv/server.js) POSTs the **thin** JSON to Python and forwards **`Authorization: Bearer`** plus internal-trust headers. Python owns chat persistence and emits the final SSE **`done`**.
+
+### Observability (Langfuse)
+
+Optional **[Langfuse](https://langfuse.com/)** (MIT) for DeepAgent / LangChain traces: set **`LANGFUSE_PUBLIC_KEY`**, **`LANGFUSE_SECRET_KEY`**, and optionally **`LANGFUSE_HOST`** in `.env` (never commit secrets). This product does **not** rely on ADK Web or LangSmith for production observability.
 
 ---
 
