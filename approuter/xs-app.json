@@ -7,6 +7,13 @@
   },
   "routes": [
     {
+      "source": "^/admin/?$",
+      "target": "/admin/webapp/index.html",
+      "destination": "cap",
+      "csrfProtection": true,
+      "identityProvider": "sap.custom"
+    },
+    {
       "source": "^/admin/(.*)",
       "target": "/admin/$1",
       "destination": "cap",

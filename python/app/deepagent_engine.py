@@ -90,6 +90,27 @@ def _make_load_skill_tool(conn, allowed_skill_ids: Set[str]) -> StructuredTool:
     )
 
 
+def _stringify_llm_chunk_content(raw: Any) -> str:
+    """AIMessageChunk.content may be str or list of block dicts — UI expects a single string in SSE."""
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        parts: List[str] = []
+        for item in raw:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                parts.append(str(item.get("text", item.get("content", "")) or ""))
+            else:
+                t = getattr(item, "text", None)
+                if t is not None:
+                    parts.append(str(t))
+        return "".join(parts)
+    return str(raw)
+
+
 def _langfuse_handler():
     """Langfuse 4.x reads keys from env; CallbackHandler() uses trace context."""
     if not (LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY):
@@ -115,7 +136,8 @@ def _event_to_sse_lines(ev: Dict[str, Any]) -> List[str]:
 
     if kind == "on_chat_model_stream":
         chunk = data.get("chunk")
-        text = getattr(chunk, "content", None) if chunk is not None else None
+        raw_content = getattr(chunk, "content", None) if chunk is not None else None
+        text = _stringify_llm_chunk_content(raw_content)
         if text:
             out.append(f'data: {json.dumps({"type": "token", "content": text})}\n\n')
 

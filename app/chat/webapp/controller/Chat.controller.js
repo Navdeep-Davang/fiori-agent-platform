@@ -475,6 +475,33 @@ sap.ui.define([
             }
         },
 
+        /** Normalize SSE token payload — LangChain may send block objects; avoid "[object Object]" in the bubble. */
+        _tokenTextFromEvent: function (v) {
+            if (v == null || v === undefined) {
+                return "";
+            }
+            if (typeof v === "string") {
+                return v;
+            }
+            if (Array.isArray(v)) {
+                return v
+                    .map(function (p) {
+                        if (typeof p === "string") {
+                            return p;
+                        }
+                        if (p && typeof p === "object" && p.text != null) {
+                            return String(p.text);
+                        }
+                        return "";
+                    })
+                    .join("");
+            }
+            if (typeof v === "object" && v.text != null) {
+                return String(v.text);
+            }
+            return "";
+        },
+
         _handleStreamEvent: function (oEvent) {
             const aMessages = this._oChatModel.getProperty("/messages");
             const oCurrentMsg = aMessages[aMessages.length - 1];
@@ -494,7 +521,7 @@ sap.ui.define([
                         break;
                     }
                     oCurrentMsg.waitingForFirstToken = false;
-                    oCurrentMsg.content += oEvent.content;
+                    oCurrentMsg.content += this._tokenTextFromEvent(oEvent.content);
                     this._kickAssistantStreamDisplay();
                     break;
                 case "tool_call":

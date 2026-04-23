@@ -47,8 +47,8 @@ Full detail: **`doc/Architecture/fiori-agent-platform.md` §2 (Admin UI), §13.5
 | Parallel App Router → Python route | **Never** — `xs-app.json` routes only to CAP |
 | Per-tool OAuth scopes inside MCP server alone | **Insufficient** — per-tool RBAC lives in CAP + HANA + executor allowlist (§13.5.1) |
 | DeepAgent as "optional" enhancement | **Corrected** — DeepAgent is the **sole production orchestrator** (Phase 6, required) |
-| **Google ADK** (`adk_engine.py`, `google-adk`) as a parallel engine | **Deprecated** — remove after DeepAgent parity (**§13.4**); Gemini runs via LangChain inside DeepAgent |
-| **Hand-rolled** Anthropic/OpenAI loops in `executor.py` | **Deprecated** — same removal milestone as ADK |
+| **Google ADK** (`adk_engine.py`, `google-adk`) as a parallel engine | **Removed** — not in repo; Gemini via **`langchain-google-genai`** inside **DeepAgent** only (**§13.4** / Phase **6**). |
+| **Hand-rolled** Anthropic/OpenAI loops in `executor.py` | **Removed** — chat path is hydration + **`deepagent_engine.run_deep_agent_stream`** only (**§13.4** / Phase **6**). |
 | JWT verification in Python for v1 | Optional hardening only (Plan 05 Phase 6); not a gate for MVP |
 | Separate end-to-end architecture doc | Removed — merged into `fiori-agent-platform.md §1.1` |
 
@@ -56,11 +56,9 @@ Full detail: **`doc/Architecture/fiori-agent-platform.md` §2 (Admin UI), §13.5
 
 ## Why DeepAgent is core, not optional
 
-The current Python stack is **legacy** and **scheduled for removal**:
-1. **Hand-rolled loops** (Anthropic / OpenAI) — no planning, no context offload.
-2. **Google ADK** (`adk_engine.py`) — strong for Gemini + ADK Web, but **not** the single harness for all providers; maintaining it alongside DeepAgent duplicates security and ops surface (**architecture §13.4**).
+**Current code (post Phase 6):** chat uses **only** DeepAgent + LangChain (**`deepagent_engine.py`**). The former parallel paths (**ADK**, hand-rolled per-provider loops) are **removed** — they are described here only as **historical rationale** for standardizing on one harness (**architecture §13.4**).
 
-The target architecture (**§1.1** runtime objects, **§13.4**) specifies a **provider-agnostic orchestration harness** that gives every agent, regardless of LLM, three capabilities the current code cannot provide:
+The architecture (**§1.1** runtime objects, **§13.4**) standardizes on a **provider-agnostic orchestration harness** that gives every agent, regardless of LLM, these capabilities:
 
 | Capability | Why it matters | Provided by |
 |---|---|---|
@@ -69,7 +67,7 @@ The target architecture (**§1.1** runtime objects, **§13.4**) specifies a **pr
 | **Skills + `AgentTool` governance** | Enterprise procedures and **per-agent tool allowlists** (HANA); primary modularization — see **§13.1** / **§13.5.2** | CAP + Admin UI + Python allowlist |
 | **SubAgent** (optional) | Not a foundation requirement — **Skill-driven** only if ever added (**Phase 7.4**) | `deepagents` |
 
-Without Phase 6, the "enterprise-grade AI agent" is a glorified chatbot: it cannot plan, it fills its context window with raw tool outputs, and tool governance stays harder to reason about. **Phase 6 is required.**
+Without that harness, long-running agents lack planning, context offload, and a single place to enforce tool governance. **Phase 6 is the production baseline** (implemented in repo).
 
 ---
 
@@ -209,7 +207,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 **Objective:** Schema additions for §13.1 + §13.6 in one HDI migration. Aligns with **§13.4 — target is DeepAgent-only**; **do not** add a long-lived `Agent.engine` column with `Loop` / `ADK` / `DeepAgent` unless you need a short migration window (prefer **no** `engine` column: code routes all chat through DeepAgent once Phase 6 lands).
 
-**What you have at the end:** HANA tables for Skills and summarization; fat path still works until Phase 6 deletes ADK.
+**What you have at the end:** HANA tables for Skills and summarization; chat path is **DeepAgent-only** in code (Phase **6** complete in repo).
 
 - [X] **Task 3.1:** `db/schema.cds` additions
   - [X] **3.1.1:** Add `Skill` entity: `ID`, `name (100)`, `description (500)`, `body (LargeString)`, `status enum { Draft; Active; Disabled }`, `modifiedAt`.
@@ -224,7 +222,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 - [ ] **Task 3.3:** Deploy + verify
   - [X] **3.3.1:** `npm run deploy:hana` — HDI migration clean; no data loss on existing tables.
   - [ ] **3.3.2:** `GET /odata/v4/governance/Skills` as Admin → returns seed rows.
-  - [ ] **3.3.3:** Existing chat flow still works (legacy ADK/loop path unchanged until Phase 6).
+  - [ ] **3.3.3:** Existing chat flow still works end-to-end (**DeepAgent** path after deploy).
 
 **Exit criteria:** HANA has `Skill`, `AgentSkill`, `ChatSession.summary/summaryWatermark`; fat-payload chat still works.
 
@@ -324,7 +322,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
     - Appended section: `## Available skills\n` + `- **{name}**: {description}` for each skill (metadata only; instructs agent to call `load_skill(id)` for full body).
   - [X] **6.2.5:** `run_deep_agent_stream` → `create_deep_agent`, `graph.astream_events`. **Foundation does not register `SubAgent` instances** — enterprise procedure + tool usage is expressed via **Skills** (§13.1) and governed **Tool** allowlists, not hardcoded sub-agents (see architecture §13.4).
   - [X] **6.2.6:** SSE event mapping from LangGraph stream events:
-    - `on_chat_model_stream` → emit `{ type: "token", content: chunk.content }`.
+    - `on_chat_model_stream` → emit `{ type: "token", content: "<plain string>" }` (normalized via `_stringify_llm_chunk_content` — LangChain may use list/dict blocks, not only `str`).
     - `on_tool_start` → emit `{ type: "tool_call", toolName: name, args: args }`.
     - `on_tool_end` → emit `{ type: "tool_result", toolName: name, summary: str(output)[:300], durationMs: elapsed }`.
     - Write-todos events (planning) → emit `{ type: "planning", todos: [...] }` (new event type; chat UI may display or ignore — see Phase 8).
@@ -546,3 +544,4 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 | 2026-04-19 | **Major code delivery:** Thin CAP→Python (`srv/server.js`), `hydrator.py` / `session_store.py`, DeepAgent (`deepagent_engine.py`), `executor.py` rewrite, Langfuse hook, Phase 9 summarization, Admin Skills UI routes/annotations, chat planning panel, architecture §5 + ADR-11, README Langfuse. **Human:** `deploy:hana`, LLM/E2E smoke, Langfuse project, CF. |
 | 2026-04-19 | **`mbt build`** on some Windows hosts fails without GNU `make` on PATH — install MSYS2/GnuWin32 make or use WSL; then tick **2.1.1**. |
 | 2026-04-22 | **Developer hybrid progress:** `cf` bind + **`deploy:hana` (3.3.1)** + local CAP (`:4004` index) + App Router **`:5000`** + XSUAA; **1.1–1.3** marked done; direct Python `:8000` rejected (**1.3.3**). **Open:** **0.2** OData smoke (401 on bare `:4004` — expected without Bearer; use **`:5000`** or token); **0.3–0.4**, **1.4**, **3.3.2–3**; chat **Bad Gateway** to Python — **no agent code change** until developer go-ahead. **Phase 2 (CF)** untouched. |
+| 2026-04-23 | **Docs:** Plan **01** Task **6.6** rewritten for **DeepAgent-only** `executor.py` / thin payload; Plan **06** “Decisions” + “Why DeepAgent” aligned — ADK / hand-rolled loops marked **removed** (already absent in repo). |

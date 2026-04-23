@@ -231,27 +231,24 @@
   - [x] Subtask 6.5.1: `async def list_tools(base_url: str, token: str) -> list` — GET/POST `<base_url>/mcp/tools/list` with `Authorization: Bearer <token>`.
   - [x] Subtask 6.5.2: `async def call_tool(base_url: str, tool_name: str, arguments: dict, token: str) -> str` — POST `<base_url>/mcp/tools/call`; return result JSON string.
   - [x] Subtask 6.5.3: For elevated tools (`elevated=true`): receive a machine token (passed by CAP in the `effectiveTools` payload per tool — `machineToken` field) and use that instead of `userToken`. *(CAP sets `machineToken` from env `MCP_MACHINE_TOKEN` when the tool is elevated; executor prefers it over `userToken`.)*
-- [x] **Task 6.6:** Write `python/app/executor.py` — LLM orchestration loop.
-  - [x] Subtask 6.6.1: Build messages list: `[{ role: "system", content: systemPrompt }, ...history, { role: "user", content: message }]`.
-  - [x] Subtask 6.6.2: Convert `effectiveTools` list from CAP into LLM tool schemas (Anthropic `tools` format or OpenAI `functions`).
-  - [x] Subtask 6.6.3: Call LLM API — branch on `LLM_PROVIDER`:
-    - [x] `anthropic`: implemented (async stream + tool loop).
-    - [x] `openai`: implemented in `executor.py` (`_run_openai`, non-streaming completion + tool loop; token chunks for assistant text).
-    - [x] `google-genai`: implemented via **Google ADK** (`app/adk_engine.py`: `Runner` + `LlmAgent` + `Gemini`, SSE streaming, governed MCP tools).
-  - [x] Subtask 6.6.4: If LLM returns a `tool_use` block: yield `{ type: "tool_call", toolName, args }` SSE event; call `mcp_client.call_tool` with the correct base URL and token (from `effectiveTools[tool.name].mcpServerUrl` and appropriate token); yield `{ type: "tool_result", toolName, summary, durationMs }` SSE event; append result to messages; loop back to LLM.
-  - [x] Subtask 6.6.5: If LLM returns text tokens: yield each as `{ type: "token", content: chunk }` SSE event.
-  - [x] Subtask 6.6.6: On completion: yield `{ type: "done" }` SSE event.
-  - [x] Subtask 6.6.7: On any exception: yield `{ type: "error", message: str(e) }` SSE event.
+- [x] **Task 6.6:** Write `python/app/executor.py` — thin-payload chat: HANA hydration + **DeepAgent** stream (Plan **06**; no ADK / no hand-rolled LLM loops in `executor.py`).
+  - [x] Subtask 6.6.1: Accept **thin** CAP payload (`agentId`, `toolIds`, `skillIds`, `sessionId`, `message`, `userInfo`); open HANA connection; hydrate agent, tools, skills, session via **`hydrator`** / **`session_store`**.
+  - [x] Subtask 6.6.2: Build governed tool list + MCP URLs from HANA (CAP sends **`toolIds`**; Python resolves rows and allowlist).
+  - [x] Subtask 6.6.3: **`LLM_PROVIDER`** (`anthropic` | `openai` | `google-genai`) selects the LangChain chat model inside **`deepagent_engine`** (`ChatAnthropic` / `ChatOpenAI` / `ChatGoogleGenerativeAI`) — **single** DeepAgent graph for all providers (**no** `google-adk`, **no** per-provider loops in `executor.py`).
+  - [x] Subtask 6.6.4: Stream via **`deepagent_engine.run_deep_agent_stream`** → SSE lines (`token`, `tool_call`, `tool_result`, `planning`); `executor` forwards chunks; MCP calls use **`mcp_client`** + tokens from **`chat_tooling`**.
+  - [x] Subtask 6.6.5: Normalize streamed **token** text to plain strings for the UI (**`deepagent_engine._stringify_llm_chunk_content`** + defensive parsing in **`Chat.controller.js`**).
+  - [x] Subtask 6.6.6: After stream: **`session_store.append_messages`** + optional **`summarize_if_needed`**; yield final **`done`** with `sessionId` / `messageId`.
+  - [x] Subtask 6.6.7: On any exception: SSE **`error`** + **`done`** (and `logger.exception` on Python side).
 - [x] **Task 6.7:** Write `python/app/main.py` — FastAPI application.
   - [x] Subtask 6.7.1: Include routers: executor routes + mcp_server router. *(MCP via `include_router(mcp_server.router)`; `/chat` and `/tool-test` on app — not a separate executor router module.)*
-  - [x] Subtask 6.7.2: `POST /chat` — accepts the full payload from CAP; returns `StreamingResponse` with `media_type="text/event-stream"` backed by `executor.run(...)`.
+  - [x] Subtask 6.7.2: `POST /chat` — accepts **thin** JSON from CAP (`Authorization: Bearer` in header); returns `StreamingResponse` (`text/event-stream`) backed by `executor.run(...)`.
   - [x] Subtask 6.7.3: `POST /tool-test` — calls registry handler against `db.get_connection()`.
   - [x] Subtask 6.7.4: Health check `GET /health` — returns `{ status: "ok" }` (CAP's `testConnection` action calls this).
 - [x] **Task 6.8:** Write `python/requirements.txt`.
   - [x] `fastapi`, `uvicorn[standard]`, `httpx`, `python-dotenv`
   - [x] `anthropic` — Anthropic Claude SDK
-  - [x] `openai` — OpenAI SDK (listed; executor OpenAI branch still TODO)
-  - [x] `google-adk` — Gemini agent runtime (pulls `google-genai`); used when `LLM_PROVIDER=google-genai`
+  - [x] `openai` — OpenAI SDK (listed; chat model path is **LangChain `ChatOpenAI`** inside DeepAgent, not a separate executor loop)
+  - [x] `deepagents` / `langchain-google-genai` — Gemini via LangChain inside DeepAgent when `LLM_PROVIDER=google-genai` *(replaces removed `google-adk`)*
   - [x] `hdbcli` — SAP HANA Python client (connects Python SQL tools to HANA on CF)
   - [x] `@sap-cloud-sdk/connectivity` is Node-only; Python accesses HANA via `hdbcli` using credentials from `VCAP_SERVICES` (parsed in `config.py`).
 - [x] **Task 6.9:** Write `python/Procfile` — required by the CF Python buildpack.

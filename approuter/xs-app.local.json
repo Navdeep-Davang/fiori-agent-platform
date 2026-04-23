@@ -7,6 +7,12 @@
   },
   "routes": [
     {
+      "source": "^/admin/?$",
+      "target": "/admin/webapp/index.html",
+      "destination": "cap",
+      "csrfProtection": true
+    },
+    {
       "source": "^/admin/(.*)",
       "target": "/admin/$1",
       "destination": "cap",

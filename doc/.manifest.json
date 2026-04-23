@@ -9,7 +9,7 @@
         "path": "doc/Architecture/fiori-agent-platform.md",
         "hash": "sha256:bd3960c53bfd1fdad32e2525fc45194a6f6e10e3f784ca6c420a5c3a52b0ea8a",
         "last_modified": "2026-04-05T00:00:00Z",
-        "description": "Full-stack SAP Fiori chat playground on BTP with XSUAA auth, Node.js BFF, and Python ADK backend (Spectrum 1: hybrid HANA + local CAP/Python documented)"
+        "description": "Full-stack SAP Fiori chat playground on BTP with XSUAA auth, Node.js BFF, and Python DeepAgent (deepagents/LangGraph) executor (Spectrum 1: hybrid HANA + local CAP/Python documented)"
       }
     },
     "action_plans": {

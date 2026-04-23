@@ -1,6 +1,6 @@
 {
   "plugins": {
-    "browse": {
+    "functions": {
       "enabled": true
     }
   }

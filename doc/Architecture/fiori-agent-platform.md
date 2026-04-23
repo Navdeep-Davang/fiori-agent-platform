@@ -1,9 +1,9 @@
 # Architecture: Agent Control Plane (SAP BTP)
 
 > **Audience:** developers implementing this system. For product requirements and "why" reasoning, see `doc/PRD/agent-control-plane.md`. For phased delivery (tasks, exit criteria), see `doc/Action-Plan/06-architecture-aligned-e2e.md`.
-> Last updated: 2026-04-24.
+> Last updated: 2026-04-22.
 >
-> **Reading order:** **§1.1** is a fast end-to-end map (current + target). **§2–§12** describe the **current codebase** (CAP-centric policy, fat CAP→Python payload, **legacy** Google ADK + hand-rolled loops in `python/`). **§13** is the **target architecture**: Skills, **thin JSON payload (ids only)** + **end-user JWT in `Authorization: Bearer`** (RFC 6750), Python hydration + **Python-owned chat writes**, **DeepAgent as the sole orchestrator** (Google ADK and self-managed loops **deprecated** — see **§13.4**), optional MCP pool, summarization.
+> **Reading order:** **§1.1** is a fast end-to-end map. **§2–§12** describe the **current codebase** (CAP-centric policy, **thin CAP→Python** JSON + forwarded **`Authorization: Bearer`**, Fiori apps, OData). **`python/`** runs chat through **[`deepagents`](https://github.com/langchain-ai/deepagents)** / LangGraph only (**§13.4** — ADK and hand-rolled loops **removed**). **§13** is the **north-star** for remaining increments (Skills refinements, summarization hardening, optional MCP pool).
 
 ---
 
@@ -11,7 +11,7 @@
 
 Agent Control Plane is a governance and chat product running on SAP BTP Cloud Foundry. It consists of two SAPUI5 frontend apps (`app/admin/` for Fiori Elements governance screens, `app/chat/` for freestyle streaming chat), an `@sap/approuter` OAuth2 gateway, a CAP Node.js service (`srv/`) that exposes OData V4 endpoints for all governed entities plus custom SSE routes in `server.js`, and a separate FastAPI Python service (`python/`) that runs LLM inference and MCP tool calls. SAP HANA Cloud (HDI container) is the sole datastore. **On Cloud Foundry** and in **hybrid** local development, authentication is **XSUAA** (JWT, role collections, scopes) via **`cds bind`** — see **ADR-7** and `doc/Action-Plan/05-cap-public-python-private-production-path.md`. All components deploy as a single MTA on Cloud Foundry.
 
-> **Target direction (see §13):** add **Skill** (procedure pack) alongside **Tool**, send **ids + `userInfo` in JSON** and **forward the user access token as `Authorization: Bearer`** to Python (not full tool/history blobs), let Python **load bodies by id** (tools, skills, session + summary) and **persist chat rows**, standardize on **DeepAgent** ([`deepagents`](https://github.com/langchain-ai/deepagents) / LangGraph) as the **only** production orchestrator (replacing **Google ADK** and hand-rolled `executor.py` loops — **deprecated**, removal per **§13.4**), and optionally split **MCP** into `services/mcp-pool/`.
+> **Implemented (see §13):** **Skill** entities and **thin JSON** (`agentId`, `toolIds`, `skillIds`, …) + **`Authorization: Bearer`** to Python; Python **hydrates by id**, **persists chat rows**, and orchestrates with **DeepAgent** only. **Optional later:** split **MCP** into `services/mcp-pool/`.
 
 ### 1.1 End-to-end quick map
 
@@ -25,7 +25,7 @@ Agent Control Plane is a governance and chat product running on SAP BTP Cloud Fo
 | **CAP (Node)** | CF app | Fiori static + OData governance + `/api/chat` SSE hop to Python |
 | **Fiori Admin UI** | Static in CAP | Agents, tools, MCP servers, groups; **Skills** when §13 lands |
 | **Fiori Chat UI** | Static in CAP | Chat + SSE |
-| **Python executor** | CF app / container | **Target:** DeepAgent + governed MCP client. **Legacy (deprecated):** ADK (`adk_engine.py`) + hand-rolled loops — remove after migration (**§13.4**). |
+| **Python executor** | CF app / container | **DeepAgent** ([`deepagents`](https://github.com/langchain-ai/deepagents)) + LangChain chat models + governed MCP client (`deepagent_engine.py`, `executor.py`). |
 | **MCP server (tool pool)** | Same app as Python today; optional `services/mcp-pool/` later | Many tools, one HTTP surface |
 | **HANA Cloud (HDI)** | Managed | Governance + chat + audit |
 | **MCP gateway** (optional) | Separate CF app later | Federation when many external MCPs |
@@ -173,63 +173,25 @@ When context is too large, update `ChatSession.summary` + `summaryWatermark`; mo
 2. Serve `ChatService` OData V4 at `/odata/v4/chat` for `ChatSession`, `ChatMessage`, `ToolCallRecord`.
 3. Implement bound actions: `testConnection`, `syncTools` on `McpServer`; `runTest` on `Tool`.
 4. `server.js` custom route `GET /api/agents`: resolve agent list from JWT claims → group lookup in HANA.
-5. `server.js` custom route `POST /api/chat`: validate JWT, resolve allow-listed **`toolIds` / `skillIds`**, POST **thin JSON** to Python and **forward `Authorization: Bearer`** (user JWT) + internal-trust headers, **proxy SSE** to the browser. **Target:** persistence of chat rows is **only in Python** (see §13.3). **Legacy:** today CAP still builds fat payload (including `userToken` in body) and persists on `done` in `server.js` until migration.
+5. `server.js` custom route `POST /api/chat`: validate JWT, resolve allow-listed **`toolIds` / `skillIds`**, POST **thin JSON** to Python and **forward `Authorization: Bearer`** (user JWT) + internal-trust headers, **proxy SSE** to the browser. **Python** persists `ChatSession` / `ChatMessage` / `ToolCallRecord`; CAP **does not** duplicate those writes on `done` (§13.3).
 6. Enforce all role restrictions declared in CDS `@requires` and `@restrict` annotations.
 
 ### 5. Python Executor (`python/`)
 
-**Target technology:** FastAPI, uvicorn, httpx, **[`deepagents`](https://github.com/langchain-ai/deepagents)** (LangGraph), **LangChain** chat-model wrappers for **Anthropic, OpenAI, and Google Gemini** (same providers as today), governed MCP bridge (`AcpGovernedMcpToolset` / `_AcpMcpBridgeTool`), MCP client.
+**Technology:** FastAPI, uvicorn, httpx, **[`deepagents`](https://github.com/langchain-ai/deepagents)** (LangGraph), **LangChain** chat models for **Anthropic, OpenAI, and Google Gemini**, governed MCP (`StructuredTool` + `mcp_client`), optional Langfuse callbacks.
 
-**Target LLM routing:** One path — **`deepagent_engine.run_deep_agent(...)`.** Provider is selected by `LLM_PROVIDER` + `LLM_MODEL`; the model object is a LangChain `BaseChatModel` (e.g. `ChatGoogleGenerativeAI`, `ChatAnthropic`, `ChatOpenAI`). Tools and skills are injected per §13; SSE events unchanged (`token`, `tool_call`, `tool_result`, `done`, `error`, plus optional `planning`).
+**LLM routing:** One path — **`deepagent_engine.run_deep_agent_stream(...)`** after hydration in `executor.py`. Provider is selected by `LLM_PROVIDER` + `LLM_MODEL` (`ChatGoogleGenerativeAI`, `ChatAnthropic`, or `ChatOpenAI`). Tools and skills are loaded from HANA by id (§13.3); SSE: `token`, `tool_call`, `tool_result`, `planning`, `done`, `error`.
 
-**Deprecated (scheduled for removal — §13.4):**
+**Removed (ADR-11 / §13.4):** **Google ADK** (`adk_engine.py`, `google-adk`) and **hand-rolled** Anthropic/OpenAI loops — replaced by DeepAgent + LangChain for **all** providers.
 
-| Artifact | Role today | Status |
-|----------|------------|--------|
-| `python/app/adk_engine.py` | Gemini via **Google ADK** (`Runner`, `LlmAgent`) | **Deprecated** — replace with DeepAgent + `ChatGoogleGenerativeAI` |
-| `google-adk` in `requirements.txt` | ADK dependency | **Deprecated** — remove after migration |
-| Hand-rolled loops in `executor.py` | Anthropic / OpenAI without LangGraph | **Deprecated** — DeepAgent subsumes |
-
-**Why deprecate ADK:** ADK is excellent for **Gemini-first** Google Cloud deployments (Agent Engine, ADK Web UI, built-in evals), but this product requires **one** orchestration harness across **all** LLM providers with **planning** and **virtual filesystem** — that is **DeepAgent on LangGraph**. Optional **`SubAgent`** delegation exists in the library but is **not** a platform foundation requirement; enterprise **Skills** (§13.1) carry governed procedures and tool guidance first. Maintaining ADK + DeepAgent + two loop styles triples operational and security review surface.
-
-**Current codebase (legacy)** — until removed:
-
-- **`LLM_PROVIDER=google-genai`:** Gemini runs **inside ADK** — `adk_engine.run_adk_chat`; tool execution via `mcp_client` + `AcpGovernedMcpToolset`.
-- **`LLM_PROVIDER=anthropic` / `openai`:** Hand-rolled loops in `executor.py`.
-
-**Legacy flow (Gemini / ADK — deprecated):**
-
-```mermaid
-flowchart LR
-  subgraph cap [CAP Node.js]
-    Chat[POST /api/chat]
-  end
-  subgraph py [Python FastAPI - legacy]
-    EP["/chat"]
-    EX[executor.run]
-    ADK[adk_engine.run_adk_chat]
-    R[ADK Runner]
-    AG[LlmAgent + Gemini]
-    TS[AcpGovernedMcpToolset]
-    MC[mcp_client]
-  end
-  Chat --> EP
-  EP --> EX
-  EX --> ADK
-  ADK --> R
-  R --> AG
-  AG --> TS
-  TS --> MC
-```
-
-**Target flow (all providers — DeepAgent):** CAP → `/chat` → `executor` → **`deepagent_engine`** → LangGraph `create_deep_agent` → governed tools → `mcp_client` (same diagram shape as §13.4 code sample).
+**Runtime flow:** CAP → `POST /chat` → `executor.run` → **`deepagent_engine`** → `create_deep_agent` → governed tools → `mcp_client`.
 
 **Responsibilities:**
-1. Accept `POST /chat` from CAP `server.js`; run LLM inference (**target:** DeepAgent only; **legacy:** ADK or loops); stream SSE back.
+1. Accept `POST /chat` from CAP `server.js`; run LLM inference via **DeepAgent** only; stream SSE back.
 2. Accept `POST /tool-test` from CAP `runTest` action; invoke a single MCP tool and return result.
-3. Use the `effectiveTools` list provided by CAP — never decide its own tool list.
-4. Call MCP servers via HTTP streamable transport; use the **forwarded Bearer token** (or derived delegated token) for delegated tools, machine service token for elevated tools (flag from hydrated `Tool` / `AgentTool`).
-5. Emit structured SSE events: `token`, `tool_call`, `tool_result`, `done`, `error`.
+3. Hydrate **`toolIds` / `skillIds`** from HANA and enforce allowlists — never trust tool names outside CAP-authorized rows.
+4. Call MCP servers via HTTP; use the **forwarded Bearer token** (or machine token for elevated tools per `chat_tooling`).
+5. Emit structured SSE events: `token`, `tool_call`, `tool_result`, `planning`, `done`, `error`.
 
 **CAP → Python (private hop):** Python is **not** a public OAuth client. End users authenticate only to **App Router + CAP** (JWT). **CAP** is the only intended caller for **`python/`**; it forwards **user context** headers (`X-AC-User-Id`, `X-AC-Dept`, `X-AC-Roles`) and optional **`X-Internal-Token`** when **`ACP_INTERNAL_TOKEN`** is set (Python must match when configured). Identity is **vouched by CAP** on this internal hop; JWT verification is not duplicated in Python for v1.
 
@@ -769,8 +731,8 @@ fiori-agent-platform/
 │   ├── app/
 │   │   ├── __init__.py
 │   │   ├── main.py                         # FastAPI app; mounts /chat, /tool-test, and /mcp routers
-│   │   ├── executor.py                     # Entry: routes to deepagent_engine (target); legacy loops until removed (§13.4)
-│   │   ├── adk_engine.py                   # DEPRECATED — Google ADK for Gemini; remove after DeepAgent+Gemini parity (§13.4)
+│   │   ├── executor.py                     # Thin payload → hydrate → deepagent_engine.run_deep_agent_stream (§13)
+│   │   ├── deepagent_engine.py             # create_deep_agent + SSE mapping (LangGraph)
 │   │   ├── chat_tooling.py                 # Shared MCP auth helper (delegated vs machine token)
 │   │   ├── mcp_server.py                   # FastAPI router: POST /mcp/tools/list, POST /mcp/tools/call  (→ §13.5 extract)
 │   │   ├── mcp_client.py                   # MCP HTTP client; dispatches tool calls to MCP servers
@@ -782,7 +744,7 @@ fiori-agent-platform/
 │   │       ├── finance.py
 │   │       └── registry.py                 # Dict: tool name → handler function + JSON Schema
 │   ├── venv/                               # Local virtualenv (gitignored; see python-venv-policy rule)
-│   ├── requirements.txt                    # fastapi, uvicorn, httpx, deepagents, langchain-*; google-adk deprecated (§13.4)
+│   ├── requirements.txt                    # fastapi, uvicorn, httpx, deepagents, langchain-*, langfuse (no google-adk)
 │   ├── Procfile                            # web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 │   └── manifest.yml                        # CF push manifest for Python app
 │
@@ -823,14 +785,11 @@ fiori-agent-platform/
 
 ### 7.1 Planned additions (target state, see §13)
 
-The following paths **do not exist yet**; they are the concrete destinations for the §13 deltas and are listed here so the file layout target is unambiguous.
+**Already in repo:** `python/app/deepagent_engine.py`, `hydrator.py`, `session_store.py` (§13.3–13.4). **Still optional / future** layout:
 
 ```
 python/app/
-├── deepagent_engine.py     # §13.4  LangGraph deepagents harness (create_deep_agent + virtual FS; SubAgent optional / Skill-driven)
-├── hydrator.py             # §13.3  HANA read-only loader (agent, tool defs, skill meta, session + summary watermark)
-├── session_store.py        # §13.3  Session ownership + message append helpers (refactor from executor)
-├── langfuse_callbacks.py   # §13.4.1  optional: Langfuse CallbackHandler wiring for DeepAgent invoke (LANGFUSE_* env)
+├── langfuse_callbacks.py   # §13.4.1  optional split: Langfuse CallbackHandler (today wired inside deepagent_engine.py)
 └── skills/                 # §13.1  Optional local cache for skill bodies fetched by id (progressive disclosure)
 
 services/
@@ -1240,20 +1199,20 @@ Python `/chat` handler steps (replaces the fat-payload + CAP-side persistence pa
 
 Python's DB role is **read-only** for governance entities + **append-only** for chat tables. Governance writes (CRUD on `McpServer` / `Tool` / `Skill` / `Agent` / `AgentGroup`) remain CAP-only.
 
-### 13.4 DeepAgent as the sole orchestrator; deprecation of Google ADK and hand-rolled loops
+### 13.4 DeepAgent as the sole orchestrator (ADK / legacy loops removed)
 
-**Decision:** Production chat uses **only** the [`deepagents`](https://github.com/langchain-ai/deepagents) harness on **LangGraph**. **Google ADK** (`adk_engine.py`, `google-adk` package) and **hand-rolled** tool loops in `executor.py` are **deprecated** and **scheduled for removal** after agents are migrated and tests pass on DeepAgent + LangChain chat models for each provider (Gemini via `langchain-google-genai`, not ADK).
+**Decision:** Production chat uses **only** the [`deepagents`](https://github.com/langchain-ai/deepagents) harness on **LangGraph**. **Google ADK** (`adk_engine.py`, `google-adk`) and **hand-rolled** tool loops in `executor.py` have been **removed** (ADR-11). Gemini uses **`langchain-google-genai`** inside DeepAgent, not ADK.
 
-**Rationale:** One orchestration surface for **all** LLM providers; planning (`write_todos`) and virtual filesystem without a Gemini-only fork. **Sub-agents** are an optional DeepAgents feature — **not** required for the enterprise baseline (**Skills** + tools). Reduces security review scope and avoids maintaining three execution paths.
+**Rationale:** One orchestration surface for **all** LLM providers; planning (`write_todos`) and virtual filesystem without a Gemini-only fork. **Sub-agents** remain an optional DeepAgents feature — **not** required for the enterprise baseline (**Skills** + tools).
 
-**Schema note:** If an `Agent.engine` column was introduced for multi-engine experiments, **target state** is a single value **`DeepAgent`** only — or drop the column once legacy code is deleted.
+**Schema note:** No long-lived `Agent.engine` enum for `Loop` / `ADK` / `DeepAgent` in HANA — runtime is DeepAgent-only in code.
 
-**Removal checklist (engineering):**
+**Removal checklist (engineering) — done:**
 
-1. Implement `deepagent_engine.py` + provider-specific LangChain models (including Gemini).
-2. Route **all** `/chat` traffic through DeepAgent; parity tests vs legacy ADK/loop golden transcripts.
-3. Delete `adk_engine.py`, remove `google-adk` from `requirements.txt`, strip dead branches from `executor.py`.
-4. Update Admin UI / seeds so no agent references ADK or Loop.
+1. **`deepagent_engine.py`** + LangChain chat models (including Gemini via `ChatGoogleGenerativeAI`). ✓  
+2. **All** `/chat` traffic through DeepAgent. ✓  
+3. **`adk_engine.py` deleted**; **`google-adk`** removed from `requirements.txt`; **`executor.py`** stripped to hydration + `run_deep_agent_stream`. ✓  
+4. Admin UI / seeds: no ADK or Loop selector (DeepAgent-only). ✓
 
 #### 13.4.1 Observability: Langfuse (open source) vs ADK Web
 
