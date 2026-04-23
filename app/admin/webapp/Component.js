@@ -28,7 +28,8 @@ sap.ui.define(
                         activeToolCount: 4,
                         agentCount: 3,
                         activeAgentCount: 2,
-                        groupCount: 3
+                        groupCount: 3,
+                        skillCount: 0
                     },
                     servers: [],
                     serversFull: [],
@@ -36,8 +37,13 @@ sap.ui.define(
                     toolsFull: [],
                     agents: [],
                     agentsFull: [],
-                    agentTools: [],
                     agentToolsFull: [],
+                    /** Skill-mediated tool exposure (mock); complements AgentTool allowlist. */
+                    agentSkillToolLinksFull: [],
+                    /** Unified view: built from agentToolsFull + agentSkillToolLinksFull in controller. */
+                    agentCapabilities: [],
+                    skills: [],
+                    skillsFull: [],
                     groups: [],
                     groupsFull: [],
                     filterTools: {
@@ -53,11 +59,16 @@ sap.ui.define(
                         model: "",
                         dept: ""
                     },
-                    filterAgentTools: {
+                    filterSkills: {
+                        search: "",
+                        status: ""
+                    },
+                    filterAgentCapabilities: {
                         agent: "",
+                        routeType: "",
                         tool: "",
-                        approved: "",
-                        permissionOverride: ""
+                        skill: "",
+                        search: ""
                     },
                     filterGroups: {
                         search: "",
@@ -185,7 +196,47 @@ sap.ui.define(
                         lastReviewed: "—"
                     }
                 ];
-                oData.agentTools = clone(oData.agentToolsFull);
+                oData.agentSkillToolLinksFull = [
+                    {
+                        agentName: "Procurement Assistant",
+                        skillName: "Procurement vendor intake SOP",
+                        toolName: "create_purchase_requisition",
+                        governanceNote:
+                            "Procedure body references PR fields; runtime loads full markdown on demand (architecture §13.1)."
+                    },
+                    {
+                        agentName: "Finance Copilot",
+                        skillName: "Finance month-end checklist",
+                        toolName: "kb_search",
+                        governanceNote: "Skill prescribes citation steps before calling kb_search."
+                    }
+                ];
+                oData.skillsFull = [
+                    {
+                        name: "Procurement vendor intake SOP",
+                        description:
+                            "Progressive disclosure: short summary for the planner; full markdown for execution.",
+                        status: "Active",
+                        modifiedAt: "2026-04-20 14:05 (mock)",
+                        body: "## Vendor intake\n1. Confirm policy…\n2. Call lookup_vendor…\n_(mock markdown)_"
+                    },
+                    {
+                        name: "Finance month-end checklist",
+                        description: "Month-end close narrative and kb_search usage guardrails.",
+                        status: "Draft",
+                        modifiedAt: "2026-04-19 11:40 (mock)",
+                        body: "## Close\n- Reconcile…\n_(mock)_"
+                    },
+                    {
+                        name: "IT ticket triage playbook",
+                        description: "Disabled template for helpdesk (not assigned in mock data).",
+                        status: "Disabled",
+                        modifiedAt: "2026-03-01 09:00 (mock)",
+                        body: "_(mock)_"
+                    }
+                ];
+                oData.skills = clone(oData.skillsFull);
+                oData.overview.skillCount = oData.skillsFull.length;
 
                 oData.groupsFull = [
                     {

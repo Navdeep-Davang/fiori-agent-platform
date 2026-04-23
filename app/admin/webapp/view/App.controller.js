@@ -1,12 +1,11 @@
 sap.ui.define(
     [
         "sap/ui/core/mvc/Controller",
-        "sap/ui/core/Item",
         "sap/ui/core/ResizeHandler",
         "sap/m/MessageToast",
         "sap/ui/model/json/JSONModel"
     ],
-    function (Controller, Item, ResizeHandler, MessageToast, JSONModel) {
+    function (Controller, ResizeHandler, MessageToast, JSONModel) {
         "use strict";
 
         function norm(s) {
@@ -39,10 +38,16 @@ sap.ui.define(
                         agentDlgIdentity: "Delegated",
                         agentDlgDept: "procurement",
                         agentDlgStatus: "Draft",
-                        agentDlgTools: "0"
+                        agentDlgTools: "0",
+                        skillDlgName: "",
+                        skillDlgDescription: "",
+                        skillDlgStatus: "Draft",
+                        skillDlgBody: ""
                     }),
                     "uiDlg"
                 );
+                this._skillDlgMode = "new";
+                this._skillEditOriginalName = null;
                 this._mcpEditOriginalName = null;
                 this._agentDlgMode = "new";
                 this._agentEditOriginalName = null;
@@ -65,7 +70,8 @@ sap.ui.define(
                 );
                 this._applyToolFilters();
                 this._applyAgentFilters();
-                this._applyAgentToolFilters();
+                this._applySkillFilters();
+                this._applyAgentCapabilityFilters();
                 this._applyGroupFilters();
             },
 
@@ -241,6 +247,22 @@ sap.ui.define(
                 });
             },
 
+            _removeSkillByName: function (arr, name) {
+                return (arr || []).filter(function (r) {
+                    return r.name !== name;
+                });
+            },
+
+            _removeAgentSkillToolLink: function (arr, agentName, skillName, toolName) {
+                return (arr || []).filter(function (r) {
+                    return !(
+                        r.agentName === agentName &&
+                        r.skillName === skillName &&
+                        r.toolName === toolName
+                    );
+                });
+            },
+
             _syncOverviewAgents: function () {
                 var m = this.getView().getModel("mock");
                 var full = m.getProperty("/agentsFull") || [];
@@ -273,6 +295,100 @@ sap.ui.define(
             _syncOverviewGroups: function () {
                 var m = this.getView().getModel("mock");
                 m.setProperty("/overview/groupCount", (m.getProperty("/groupsFull") || []).length);
+            },
+
+            _syncOverviewSkills: function () {
+                var m = this.getView().getModel("mock");
+                m.setProperty("/overview/skillCount", (m.getProperty("/skillsFull") || []).length);
+            },
+
+            _buildAgentCapabilityRows: function () {
+                var m = this.getView().getModel("mock");
+                var at = m.getProperty("/agentToolsFull") || [];
+                var sl = m.getProperty("/agentSkillToolLinksFull") || [];
+                var direct = at.map(function (r) {
+                    return {
+                        routeType: "Direct tool",
+                        routeTypeKey: "Direct",
+                        agentName: r.agentName,
+                        skillName: "—",
+                        toolName: r.toolName,
+                        permissionOverride: r.permissionOverride,
+                        approved: !!r.approved,
+                        lastReviewed: r.lastReviewed || "—",
+                        governanceNote: "MCP tool on allowlist (AgentTool)."
+                    };
+                });
+                var via = sl.map(function (r) {
+                    return {
+                        routeType: "Via skill",
+                        routeTypeKey: "Skill",
+                        agentName: r.agentName,
+                        skillName: r.skillName,
+                        toolName: r.toolName,
+                        permissionOverride: "—",
+                        approved: true,
+                        lastReviewed: "—",
+                        governanceNote: r.governanceNote || "Procedure pack; metadata in prompt, body on demand."
+                    };
+                });
+                return direct.concat(via);
+            },
+
+            _applySkillFilters: function () {
+                var m = this.getView().getModel("mock");
+                var full = m.getProperty("/skillsFull") || [];
+                var f = m.getProperty("/filterSkills") || {};
+                var sq = norm(f.search);
+                var out = full.filter(function (row) {
+                    if (f.status && row.status !== f.status) {
+                        return false;
+                    }
+                    if (sq) {
+                        var hay = norm((row.name || "") + " " + (row.description || ""));
+                        if (hay.indexOf(sq) === -1) {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+                m.setProperty("/skills", out);
+            },
+
+            _applyAgentCapabilityFilters: function () {
+                var m = this.getView().getModel("mock");
+                var all = this._buildAgentCapabilityRows();
+                var f = m.getProperty("/filterAgentCapabilities") || {};
+                var sq = norm(f.search);
+                var out = all.filter(function (row) {
+                    if (f.agent && row.agentName !== f.agent) {
+                        return false;
+                    }
+                    if (f.routeType && row.routeTypeKey !== f.routeType) {
+                        return false;
+                    }
+                    if (f.tool && row.toolName !== f.tool) {
+                        return false;
+                    }
+                    if (sq) {
+                        var hay = norm(
+                            (row.agentName || "") +
+                                " " +
+                                (row.skillName || "") +
+                                " " +
+                                (row.toolName || "") +
+                                " " +
+                                (row.permissionOverride || "") +
+                                " " +
+                                (row.governanceNote || "")
+                        );
+                        if (hay.indexOf(sq) === -1) {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+                m.setProperty("/agentCapabilities", out);
             },
 
             onMcpRowEdit: function (oEvent) {
@@ -469,31 +585,6 @@ sap.ui.define(
                 MessageToast.show("Delete tool (mock): " + name);
             },
 
-            onAgentToolRowEdit: function (oEvent) {
-                var oCtx = oEvent.getSource().getBindingContext("mock");
-                var o = oCtx && oCtx.getObject();
-                MessageToast.show(
-                    "Edit mapping (mock): " +
-                        (o ? o.agentName + " → " + o.toolName : "?") +
-                        " — wire to CAP."
-                );
-            },
-
-            onAgentToolRowDelete: function (oEvent) {
-                var oCtx = oEvent.getSource().getBindingContext("mock");
-                if (!oCtx) {
-                    return;
-                }
-                var o = oCtx.getObject();
-                var m = this.getView().getModel("mock");
-                m.setProperty(
-                    "/agentToolsFull",
-                    this._removeAgentToolPair(m.getProperty("/agentToolsFull") || [], o.agentName, o.toolName)
-                );
-                this._applyAgentToolFilters();
-                MessageToast.show("Delete mapping (mock): " + o.agentName + " → " + o.toolName);
-            },
-
             onGroupRowEdit: function (oEvent) {
                 var oCtx = oEvent.getSource().getBindingContext("mock");
                 if (!oCtx) {
@@ -531,6 +622,166 @@ sap.ui.define(
                 MessageToast.show("Request approval (mock): would enqueue workflow for pending mappings.");
             },
 
+            /* ——— Skills (mock) ——— */
+            onSkillsNew: function () {
+                this._skillDlgMode = "new";
+                this._skillEditOriginalName = null;
+                var ui = this.getView().getModel("uiDlg");
+                ui.setProperty("/skillDlgName", "");
+                ui.setProperty("/skillDlgDescription", "");
+                ui.setProperty("/skillDlgStatus", "Draft");
+                ui.setProperty("/skillDlgBody", "");
+                this.byId("dlgSkill").setTitle("New skill");
+                this.byId("dlgSkill").open();
+            },
+
+            onSkillRowEdit: function (oEvent) {
+                var oCtx = oEvent.getSource().getBindingContext("mock");
+                if (!oCtx) {
+                    return;
+                }
+                var o = oCtx.getObject();
+                this._skillDlgMode = "edit";
+                this._skillEditOriginalName = o.name;
+                var ui = this.getView().getModel("uiDlg");
+                ui.setProperty("/skillDlgName", o.name || "");
+                ui.setProperty("/skillDlgDescription", o.description || "");
+                ui.setProperty("/skillDlgStatus", o.status || "Draft");
+                ui.setProperty("/skillDlgBody", o.body || "");
+                this.byId("dlgSkill").setTitle("Edit skill");
+                this.byId("dlgSkill").open();
+            },
+
+            onSkillRowDelete: function (oEvent) {
+                var oCtx = oEvent.getSource().getBindingContext("mock");
+                if (!oCtx) {
+                    return;
+                }
+                var name = oCtx.getObject().name;
+                var m = this.getView().getModel("mock");
+                m.setProperty("/skillsFull", this._removeSkillByName(m.getProperty("/skillsFull") || [], name));
+                this._applySkillFilters();
+                this._syncOverviewSkills();
+                this._applyAgentCapabilityFilters();
+                MessageToast.show("Delete skill (mock): " + name);
+            },
+
+            onSkillDlgSave: function () {
+                var ui = this.getView().getModel("uiDlg");
+                var nm = (ui.getProperty("/skillDlgName") || "").trim();
+                if (!nm) {
+                    MessageToast.show("Skill name is required.");
+                    return;
+                }
+                var row = {
+                    name: nm,
+                    description: ui.getProperty("/skillDlgDescription") || "",
+                    status: ui.getProperty("/skillDlgStatus") || "Draft",
+                    modifiedAt: this._nowMock(),
+                    body: ui.getProperty("/skillDlgBody") || ""
+                };
+                var m = this.getView().getModel("mock");
+                var full = (m.getProperty("/skillsFull") || []).slice();
+                if (this._skillDlgMode === "new") {
+                    full.push(row);
+                } else {
+                    var orig = this._skillEditOriginalName;
+                    var idx = -1;
+                    for (var i = 0; i < full.length; i++) {
+                        if (full[i].name === orig) {
+                            idx = i;
+                            break;
+                        }
+                    }
+                    if (idx === -1) {
+                        full.push(row);
+                    } else {
+                        full[idx] = row;
+                    }
+                }
+                m.setProperty("/skillsFull", full);
+                this._applySkillFilters();
+                this._syncOverviewSkills();
+                MessageToast.show((this._skillDlgMode === "new" ? "Create skill (mock): " : "Save skill (mock): ") + nm);
+                this.byId("dlgSkill").close();
+            },
+
+            onSkillDlgCancel: function () {
+                this.byId("dlgSkill").close();
+            },
+
+            onFilterSkillsChange: function () {
+                this._applySkillFilters();
+            },
+
+            onSkillsSearchLive: function (oEvent) {
+                var q = oEvent.getParameter("newValue");
+                if (q === undefined || q === null) {
+                    q = "";
+                }
+                this.getView().getModel("mock").setProperty("/filterSkills/search", q);
+                this._applySkillFilters();
+            },
+
+            onFilterAgentCapabilitiesChange: function () {
+                this._applyAgentCapabilityFilters();
+            },
+
+            onAgentCapabilitiesSearchLive: function (oEvent) {
+                var q = oEvent.getParameter("newValue");
+                if (q === undefined || q === null) {
+                    q = "";
+                }
+                this.getView().getModel("mock").setProperty("/filterAgentCapabilities/search", q);
+                this._applyAgentCapabilityFilters();
+            },
+
+            onAgentCapabilitiesLegend: function () {
+                MessageToast.show(
+                    "Direct = AgentTool join. Via skill = governed procedure + tool context (mock rows). Wire to AgentSkills + runtime."
+                );
+            },
+
+            onCapabilityRowEdit: function (oEvent) {
+                var oCtx = oEvent.getSource().getBindingContext("mock");
+                var o = oCtx && oCtx.getObject();
+                MessageToast.show(
+                    "Edit capability row (mock): " +
+                        (o ? o.agentName + " / " + o.routeTypeKey + " / " + o.toolName : "?") +
+                        " — wire to CAP."
+                );
+            },
+
+            onCapabilityRowDelete: function (oEvent) {
+                var oCtx = oEvent.getSource().getBindingContext("mock");
+                if (!oCtx) {
+                    return;
+                }
+                var o = oCtx.getObject();
+                var m = this.getView().getModel("mock");
+                if (o.routeTypeKey === "Direct") {
+                    m.setProperty(
+                        "/agentToolsFull",
+                        this._removeAgentToolPair(m.getProperty("/agentToolsFull") || [], o.agentName, o.toolName)
+                    );
+                    this._applyAgentCapabilityFilters();
+                } else {
+                    m.setProperty(
+                        "/agentSkillToolLinksFull",
+                        this._removeAgentSkillToolLink(
+                            m.getProperty("/agentSkillToolLinksFull") || [],
+                            o.agentName,
+                            o.skillName,
+                            o.toolName
+                        )
+                    );
+                    this._applyAgentCapabilityFilters();
+                }
+                MessageToast.show(
+                    "Remove " + (o.routeTypeKey === "Direct" ? "direct mapping" : "skill tool link") + " (mock)"
+                );
+            },
+
             /* ——— Filters (AND across all active criteria) ——— */
             onFilterToolsChange: function () {
                 this._applyToolFilters();
@@ -538,10 +789,6 @@ sap.ui.define(
 
             onFilterAgentsChange: function () {
                 this._applyAgentFilters();
-            },
-
-            onFilterAgentToolsChange: function () {
-                this._applyAgentToolFilters();
             },
 
             onFilterGroupsChange: function () {
@@ -606,31 +853,6 @@ sap.ui.define(
                 m.setProperty("/agents", out);
             },
 
-            _applyAgentToolFilters: function () {
-                var m = this.getView().getModel("mock");
-                var full = m.getProperty("/agentToolsFull") || [];
-                var f = m.getProperty("/filterAgentTools") || {};
-                var out = full.filter(function (row) {
-                    if (f.agent && row.agentName !== f.agent) {
-                        return false;
-                    }
-                    if (f.tool && row.toolName !== f.tool) {
-                        return false;
-                    }
-                    if (f.permissionOverride && row.permissionOverride !== f.permissionOverride) {
-                        return false;
-                    }
-                    if (f.approved === "true" && row.approved !== true) {
-                        return false;
-                    }
-                    if (f.approved === "false" && row.approved !== false) {
-                        return false;
-                    }
-                    return true;
-                });
-                m.setProperty("/agentTools", out);
-            },
-
             _applyGroupFilters: function () {
                 var m = this.getView().getModel("mock");
                 var full = m.getProperty("/groupsFull") || [];
@@ -654,83 +876,6 @@ sap.ui.define(
                     return true;
                 });
                 m.setProperty("/groups", out);
-            },
-
-            /* ——— Add mapping dialog ——— */
-            onOpenAddMapping: function () {
-                var oDlg = this.byId("dlgAddMapping");
-                this._fillMappingDialogLists();
-                if (this.byId("mapDlgTool")) {
-                    this.byId("mapDlgTool").removeAllItems();
-                }
-                if (this.byId("mapDlgServer")) {
-                    this.byId("mapDlgServer").setSelectedKey("");
-                }
-                if (this.byId("mapDlgAgent")) {
-                    this.byId("mapDlgAgent").setSelectedKey("");
-                }
-                oDlg.open();
-            },
-            onAddMappingServerChange: function () {
-                this._refreshMappingToolItems();
-            },
-            onAddMappingConfirm: function () {
-                var ag = this.byId("mapDlgAgent") && this.byId("mapDlgAgent").getSelectedItem();
-                var sv = this.byId("mapDlgServer") && this.byId("mapDlgServer").getSelectedItem();
-                var tl = this.byId("mapDlgTool") && this.byId("mapDlgTool").getSelectedItem();
-                if (!ag || !sv || !tl) {
-                    MessageToast.show("Select agent, MCP server, and tool.");
-                    return;
-                }
-                MessageToast.show(
-                    "Add mapping (mock): " +
-                        ag.getText() +
-                        " → " +
-                        sv.getText() +
-                        " → " +
-                        tl.getText()
-                );
-                this.byId("dlgAddMapping").close();
-            },
-            onAddMappingCancel: function () {
-                this.byId("dlgAddMapping").close();
-            },
-
-            _fillMappingDialogLists: function () {
-                var m = this.getView().getModel("mock");
-                var oAgent = this.byId("mapDlgAgent");
-                var oServer = this.byId("mapDlgServer");
-                if (!oAgent || !oServer) {
-                    return;
-                }
-                oAgent.removeAllItems();
-                oServer.removeAllItems();
-                (m.getProperty("/agentsFull") || []).forEach(function (a) {
-                    oAgent.addItem(new Item({ key: a.name, text: a.name }));
-                });
-                (m.getProperty("/serversFull") || []).forEach(function (s) {
-                    oServer.addItem(new Item({ key: s.name, text: s.name }));
-                });
-                this._refreshMappingToolItems();
-            },
-
-            _refreshMappingToolItems: function () {
-                var m = this.getView().getModel("mock");
-                var oTool = this.byId("mapDlgTool");
-                var oServer = this.byId("mapDlgServer");
-                if (!oTool || !oServer) {
-                    return;
-                }
-                var sName = oServer.getSelectedKey();
-                oTool.removeAllItems();
-                if (!sName) {
-                    return;
-                }
-                (m.getProperty("/toolsFull") || []).forEach(function (t) {
-                    if (t.serverName === sName) {
-                        oTool.addItem(new Item({ key: t.name, text: t.name }));
-                    }
-                });
             },
 
             /* ——— Access group dialogs ——— */

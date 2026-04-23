@@ -25,7 +25,8 @@
                     <tnt:NavigationListItem text="MCP servers" icon="sap-icon://it-host" key="pageMcp" />
                     <tnt:NavigationListItem text="Tools catalog" icon="sap-icon://wrench" key="pageTools" />
                     <tnt:NavigationListItem text="Agents" icon="sap-icon://customer" key="pageAgents" />
-                    <tnt:NavigationListItem text="Agent ↔ tools" icon="sap-icon://chain-link" key="pageAgentTools" />
+                    <tnt:NavigationListItem text="Skills" icon="sap-icon://learning-assistant" key="pageSkills" />
+                    <tnt:NavigationListItem text="Agent ↔ skills ↔ tools" icon="sap-icon://tree" key="pageAgentSkillTools" />
                     <tnt:NavigationListItem text="Playground" icon="sap-icon://discussion" key="pagePlayground" />
                     <tnt:NavigationListItem text="Access &amp; groups" icon="sap-icon://group" key="pageAccess" />
                 </tnt:NavigationList>
@@ -75,6 +76,9 @@
                             </Panel>
                             <Panel headerText="Access groups" class="sapUiTinyMargin">
                                 <ObjectNumber number="{mock>/overview/groupCount}" emphasized="true" />
+                            </Panel>
+                            <Panel headerText="Skills (governed)" class="sapUiTinyMargin">
+                                <ObjectNumber number="{mock>/overview/skillCount}" emphasized="true" />
                             </Panel>
                         </layout:content>
                     </layout:Grid>
@@ -334,9 +338,74 @@
                     </ScrollContainer>
                 </Page>
 
-                <Page id="pageAgentTools" title="Agent ↔ tools" showNavButton="false">
+                <Page id="pageSkills" title="Skills" showNavButton="false">
                     <MessageStrip
-                        text="Filters use AND logic. Add mapping opens a dialog to pick Agent → MCP server → tool from that server."
+                        text="Governed procedure packs (architecture §13.1 / PRD): metadata for progressive disclosure; full markdown body at runtime. Mock CRUD only — OData Skills entity wiring is separate."
+                        type="Information"
+                        showIcon="true"
+                        class="sapUiResponsiveMargin" />
+                    <FlexBox
+                        wrap="Wrap"
+                        alignItems="Center"
+                        width="100%"
+                        class="sapUiSmallMarginBegin sapUiSmallMarginEnd acpFilterWrap">
+                        <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
+                            <Label text="Status" showColon="true" class="sapUiTinyMarginEnd" />
+                            <Select selectedKey="{mock>/filterSkills/status}" change=".onFilterSkillsChange" width="11rem" forceSelection="false">
+                                <items>
+                                    <core:Item key="" text="All" />
+                                    <core:Item key="Draft" text="Draft" />
+                                    <core:Item key="Active" text="Active" />
+                                    <core:Item key="Disabled" text="Disabled" />
+                                </items>
+                            </Select>
+                        </HBox>
+                        <HBox alignItems="Center" wrap="NoWrap" class="sapUiSmallMarginBottom">
+                            <SearchField
+                                width="20rem"
+                                placeholder="Search name or description"
+                                value="{mock>/filterSkills/search}"
+                                liveChange=".onSkillsSearchLive" />
+                        </HBox>
+                    </FlexBox>
+                    <Toolbar design="Transparent">
+                        <Button text="New skill (mock)" type="Emphasized" press=".onSkillsNew" />
+                    </Toolbar>
+                    <ScrollContainer
+                        horizontal="true"
+                        vertical="false"
+                        width="100%"
+                        focusable="true"
+                        class="sapUiResponsiveMargin acpMcpTableScroll">
+                        <Table id="tblSkills" inset="false" items="{mock>/skills}" width="72rem" fixedLayout="false">
+                            <columns>
+                                <Column width="18rem"><Text text="Skill" /></Column>
+                                <Column width="22rem" minScreenWidth="Tablet" demandPopin="true"><Text text="Description" /></Column>
+                                <Column hAlign="Center" width="10rem"><Text text="Status" /></Column>
+                                <Column width="14rem" minScreenWidth="Desktop" demandPopin="true"><Text text="Modified" /></Column>
+                                <Column hAlign="Begin" width="7rem" popinDisplay="Inline"><Text text="Actions" /></Column>
+                            </columns>
+                            <items>
+                                <ColumnListItem>
+                                    <cells>
+                                        <Text text="{mock>name}" />
+                                        <Text text="{mock>description}" wrapping="true" maxLines="3" />
+                                        <ObjectStatus text="{mock>status}" state="{= ${mock>status} === 'Active' ? 'Success' : (${mock>status} === 'Draft' ? 'Information' : 'Error') }" />
+                                        <Text text="{mock>modifiedAt}" />
+                                        <HBox wrap="NoWrap" alignItems="Center">
+                                            <Button icon="sap-icon://edit" type="Transparent" tooltip="Edit" press=".onSkillRowEdit" />
+                                            <Button icon="sap-icon://delete" type="Transparent" tooltip="Delete" press=".onSkillRowDelete" />
+                                        </HBox>
+                                    </cells>
+                                </ColumnListItem>
+                            </items>
+                        </Table>
+                    </ScrollContainer>
+                </Page>
+
+                <Page id="pageAgentSkillTools" title="Agent ↔ skills ↔ tools" showNavButton="false">
+                    <MessageStrip
+                        text="Single governance map (replaces a separate Agent ↔ tools page): Direct tool = AgentTool allowlist; Via skill = AgentSkill procedure + tool context at runtime. Filter Route = Direct tool to see allowlist-only rows. OData wiring still uses AgentTools + AgentSkills entities."
                         type="Information"
                         showIcon="true"
                         class="sapUiResponsiveMargin" />
@@ -347,7 +416,7 @@
                         class="sapUiSmallMarginBegin sapUiSmallMarginEnd acpFilterWrap">
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Agent" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterAgentTools/agent}" change=".onFilterAgentToolsChange" width="18rem" forceSelection="false">
+                            <Select selectedKey="{mock>/filterAgentCapabilities/agent}" change=".onFilterAgentCapabilitiesChange" width="18rem" forceSelection="false">
                                 <items>
                                     <core:Item key="" text="All" />
                                     <core:Item key="Procurement Assistant" text="Procurement Assistant" />
@@ -357,8 +426,18 @@
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
+                            <Label text="Route" showColon="true" class="sapUiTinyMarginEnd" />
+                            <Select selectedKey="{mock>/filterAgentCapabilities/routeType}" change=".onFilterAgentCapabilitiesChange" width="12rem" forceSelection="false">
+                                <items>
+                                    <core:Item key="" text="All" />
+                                    <core:Item key="Direct" text="Direct tool" />
+                                    <core:Item key="Skill" text="Via skill" />
+                                </items>
+                            </Select>
+                        </HBox>
+                        <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Tool" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterAgentTools/tool}" change=".onFilterAgentToolsChange" width="16rem" forceSelection="false">
+                            <Select selectedKey="{mock>/filterAgentCapabilities/tool}" change=".onFilterAgentCapabilitiesChange" width="16rem" forceSelection="false">
                                 <items>
                                     <core:Item key="" text="All" />
                                     <core:Item key="lookup_vendor" text="lookup_vendor" />
@@ -368,29 +447,16 @@
                                 </items>
                             </Select>
                         </HBox>
-                        <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
-                            <Label text="Permission" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterAgentTools/permissionOverride}" change=".onFilterAgentToolsChange" width="14rem" forceSelection="false">
-                                <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="Inherit" text="Inherit" />
-                                    <core:Item key="ForceDelegated" text="ForceDelegated" />
-                                </items>
-                            </Select>
-                        </HBox>
-                        <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
-                            <Label text="Approved" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterAgentTools/approved}" change=".onFilterAgentToolsChange" width="10rem" forceSelection="false">
-                                <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="true" text="Yes" />
-                                    <core:Item key="false" text="No" />
-                                </items>
-                            </Select>
+                        <HBox alignItems="Center" wrap="NoWrap" class="sapUiSmallMarginBottom">
+                            <SearchField
+                                width="20rem"
+                                placeholder="Search skill, note, permission…"
+                                value="{mock>/filterAgentCapabilities/search}"
+                                liveChange=".onAgentCapabilitiesSearchLive" />
                         </HBox>
                     </FlexBox>
                     <Toolbar design="Transparent">
-                        <Button text="Add mapping (mock)" type="Emphasized" press=".onOpenAddMapping" />
+                        <Button text="Explain map (mock)" type="Transparent" press=".onAgentCapabilitiesLegend" />
                         <Button text="Request approval (mock)" type="Transparent" press=".onAgentToolsRequestApproval" />
                     </Toolbar>
                     <ScrollContainer
@@ -399,26 +465,32 @@
                         width="100%"
                         focusable="true"
                         class="sapUiResponsiveMargin acpMcpTableScroll">
-                        <Table id="tblAgentTools" inset="false" items="{mock>/agentTools}" width="60rem" fixedLayout="false">
+                        <Table id="tblAgentCapabilities" inset="false" items="{mock>/agentCapabilities}" width="88rem" fixedLayout="false">
                             <columns>
+                                <Column width="10rem"><Text text="Route" /></Column>
                                 <Column width="16rem"><Text text="Agent" /></Column>
+                                <Column width="18rem" minScreenWidth="Tablet" demandPopin="true"><Text text="Skill" /></Column>
                                 <Column width="14rem"><Text text="Tool" /></Column>
-                                <Column width="14rem" minScreenWidth="Tablet" demandPopin="true"><Text text="Permission override" /></Column>
-                                <Column hAlign="Center" width="10rem"><Text text="Approved" /></Column>
-                                <Column width="12rem" minScreenWidth="Desktop" demandPopin="true"><Text text="Last reviewed" /></Column>
+                                <Column width="12rem" minScreenWidth="Tablet" demandPopin="true"><Text text="Permission" /></Column>
+                                <Column hAlign="Center" width="8rem"><Text text="Approved" /></Column>
+                                <Column width="10rem" minScreenWidth="Desktop" demandPopin="true"><Text text="Reviewed" /></Column>
+                                <Column width="18rem" minScreenWidth="Desktop" demandPopin="true"><Text text="Note" /></Column>
                                 <Column hAlign="Begin" width="7rem" popinDisplay="Inline"><Text text="Actions" /></Column>
                             </columns>
                             <items>
                                 <ColumnListItem>
                                     <cells>
+                                        <ObjectStatus text="{mock>routeType}" state="{= ${mock>routeTypeKey} === 'Skill' ? 'Information' : 'Success' }" />
                                         <Text text="{mock>agentName}" />
+                                        <Text text="{mock>skillName}" wrapping="true" />
                                         <Text text="{mock>toolName}" />
                                         <Text text="{mock>permissionOverride}" />
                                         <Switch enabled="false" state="{mock>approved}" />
                                         <Text text="{mock>lastReviewed}" />
+                                        <Text text="{mock>governanceNote}" wrapping="true" maxLines="3" />
                                         <HBox wrap="NoWrap" alignItems="Center">
-                                            <Button icon="sap-icon://edit" type="Transparent" tooltip="Edit" press=".onAgentToolRowEdit" />
-                                            <Button icon="sap-icon://delete" type="Transparent" tooltip="Delete" press=".onAgentToolRowDelete" />
+                                            <Button icon="sap-icon://edit" type="Transparent" tooltip="Edit" press=".onCapabilityRowEdit" />
+                                            <Button icon="sap-icon://delete" type="Transparent" tooltip="Delete" press=".onCapabilityRowDelete" />
                                         </HBox>
                                     </cells>
                                 </ColumnListItem>
@@ -840,27 +912,34 @@
                 </endButton>
             </Dialog>
             <Dialog
-                id="dlgAddMapping"
-                title="Add agent ↔ tool mapping"
-                contentWidth="28rem"
+                id="dlgSkill"
+                title="Skill"
+                contentWidth="36rem"
                 draggable="true"
-                resizable="false">
+                resizable="true">
                 <content>
                     <VBox class="sapUiSmallMargin">
-                        <Label text="Agent" />
-                        <Select id="mapDlgAgent" width="100%" forceSelection="false" />
-                        <Label text="MCP server" class="sapUiSmallMarginTop" />
-                        <Select id="mapDlgServer" width="100%" change=".onAddMappingServerChange" forceSelection="false" />
-                        <Label text="Tool (from server)" class="sapUiSmallMarginTop" />
-                        <Select id="mapDlgTool" width="100%" forceSelection="false" />
-                        <Text text="Pick MCP server first; the tool list shows tools for that server." class="sapUiSmallMarginTop" wrapping="true" />
+                        <Label text="Name" />
+                        <Input value="{uiDlg>/skillDlgName}" placeholder="Short title for admins and progressive disclosure" />
+                        <Label text="Description" class="sapUiSmallMarginTop" />
+                        <TextArea rows="3" value="{uiDlg>/skillDlgDescription}" placeholder="Shown to the planner with the skill list (metadata only)" />
+                        <Label text="Status" class="sapUiSmallMarginTop" />
+                        <Select selectedKey="{uiDlg>/skillDlgStatus}" width="100%" forceSelection="false">
+                            <items>
+                                <core:Item key="Draft" text="Draft" />
+                                <core:Item key="Active" text="Active" />
+                                <core:Item key="Disabled" text="Disabled" />
+                            </items>
+                        </Select>
+                        <Label text="Body (markdown)" class="sapUiSmallMarginTop" />
+                        <TextArea rows="10" value="{uiDlg>/skillDlgBody}" placeholder="Full procedure — loaded on demand at runtime in target stack" />
                     </VBox>
                 </content>
                 <beginButton>
-                    <Button text="Add (mock)" type="Emphasized" press=".onAddMappingConfirm" />
+                    <Button text="Save (mock)" type="Emphasized" press=".onSkillDlgSave" />
                 </beginButton>
                 <endButton>
-                    <Button text="Cancel" press=".onAddMappingCancel" />
+                    <Button text="Cancel" press=".onSkillDlgCancel" />
                 </endButton>
             </Dialog>
             <Dialog
