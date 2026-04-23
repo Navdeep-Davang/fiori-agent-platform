@@ -93,7 +93,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 0: Baseline verification
 
-### Status: IN_PROGRESS *(developer 2026-04-22: env + bind + `deploy:hana` + hybrid stack running; **0.2** OData via bare **`:4004`** still 401 — see note below; **0.3–0.4** pending; chat → Python **502** under investigation — go-ahead before agent debug.)*
+### Status: IN_PROGRESS *(developer 2026-04-22: env + bind + `deploy:hana` + hybrid stack running; **0.2.1–0.2.2** verified 2026-04-19 via App Router `:5000` + curl; **0.3–0.4** still manual (Fiori); chat → Python **502** note may be stale — re-verify after hybrid chat.)*
 
 **Objective:** Prove the existing fat-payload path works end-to-end before any feature work branches off it.
 
@@ -105,10 +105,10 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
   - [X] **0.1.3:** Python venv per `python-venv-policy.mdc`; `.\venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000`.
   - [X] **0.1.4:** App Router: `cd approuter && npm start`.
 
-- [ ] **Task 0.2:** OData smoke
-  - [ ] **0.2.1:** `/odata/v4/governance/$metadata` loads.
-  - [ ] **0.2.2:** `/odata/v4/chat/$metadata` loads.
-  > **Hybrid note:** OData on **CAP’s direct URL (`http://localhost:4004/odata/...`)** typically returns **401 Unauthorized** — services require an **XSUAA JWT** (`Authorization: Bearer`). The CAP **welcome page** on `:4004` is not the same as an authenticated OData request. **App Router (`http://localhost:5000`, after login)** proxies to CAP **with** the token; **login on :5000 does not attach a Bearer to requests you type manually on :4004** (different origin / no browser token on raw CAP). For smoke, use the **same entry host as the Fiori app** (usually `:5000`) or a REST client with a **valid access token**. If `$metadata` still fails **through :5000** after login, check **xs-app.json** routes and JWT **scopes** for the OData service.
+- [X] **Task 0.2:** OData smoke
+  - [X] **0.2.1:** `/odata/v4/governance/$metadata` loads.
+  - [X] **0.2.2:** `/odata/v4/chat/$metadata` loads.
+  > **Hybrid note:** OData on **CAP’s direct URL (`http://localhost:4004/odata/...`)** typically returns **401 Unauthorized** — services require an **XSUAA JWT** (`Authorization: Bearer`). The CAP **welcome page** on `:4004` is not the same as an authenticated OData request. **App Router (`http://localhost:5000`, after login)** proxies to CAP **with** the token; **login on :5000 does not attach a Bearer to requests you type manually on :4004** (different origin / no browser token on raw CAP). For smoke, use the **same entry host as the Fiori app** (usually `:5000`) or a REST client with a **valid access token**. If `$metadata` still fails **through :5000** after login, check **xs-app.json** routes and JWT **scopes** for the OData service. *(2026-04-19: both `$metadata` URLs on `:5000` return OData v4 XML in browser; `GET …/McpServers?$top=10` on **`:4004` without Bearer** returns **401** — entity reads are protected.)*
   - [X] **0.2.3:** `GET /health` on Python returns `{ status: "ok" }`.
 
 - [ ] **Task 0.3:** Admin UI (Plan **01** Task 4.5)
@@ -544,4 +544,5 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 | 2026-04-19 | **Major code delivery:** Thin CAP→Python (`srv/server.js`), `hydrator.py` / `session_store.py`, DeepAgent (`deepagent_engine.py`), `executor.py` rewrite, Langfuse hook, Phase 9 summarization, Admin Skills UI routes/annotations, chat planning panel, architecture §5 + ADR-11, README Langfuse. **Human:** `deploy:hana`, LLM/E2E smoke, Langfuse project, CF. |
 | 2026-04-19 | **`mbt build`** on some Windows hosts fails without GNU `make` on PATH — install MSYS2/GnuWin32 make or use WSL; then tick **2.1.1**. |
 | 2026-04-22 | **Developer hybrid progress:** `cf` bind + **`deploy:hana` (3.3.1)** + local CAP (`:4004` index) + App Router **`:5000`** + XSUAA; **1.1–1.3** marked done; direct Python `:8000` rejected (**1.3.3**). **Open:** **0.2** OData smoke (401 on bare `:4004` — expected without Bearer; use **`:5000`** or token); **0.3–0.4**, **1.4**, **3.3.2–3**; chat **Bad Gateway** to Python — **no agent code change** until developer go-ahead. **Phase 2 (CF)** untouched. |
+| 2026-04-19 | **Phase 0.2 verified:** `governance` + `chat` **`$metadata`** on **`http://localhost:5000`** (App Router); **`McpServers`** without token on `:4004` → **401**. Cursor embedded browser: OData XML OK; **Admin/Chat Fiori** did not paint (UI5 CDN / snapshot limits) — **0.3.2–0.3.8** and **0.4.x** remain **manual** in a normal browser. |
 | 2026-04-23 | **Docs:** Plan **01** Task **6.6** rewritten for **DeepAgent-only** `executor.py` / thin payload; Plan **06** “Decisions” + “Why DeepAgent” aligned — ADK / hand-rolled loops marked **removed** (already absent in repo). |

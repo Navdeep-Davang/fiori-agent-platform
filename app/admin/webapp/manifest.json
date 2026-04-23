@@ -8,46 +8,10 @@
       "version": "1.0.0"
     },
     "title": "{{appTitle}}",
-    "description": "{{appDescription}}",
-    "crossNavigation": {
-      "inbound": {
-        "acp-admin-manage": {
-          "semanticObject": "AgentPlatform",
-          "action": "manage",
-          "title": "{{appTitle}}",
-          "subTitle": "{{appDescription}}",
-          "signature": {
-            "parameters": {},
-            "additionalParameters": "allowed"
-          }
-        }
-      }
-    },
-    "dataSources": {
-      "mainService": {
-        "uri": "/odata/v4/governance/",
-        "type": "OData",
-        "settings": {
-          "annotations": [
-            "annotation"
-          ],
-          "odataVersion": "4.0"
-        }
-      },
-      "annotation": {
-        "type": "ODataAnnotation",
-        "uri": "annotations/annotations.xml",
-        "settings": {
-          "localUri": "annotations/annotations.xml"
-        }
-      }
-    }
+    "description": "{{appDescription}}"
   },
   "sap.ui": {
     "technology": "UI5",
-    "icons": {
-      "icon": "sap-icon://settings"
-    },
     "deviceTypes": {
       "desktop": true,
       "tablet": true,
@@ -55,22 +19,20 @@
     }
   },
   "sap.ui5": {
-    "flexEnabled": true,
+    "flexEnabled": false,
     "rootView": {
-      "viewName": "sap.fe.core.rootView.Fcl",
+      "viewName": "acp.admin.view.App",
       "type": "XML",
       "async": true,
-      "id": "appRootView"
+      "id": "adminRoot"
     },
     "dependencies": {
-      "minUI5Version": "1.120.0",
+      "minUI5Version": "1.120.24",
       "libs": {
         "sap.m": {},
         "sap.ui.core": {},
-        "sap.f": {},
-        "sap.fe.core": {},
-        "sap.fe.templates": {},
-        "sap.ushell": {}
+        "sap.tnt": {},
+        "sap.ui.layout": {}
       }
     },
     "contentDensities": {
@@ -82,233 +44,6 @@
         "type": "sap.ui.model.resource.ResourceModel",
         "settings": {
           "bundleName": "acp.admin.i18n.i18n"
-        }
-      },
-      "": {
-        "dataSource": "mainService",
-        "preload": false,
-        "settings": {
-          "synchronizationMode": "None",
-          "operationMode": "Server",
-          "autoExpandSelect": true,
-          "earlyRequests": false
-        }
-      }
-    },
-    "resources": {
-      "css": []
-    },
-    "routing": {
-      "config": {
-        "flexibleColumnLayout": {
-          "defaultTwoColumnLayoutType": "TwoColumnsMidExpanded",
-          "defaultThreeColumnLayoutType": "ThreeColumnsEndExpanded",
-          "limitFCLToTwoColumns": true
-        },
-        "routerClass": "sap.f.routing.Router",
-        "controlId": "fcl",
-        "controlAggregation": "beginColumnPages",
-        "async": true,
-        "type": "Component",
-        "allowDialogRoute": true
-      },
-      "routes": [
-        {
-          "name": "McpServersList",
-          "pattern": ":?query:",
-          "target": "McpServersList"
-        },
-        {
-          "name": "McpServersObjectPage",
-          "pattern": "McpServers({key}):?query:",
-          "target": "McpServersObjectPage"
-        },
-        {
-          "name": "ToolsList",
-          "pattern": "Tools:?query:",
-          "target": "ToolsList"
-        },
-        {
-          "name": "ToolsObjectPage",
-          "pattern": "Tools({key}):?query:",
-          "target": "ToolsObjectPage"
-        },
-        {
-          "name": "SkillsList",
-          "pattern": "Skills:?query:",
-          "target": "SkillsList"
-        },
-        {
-          "name": "SkillsObjectPage",
-          "pattern": "Skills({key}):?query:",
-          "target": "SkillsObjectPage"
-        },
-        {
-          "name": "AgentsList",
-          "pattern": "Agents:?query:",
-          "target": "AgentsList"
-        },
-        {
-          "name": "AgentsObjectPage",
-          "pattern": "Agents({key}):?query:",
-          "target": "AgentsObjectPage"
-        },
-        {
-          "name": "AgentGroupsList",
-          "pattern": "AgentGroups:?query:",
-          "target": "AgentGroupsList"
-        },
-        {
-          "name": "AgentGroupsObjectPage",
-          "pattern": "AgentGroups({key}):?query:",
-          "target": "AgentGroupsObjectPage"
-        }
-      ],
-      "targets": {
-        "McpServersList": {
-          "type": "Component",
-          "id": "McpServersList",
-          "name": "sap.fe.templates.ListReport",
-          "options": {
-            "settings": {
-              "contextPath": "/McpServers",
-              "entitySet": "McpServers",
-              "navigation": {
-                "McpServers": {
-                  "detail": {
-                    "route": "McpServersObjectPage"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "McpServersObjectPage": {
-          "type": "Component",
-          "id": "McpServersObjectPage",
-          "name": "sap.fe.templates.ObjectPage",
-          "options": {
-            "settings": {
-              "contextPath": "/McpServers",
-              "navigation": {}
-            }
-          }
-        },
-        "ToolsList": {
-          "type": "Component",
-          "id": "ToolsList",
-          "name": "sap.fe.templates.ListReport",
-          "options": {
-            "settings": {
-              "contextPath": "/Tools",
-              "entitySet": "Tools",
-              "navigation": {
-                "Tools": {
-                  "detail": {
-                    "route": "ToolsObjectPage"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "ToolsObjectPage": {
-          "type": "Component",
-          "id": "ToolsObjectPage",
-          "name": "sap.fe.templates.ObjectPage",
-          "options": {
-            "settings": {
-              "contextPath": "/Tools",
-              "navigation": {}
-            }
-          }
-        },
-        "SkillsList": {
-          "type": "Component",
-          "id": "SkillsList",
-          "name": "sap.fe.templates.ListReport",
-          "options": {
-            "settings": {
-              "contextPath": "/Skills",
-              "entitySet": "Skills",
-              "navigation": {
-                "Skills": {
-                  "detail": {
-                    "route": "SkillsObjectPage"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "SkillsObjectPage": {
-          "type": "Component",
-          "id": "SkillsObjectPage",
-          "name": "sap.fe.templates.ObjectPage",
-          "options": {
-            "settings": {
-              "contextPath": "/Skills",
-              "navigation": {}
-            }
-          }
-        },
-        "AgentsList": {
-          "type": "Component",
-          "id": "AgentsList",
-          "name": "sap.fe.templates.ListReport",
-          "options": {
-            "settings": {
-              "contextPath": "/Agents",
-              "entitySet": "Agents",
-              "navigation": {
-                "Agents": {
-                  "detail": {
-                    "route": "AgentsObjectPage"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "AgentsObjectPage": {
-          "type": "Component",
-          "id": "AgentsObjectPage",
-          "name": "sap.fe.templates.ObjectPage",
-          "options": {
-            "settings": {
-              "contextPath": "/Agents",
-              "navigation": {}
-            }
-          }
-        },
-        "AgentGroupsList": {
-          "type": "Component",
-          "id": "AgentGroupsList",
-          "name": "sap.fe.templates.ListReport",
-          "options": {
-            "settings": {
-              "contextPath": "/AgentGroups",
-              "entitySet": "AgentGroups",
-              "navigation": {
-                "AgentGroups": {
-                  "detail": {
-                    "route": "AgentGroupsObjectPage"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "AgentGroupsObjectPage": {
-          "type": "Component",
-          "id": "AgentGroupsObjectPage",
-          "name": "sap.fe.templates.ObjectPage",
-          "options": {
-            "settings": {
-              "contextPath": "/AgentGroups",
-              "navigation": {}
-            }
-          }
         }
       }
     }

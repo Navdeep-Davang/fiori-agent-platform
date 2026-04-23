@@ -3,7 +3,7 @@ using GovernanceService as service from '../../../srv/governance-service';
 // ── McpServers ────────────────────────────────────────────────────────────
 
 annotate service.McpServers with @(
-  UI.SelectionFields: [ name, transportType, environment, health, status ],
+  UI.SelectionFields: [ name, transportType, environment, health ],
   UI.LineItem: [
     { Value: name, Label: '{i18n>Name}' },
     { Value: destinationName, Label: '{i18n>Destination}' },
@@ -68,7 +68,6 @@ annotate service.McpServers with @(
 );
 
 annotate service.McpServers with {
-  status @Common.ValueListWithFixedValues: true;
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────

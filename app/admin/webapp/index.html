@@ -6,29 +6,383 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>Agent Control Plane — Governance</title>
     <style>
-        html, body, body > div, #container {
+        /* Shell: cap to visible viewport so nested % heights cannot exceed the window
+           (e.g. IDE preview splits, dynamic toolbars). Document scroll is disabled;
+           scrolling happens inside ToolPage main / Pages. */
+        html {
             height: 100%;
+            max-height: 100vh;
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        @supports (max-height: 100dvh) {
+            html {
+                max-height: 100dvh;
+            }
+        }
+        body#content,
+        #content,
+        [data-sap-ui-component] {
+            height: 100%;
+            max-height: inherit;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            overflow: hidden;
+            min-height: 0;
+        }
+        /* UI5 host (#container) → UIArea → root View → ToolPage: full flex height chain */
+        body#content [data-sap-ui-component],
+        body#content #container {
+            display: flex;
+            flex-direction: column;
+        }
+        body#content [data-sap-ui-component],
+        body#content [data-sap-ui-component] > div,
+        body#content #container-uiarea {
+            height: 100%;
+            max-height: 100%;
+            min-height: 0;
+            box-sizing: border-box;
+        }
+        body#content [data-sap-ui-component] > div,
+        body#content #container-uiarea {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        body#content .sapUiView {
+            flex: 1 1 auto;
+            height: 100%;
+            max-height: 100%;
+            min-height: 0;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+        body#content .sapUiView > .sapTntToolPage {
+            flex: 1 1 auto;
+            min-height: 0;
+            max-height: 100%;
+        }
+        /* ToolPage: allow flex children to shrink; scroll in main column only (not whole shell) */
+        .acpAdminToolPage.sapTntToolPage {
+            flex: 1 1 auto;
+            min-height: 0;
+            max-height: 100%;
+            padding-bottom: 8px !important; /* override ToolPage inline padding */
+        }
+        .acpAdminToolPage .sapTntToolPageContentWrapper {
+            flex: 1 1 auto;
+            min-height: 0;
+            max-height: 100%;
+            overflow: hidden;
+        }
+        .acpAdminToolPage .sapTntToolPageMain {
+            min-height: 0;
+            min-width: 0;
+            /* Theme puts bg/shadow here with border-radius .5rem .5rem 0 0 */
+            border-radius: 0.5rem !important;
+        }
+        .acpAdminToolPage .sapTntToolPageMainContent {
+            min-height: 0;
+            min-width: 0;
+            overflow-x: auto;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        /* Side nav card: bg/shadow/radius live on .sapTntSideNavigation, not AsideContent */
+        .acpAdminToolPage .sapTntSideNavigation {
+            border-radius: 0.5rem !important;
+        }
+        .acpAdminToolPage .sapMNavContainer,
+        .acpAdminToolPage .sapMPage {
+            overflow-x: auto;
+            min-width: 0;
+            min-height: 0;
+        }
+        .acpMcpTableScroll {
+            max-width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .acpAdminToolPage .acpFilterWrap {
+            min-width: 0;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        /* Keep each label+control HBox on one line; outer FlexBox wraps whole groups */
+        .acpAdminToolPage .acpFilterWrap > .sapMHBox {
+            flex-shrink: 0;
+        }
+        /* Playground: fill ToolPage main; chat column = flex column + scroll messages + composer (chat app pattern) */
+        .acpAdminToolPage .acpPlaygroundPage.sapMPage {
+            min-height: 0;
+        }
+        .acpAdminToolPage .acpPlaygroundPage.sapMPage > section {
+            flex: 1 1 auto;
+            min-height: 0;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundShell.sapMVBox {
+            flex: 1 1 auto;
+            min-height: 0;
+            min-width: 0;
+            width: 100%;
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+            /* Inset without sapUiResponsiveMargin on children (100% width + margin overflowed parent) */
+            padding: 0.5rem 0.75rem 0.5rem 0.75rem;
+        }
+        .acpAdminToolPage .acpPlaygroundStrip.sapMMsgStrip {
+            flex: 0 0 auto;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        /* Flex item wrapping tab bar or split: allow shrink width; do not clip vertically (MITB uses its own layout) */
+        .acpAdminToolPage #playgroundShellHost.sapMVBox > .sapMFlexItem {
+            min-width: 0 !important;
+            min-height: 0 !important;
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage #playgroundShellHost.sapMVBox > .sapMFlexItem:first-child {
+            flex: 0 0 auto;
+            min-height: unset;
+        }
+        .acpAdminToolPage #playgroundShellHost .sapMFlexItem:has(#playgroundTabBar),
+        .acpAdminToolPage #playgroundShellHost .sapMFlexItem:has(#playgroundSplitWide) {
+            flex: 1 1 0;
+            min-height: 0;
+            min-width: 0;
+            overflow-x: hidden;
+        }
+        /*
+         * IconTabBar: only constrain width. Do NOT set display:flex / flex heights on .sapMITBContent
+         * or MITB inner wrappers — UI5 positions tab panels (often absolute); overriding collapses content.
+         */
+        .acpAdminToolPage .acpPlaygroundTabBar.sapMITB {
+            flex: 1 1 0;
+            min-height: 0;
+            min-width: 0;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: hidden;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundTabBar .sapMITBHead {
+            flex-shrink: 0;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundTabBar .sapMITBContent {
+            min-width: 0;
+            max-width: 100%;
+            overflow-x: hidden;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundTabBar .acpPlaygroundChatPanel .sapMPanelContent {
+            min-height: 0;
+            overflow-x: hidden;
+        }
+        .acpAdminToolPage .acpPlaygroundParamsTabScroll.sapMScrollCont {
+            flex: 1 1 auto;
+            min-height: 0;
+            min-width: 0;
+            width: 100% !important;
+            max-width: 100%;
+            height: 100% !important;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundParamsTabScroll.sapMScrollCont > .sapMScrollContScroll {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        /* Params tab: panel is document flow inside scroll, not a flex stretch target */
+        .acpAdminToolPage .acpPlaygroundParamsTabScroll .acpPlaygroundParamsPanel.sapMPanel {
+            flex: 0 0 auto;
+            height: auto;
+            min-height: 0;
+        }
+        .acpAdminToolPage .acpPlaygroundParamsTabScroll .acpPlaygroundParamsPanel .sapMPanelContent {
+            flex: 0 0 auto;
+            overflow: visible;
+        }
+        .acpAdminToolPage .acpPlaygroundTabPane.sapMVBox {
+            flex: 1 1 auto;
+            min-height: 0;
+            min-width: 0;
+            width: 100%;
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        /* Tab chat: pin composer to bottom of tab panel; messages scroll above */
+        .acpAdminToolPage .acpPlaygroundTabBar .acpPlaygroundComposer.acpPlaygroundComposerTab {
+            margin-top: auto;
+            padding-top: 0.5rem;
+            flex-shrink: 0;
+        }
+        .acpAdminToolPage .acpPlaygroundTabBar .acpPlaygroundScroll .sapMListUl,
+        .acpAdminToolPage .acpPlaygroundTabBar .acpPlaygroundScroll .sapMListTbl {
+            overflow-x: hidden;
+            max-width: 100%;
+        }
+        .acpAdminToolPage .acpPlaygroundTabBar .acpPlaygroundScroll .sapMCLI .sapMVBox {
+            min-width: 0;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundTabBar .acpPlaygroundScroll .sapMText {
+            max-width: 100%;
+            word-wrap: break-word;
+            overflow-wrap: anywhere;
+        }
+        .acpAdminToolPage .acpPlaygroundSplit.sapMHBox {
+            flex: 1 1 0;
+            min-height: 0;
+            min-width: 0;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundSplit > .sapMFlexItem {
+            min-height: 0;
+            min-width: 0;
+            align-self: stretch;
+            display: flex;
+            flex-direction: column;
+        }
+        .acpAdminToolPage .acpPlaygroundParamsCol.sapMVBox,
+        .acpAdminToolPage .acpPlaygroundChatCol.sapMVBox {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+        .acpAdminToolPage .acpPlaygroundParamsPanel.sapMPanel,
+        .acpAdminToolPage .acpPlaygroundChatPanel.sapMPanel {
+            flex: 1 1 auto;
+            min-height: 0;
+            width: 100%;
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundParamsPanel .sapMPanelHdr,
+        .acpAdminToolPage .acpPlaygroundChatPanel .sapMPanelHdr {
+            flex-shrink: 0;
+        }
+        .acpAdminToolPage .acpPlaygroundParamsPanel .sapMPanelContent,
+        .acpAdminToolPage .acpPlaygroundChatPanel .sapMPanelContent {
+            flex: 1 1 auto;
+            min-height: 0;
+            min-width: 0;
+            width: 100%;
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundParamsPanel .sapMPanelContent > .sapMVBox {
+            display: flex;
+            flex-direction: column;
+            flex: 1 1 auto;
+            min-height: 0;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundChatInner.sapMVBox {
+            flex: 1 1 auto;
+            min-height: 0;
+            min-width: 0;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundChatInner.sapMVBox > .sapMFlexItem:has(> .acpPlaygroundScroll.sapMScrollCont) {
+            flex: 1 1 0;
+            min-height: 0;
+            min-width: 0;
+            max-width: 100%;
+            align-self: stretch;
+            display: flex;
+            flex-direction: column;
+        }
+        .acpAdminToolPage .acpPlaygroundChatInner .acpPlaygroundScroll.sapMScrollCont {
+            flex: 1 1 0;
+            min-height: 0;
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundChatInner.sapMVBox > .sapMFlexItem:has(> .acpPlaygroundComposer) {
+            flex: 0 0 auto;
+            align-self: stretch;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+        .acpAdminToolPage .acpPlaygroundComposer.sapMVBox {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundScroll .sapMListTbl,
+        .acpAdminToolPage .acpPlaygroundScroll .sapMListUl {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundMsgList .sapMCLI .sapMVBox {
+            min-width: 0;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .acpAdminToolPage .acpPlaygroundMsgList .sapMText {
+            max-width: 100%;
+            overflow-wrap: anywhere;
         }
     </style>
     <script>
         window["sap-ui-config"] = { frameOptions: "allow" };
     </script>
-    <!-- Fiori Elements needs SAPUI5 (sap.fe.*), not OpenUI5. Pin version to match manifest minUI5Version. -->
-    <script id="sap-ui-bootstrap"
-        src="https://ui5.sap.com/1.120.23/resources/sap-ui-core.js"
+    <script
+        id="sap-ui-bootstrap"
+        src="https://ui5.sap.com/1.120.24/resources/sap-ui-core.js"
         data-sap-ui-theme="sap_horizon"
-        data-sap-ui-resourceroots='{
-            "acp.admin": "./"
-        }'
+        data-sap-ui-resourceroots='{"acp.admin":"./"}'
         data-sap-ui-oninit="module:sap/ui/core/ComponentSupport"
         data-sap-ui-compatVersion="edge"
-        data-sap-ui-async="false"
-        data-sap-ui-libs="sap.m,sap.ui.core,sap.f,sap.fe.core,sap.fe.templates,sap.ushell">
+        data-sap-ui-async="true"
+        data-sap-ui-libs="sap.m,sap.ui.core,sap.tnt,sap.ui.layout">
     </script>
 </head>
 <body class="sapUiBody" id="content">
-    <div data-sap-ui-component data-name="acp.admin" data-id="container" data-sap-ui-async="false" data-settings='{"id" : "acp.admin"}'></div>
+    <div
+        data-sap-ui-component
+        data-name="acp.admin"
+        data-id="container"
+        data-settings='{"id":"acp.admin"}'>
+    </div>
 </body>
 </html>
