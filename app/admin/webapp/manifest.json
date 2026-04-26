@@ -8,7 +8,16 @@
       "version": "1.0.0"
     },
     "title": "{{appTitle}}",
-    "description": "{{appDescription}}"
+    "description": "{{appDescription}}",
+    "dataSources": {
+      "governanceService": {
+        "uri": "/odata/v4/governance/",
+        "type": "OData",
+        "settings": {
+          "odataVersion": "4.0"
+        }
+      }
+    }
   },
   "sap.ui": {
     "technology": "UI5",
@@ -44,6 +53,15 @@
         "type": "sap.ui.model.resource.ResourceModel",
         "settings": {
           "bundleName": "acp.admin.i18n.i18n"
+        }
+      },
+      "governance": {
+        "dataSource": "governanceService",
+        "preload": true,
+        "settings": {
+          "operationMode": "Server",
+          "synchronizationMode": "None",
+          "autoExpandSelect": true
         }
       }
     }

@@ -5,7 +5,7 @@ architecture_refs:
   - doc/Architecture/fiori-agent-platform.md
 sync_status: synced
 created: 2026-04-18
-last_updated: 2026-04-22
+last_updated: 2026-04-24
 current_phase: hybrid-hana-identity-in-progress
 ---
 
@@ -39,6 +39,7 @@ Full detail: **`doc/Architecture/fiori-agent-platform.md` §2 (Admin UI), §13.5
 | [03-data-and-security.md](03-data-and-security.md) | **Seed data** — extend with Skill CSVs at **Phase 3** |
 | [04-hybrid-hana-spectrum-1.md](04-hybrid-hana-spectrum-1.md) | **HANA hybrid dev baseline** → **Phase 0**; Spectrum 2/3 superseded by Plan 05 |
 | [05-cap-public-python-private-production-path.md](05-cap-public-python-private-production-path.md) | **Identity + trust model** (XSUAA, private Python) → **Phase 1** |
+| [07-admin-ui-governance-resilience.md](07-admin-ui-governance-resilience.md) | **Admin + Governance OData** — correct MCP URLs, graceful errors (no blank shell), verification matrix → supplements **06** appendix / Phase **0.3** / **7** without overloading this file |
 
 ## Decisions: not pursued / discarded
 
@@ -113,6 +114,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 - [ ] **Task 0.3:** Admin UI (Plan **01** Task 4.5)
   - **Scope:** Covers **McpServer → Tool → Agent / AgentTool** screens shipped in Plan **01** (Phase 4). **Governance `Skill` / `AgentSkill`** (markdown bodies, Agent OP Skills facet) is **out of scope** for Phase 0 — schema and UI are **Phase 3** + **Phase 7** here; see architecture §13.1. *(This is unrelated to Cursor editor “skills” under `.cursor/skills/`.)*
+  - **2026-04-23 audit note (historical):** Admin was originally a **mock TNT shell** vs Plan **01** Fiori Elements; OData wiring may now be in progress or landed in-repo. **Operational hardening** (wrong MCP URL, failed actions, empty OData—no white screen) is tracked in **[Plan 07 — Admin UI governance & resilience](07-admin-ui-governance-resilience.md)**. See **Appendix — Admin mock shell vs OData** below for architecture mapping; use **07** for the detailed checklist.
   - [X] **0.3.1:** McpServer list loads 2 seed rows.
   - [ ] **0.3.2:** Test connection → health chip updates.
   - [ ] **0.3.3:** Sync tools → Draft Tool rows appear.
@@ -381,7 +383,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ## Phase 7: Admin UI — Skills
 
-### Status: COMPLETED *(7.3 manual chat verify — human)*
+### Status: **PARTIAL — annotations / manifest drift** *(2026-04-23: `app/admin/annotations/annotations.cds` and Plan **01** FE checklist exist, but the **shipped admin entry** (`manifest.json` + root `App` view) is a **mock shell** without `mainService` OData binding. **7.3.x** manual Skills CRUD via **Governance OData** remains unproven on `:5000/admin` until reconnect — see appendix.)*
 
 **Objective:** Admin can create, edit, and assign Skills. **No** Fiori field for `Loop` / `ADK` / `DeepAgent` — runtime is DeepAgent-only after Phase 6 (**architecture §13.4**).
 
@@ -501,6 +503,51 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 ---
 
+## Appendix — Admin mock shell vs OData / HANA (audit 2026-04-23)
+
+**Purpose:** Single place to reconcile **what the browser shows**, **what CAP exposes**, and **the most direct path** to a **production-ready admin** backed by HANA — **no implementation here**; owner approval before refactors.
+
+### A.1 What was verified (browser + HTTP)
+
+- **Browser (App Router, authenticated session):** `http://localhost:5000/admin/webapp/index.html` renders the **ToolPage** shell with sections Overview, MCP servers, Tools, Agents, Skills, etc. **MCP registration** shows buttons labeled **mock** (“Test connection (mock)”, “Sync tools (mock)”, …) and table cells such as **Last sync — (mock)**. Row content (e.g. “Procurement Data MCP”, `PYTHON_MCP_SERVICE`) matches **hardcoded** `mock` model data in `app/admin/webapp/Component.js`, not an automatic proof of OData reads.
+- **OData without session:** `GET http://localhost:5000/odata/v4/governance/McpServers?$top=3` **without** browser cookies returns an **HTML OAuth redirect** (login), i.e. **entity reads follow App Router + XSUAA**, as designed. **`$metadata`** may still return **200** for unauthenticated clients depending on route/scopes — treat **entity set GET** as the authoritative “needs JWT” check.
+
+### A.2 Code path summary (frontend → CAP → HANA)
+
+| Layer | Role today | Production source of truth |
+|--------|------------|----------------------------|
+| **Admin UI** (`app/admin/webapp/`) | `JSONModel` **`mock`**; freestyle XML (`App.view.xml` + `App.controller.js`) | **`GovernanceService`** OData V4 via UI5 **OData V4 model** and/or **Fiori Elements** (Plan **01** Task 4.x) |
+| **CAP** (`srv/governance-service.cds`) | Exposes **McpServers**, **Tools**, **Agents**, **Skills**, **AgentSkills**, **AgentGroups**, compositions, actions (`testConnection`, `syncTools`, `runTest`) | Unchanged — already aligned to **`db/schema.cds`** |
+| **HANA** | Populated by **CSV seeds** + runtime writes once UI calls OData actions | **Same tables** (`acp.McpServer`, `acp.Tool`, …) — mock UI does not read them |
+
+### A.3 Reading “what is in the DB” (read-only policy)
+
+**Preferred for humans and CI:** Use **Governance OData** through **`http://localhost:5000`** (or CF URL) with a **valid user JWT** — same authorization as production (**`@restrict`** on entities). Tools: browser **Network** tab copy as cURL, **Postman**, or **`cds bind --exec`** with a token. **No direct SQL required** for routine audits.
+
+**Optional deep audit (SQL):** `.env` keys **`HANA_HOST`**, **`HANA_PORT`**, **`HANA_USER`**, **`HANA_PASSWORD`**, **`HANA_SCHEMA`** (see `.env.example`) can back a **read-only** script (e.g. `hdbcli`, **SELECT only**) **if** the DB user is **`SELECT`-scoped** on the HDI container schema. **Rules:** never commit credentials; never run DDL/DML from agent automation; prefer OData for RBAC fidelity. **If** the team wants a Cursor **skill** for this repo, it should document **OData-first**, then **optional SELECT-only SQL**, and **explicitly forbid** writes — **add only after** your review (no skill was added in this audit pass).
+
+### A.4 Most optimistic path to “real” admin data (choose one strategy)
+
+| Strategy | Effort shape | Outcome |
+|----------|----------------|---------|
+| **A — Restore Fiori Elements admin (Plan 01)** | Reattach **`dataSources.mainService`** → `/odata/v4/governance`, restore **List Report / Object Page** routes in `manifest.json`, use existing **`annotations.cds`** | **Standard OData CRUD + actions**; fastest alignment with architecture **§2** and Phase **0.3** checklist |
+| **B — Keep current TNT shell** | Replace **`mock`** model with **`sap.ui.model.odata.v4.ODataModel`**, rebind all tables/filters, implement action handlers calling **OData V4 action/import** | Same backend, **more custom UI5** work than A |
+
+**Recommendation:** **Strategy A** unless the product **requires** the bespoke mock layout — Fiori Elements already encodes columns, OP facets, and **Skills** annotations in-repo.
+
+### A.5 Checklist before any coding (owner gate)
+
+1. **Decide A vs B** (or hybrid: FE lists + minimal shell).
+2. **Confirm** Phase **0.3** tasks are re-run against **OData-backed** screens (seed counts from HANA, `testConnection` / `syncTools` **real** responses).
+3. **Retire or repurpose** the `mock` model: either delete after parity or keep **only** for offline demos with a clear flag — avoid two sources of truth.
+4. **Update Plan 01 / 06** task checkboxes after the first **green** OData admin smoke on `:5000`.
+
+### A.6 Follow-on: resilience and correct MCP (Plan 07)
+
+Detailed tasks—**McpServer** data correctness, **testConnection** / **syncTools** failure UX, OData global error handling, and verification matrix—live in **[07-admin-ui-governance-resilience.md](07-admin-ui-governance-resilience.md)**. Implement only after review/approval per that plan’s gate.
+
+---
+
 ## Definition of done
 
 ### MVP target (Phases 0–9)
@@ -513,7 +560,7 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 - [X] Phase **5** — Python hydrates by id; **Python writes chat rows**; session ownership enforced.
 - [X] Phase **6** — DeepAgent-only; **ADK + hand-rolled loops removed** from repo.
 - [ ] Phase **6b** — Langfuse tracing confirmed in UI *(6b.3–6b.5 — human)*.
-- [X] Phase **7** — Admin can manage Skills via Fiori UI *(code)*.
+- [ ] Phase **7** — Admin can manage Skills via **Governance OData** on the **deployed** `:5000/admin` entry *(annotations exist; **mock shell drift** — see appendix 2026-04-23)*.
 - [X] Phase **8** — Planning panel in chat UI *(code)*.
 - [X] Phase **9** — Summarization in code *(threshold + `summarize_if_needed`; full 9.5 HANA verify — human)*.
 
@@ -537,7 +584,9 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 | 2026-04-22 | **§13.2 / Phase 4:** User access token via **`Authorization: Bearer`** only — **removed `userToken` from JSON**; aligns with RFC 6750. |
 | 2026-04-22 | **Phase 6:** Removed foundation **`SubAgent` / `tool-researcher`** tasks; **Skills** are the enterprise procedure layer; optional **`SubAgent`** only if Skill-driven later (§13.4). |
 | 2026-04-23 | **§13.1 / Phase 6–7:** **Skills** = enterprise procedure standard; **`SubAgent`** deferred — optional **Task 7.4** Skill-driven only; architecture + Langfuse wording aligned. |
+| 2026-04-23 | **Admin audit (appendix):** Documented **mock TNT shell** vs **`GovernanceService` OData**; Phase **7** + MVP **DoD** adjusted; Phase **0.3** note — OData entity GET requires session; **HANA_*** read-only audit guidance (OData preferred). |
 | 2026-04-24 | **§2 + §13.5.2 + 06:** Admin **McpServer → Tool → AgentTool** mapping and **tool-level RBAC** (JWT + agent + Python allowlist) documented; Phase 6 intro table aligned. |
+| 2026-04-24 | **Plan 07:** New **[07-admin-ui-governance-resilience.md](07-admin-ui-governance-resilience.md)** for admin OData/MCP **resilience** and data correctness; **06** legacy table + appendix **A.6** + Task **0.3** note point to it. |
 | 2026-04-19 | **Repo audit (06):** Checkboxes set to `[X]` only where committed code/config proves the deliverable (see subtask lines); manual/BTP-only items remain `[ ]`. |
 | 2026-04-19 | **Parallel orchestration:** Three read-only audits (Phase 0–2, 3–5, 6–9) saved as `.cursor/worker-reports/06-audit-phase0-2.md`, `06-audit-phase3-5.md`, `06-audit-phase6-9.md`. README: “Chat UI → CAP contract” subsection documents **8.1.1** / **8.1.2** body + `done` session id. |
 | 2026-04-19 | **Phase 3 (code):** `Skill`, `AgentSkill`, `ChatSession.summary` / `summaryWatermark` in `db/schema.cds`; `Skills` / `AgentSkills` in `srv/governance-service.cds`; `acp-Skill.csv` + `acp-AgentSkill.csv`. **`cds build --production`** verified locally. **3.3** (deploy + OData + chat smoke) still on developer. **Phase 4.1.1:** README subsection “CAP → Python (target thin JSON contract)” + `srv/server.js` pointer comment. |

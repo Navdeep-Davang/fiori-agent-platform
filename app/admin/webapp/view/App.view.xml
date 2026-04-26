@@ -7,14 +7,14 @@
     controllerName="acp.admin.view.App"
     displayBlock="true"
     height="100%">
-    <tnt:ToolPage id="adminToolPage" class="acpAdminToolPage">
+    <tnt:ToolPage id="adminToolPage" class="acpAdminToolPage" busy="{appState>/governanceLoading}">
         <tnt:header>
             <tnt:ToolHeader id="adminToolHeader">
                 <Title id="adminShellTitle" text="Agent Control Plane" level="H4" />
                 <ToolbarSpacer id="adminHeaderSpacer" />
                 <VBox id="adminUserBlock" alignItems="End" class="sapUiTinyMarginEnd">
-                    <Text id="adminUserName" text="{mock>/user/displayName}" class="sapMTextBold" />
-                    <Text id="adminUserMeta" text="Dept: {mock>/user/dept} · {mock>/user/roles}" />
+                    <Text id="adminUserName" text="{ui>/user/displayName}" class="sapMTextBold" />
+                    <Text id="adminUserMeta" text="Dept: {ui>/user/dept} · {ui>/user/roles}" />
                 </VBox>
             </tnt:ToolHeader>
         </tnt:header>
@@ -42,43 +42,75 @@
             </tnt:SideNavigation>
         </tnt:sideContent>
         <tnt:mainContents>
+            <MessageStrip
+                id="governanceGlobalErrorStrip"
+                text="{appState>/governanceError}"
+                type="Error"
+                showIcon="true"
+                showCloseButton="true"
+                close="onGlobalGovernanceErrorClose"
+                visible="{= ${appState>/governanceError} ? true : false }"
+                class="sapUiSmallMargin" />
             <NavContainer id="mainNav" defaultTransitionName="slide" height="100%">
-                <Page id="pageOverview" title="Overview" showNavButton="false">
+                <Page
+                    id="pageOverview"
+                    title="Overview"
+                    showNavButton="false"
+                    busyIndicatorDelay="0"
+                    busy="{ui>/overviewLoading}">
                     <MessageStrip
-                        text="Mock shell — OData binding and auth wiring come next with your go-ahead."
+                        text="{i18n>OverviewGovernanceInfo}"
                         type="Information"
                         showIcon="true"
+                        class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="Governance OData is not available. Overview counts and lists stay empty until the shell exposes the governance V4 service."
+                        type="Information"
+                        showIcon="true"
+                        visible="{= ${ui>/governanceMetadataFailed} &amp;&amp; !${appState>/governanceError} }"
+                        class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="No rows were returned: connect OData, authenticate, and seed HANA, or add records from the other admin pages. Counts are live when non-zero."
+                        type="Information"
+                        showIcon="true"
+                        visible="{= !${ui>/overviewLoading} &amp;&amp; !${ui>/overviewError} &amp;&amp; !${ui>/governanceMetadataFailed} &amp;&amp; !${appState>/governanceError} &amp;&amp; ${ui>/overview/mcpCount} === 0 &amp;&amp; ${ui>/overview/draftToolCount} === 0 &amp;&amp; ${ui>/overview/activeToolCount} === 0 &amp;&amp; ${ui>/overview/agentCount} === 0 &amp;&amp; ${ui>/overview/groupCount} === 0 &amp;&amp; ${ui>/overview/skillCount} === 0 }"
+                        class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="{ui>/overviewError}"
+                        type="Error"
+                        showIcon="true"
+                        visible="{= ${ui>/overviewError} ? true : false }"
                         class="sapUiResponsiveMargin" />
                     <layout:Grid defaultSpan="L4 M6 S12" width="100%" class="sapUiResponsiveMargin">
                         <layout:content>
                             <Panel headerText="MCP servers" class="sapUiTinyMargin">
-                                <ObjectNumber number="{mock>/overview/mcpCount}" emphasized="true" />
+                                <ObjectNumber number="{ui>/overview/mcpCount}" emphasized="true" />
                             </Panel>
                             <Panel headerText="Tools (draft / active)" class="sapUiTinyMargin">
                                 <HBox alignItems="Center" justifyContent="SpaceBetween">
                                     <Label text="Draft" />
-                                    <ObjectNumber number="{mock>/overview/draftToolCount}" />
+                                    <ObjectNumber number="{ui>/overview/draftToolCount}" />
                                 </HBox>
                                 <HBox alignItems="Center" justifyContent="SpaceBetween">
                                     <Label text="Active" />
-                                    <ObjectNumber number="{mock>/overview/activeToolCount}" state="Success" />
+                                    <ObjectNumber number="{ui>/overview/activeToolCount}" state="Success" />
                                 </HBox>
                             </Panel>
                             <Panel headerText="Agents" class="sapUiTinyMargin">
                                 <HBox alignItems="Center" justifyContent="SpaceBetween">
                                     <Label text="Total" />
-                                    <ObjectNumber number="{mock>/overview/agentCount}" />
+                                    <ObjectNumber number="{ui>/overview/agentCount}" />
                                 </HBox>
                                 <HBox alignItems="Center" justifyContent="SpaceBetween">
                                     <Label text="Active" />
-                                    <ObjectNumber number="{mock>/overview/activeAgentCount}" state="Success" />
+                                    <ObjectNumber number="{ui>/overview/activeAgentCount}" state="Success" />
                                 </HBox>
                             </Panel>
                             <Panel headerText="Access groups" class="sapUiTinyMargin">
-                                <ObjectNumber number="{mock>/overview/groupCount}" emphasized="true" />
+                                <ObjectNumber number="{ui>/overview/groupCount}" emphasized="true" />
                             </Panel>
                             <Panel headerText="Skills (governed)" class="sapUiTinyMargin">
-                                <ObjectNumber number="{mock>/overview/skillCount}" emphasized="true" />
+                                <ObjectNumber number="{ui>/overview/skillCount}" emphasized="true" />
                             </Panel>
                         </layout:content>
                     </layout:Grid>
@@ -86,15 +118,21 @@
 
                 <Page id="pageMcp" title="MCP registration" showNavButton="false">
                     <MessageStrip
-                        text="Select a row, then Test connection or Sync tools (mock updates health / last sync). Wide tables scroll horizontally below."
+                        text="Select a row, then Test connection or Sync tools (CAP actions update HANA and call Python MCP). Wide tables scroll horizontally below."
                         type="Information"
                         showIcon="true"
                         class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="Governance OData is not available. The MCP list cannot load until the shell model is bound to /odata/v4/governance."
+                        type="Information"
+                        showIcon="true"
+                        visible="{= ${ui>/governanceMetadataFailed} &amp;&amp; !${appState>/governanceError} }"
+                        class="sapUiResponsiveMargin" />
                     <Toolbar design="Transparent">
-                        <Button text="Test connection (mock)" type="Emphasized" press=".onMcpTestConnection" />
-                        <Button text="Sync tools (mock)" type="Default" press=".onMcpSyncTools" />
+                        <Button text="Test connection" type="Emphasized" press=".onMcpTestConnection" enabled="{ui>/mcpRowSelected}" />
+                        <Button text="Sync tools" type="Default" press=".onMcpSyncTools" enabled="{ui>/mcpRowSelected}" />
                         <ToolbarSpacer />
-                        <Button text="Add server (mock)" type="Transparent" press=".onMcpAddServer" />
+                        <Button text="Add server" type="Transparent" press=".onMcpAddServer" />
                     </Toolbar>
                     <ScrollContainer
                         horizontal="true"
@@ -106,8 +144,10 @@
                             id="tblMcp"
                             mode="SingleSelectLeft"
                             inset="false"
-                            items="{mock>/servers}"
+                            selectionChange=".onMcpSelectionChange"
+                            items="{path: 'governance>/McpServers', parameters: { $select: 'ID,name,destinationName,baseUrl,transportType,environment,ownerTeam,status,health,lastHealthCheck' }}"
                             growing="true"
+                            noDataText="No MCP servers in governance. Use Add server or check OData and HANA."
                             width="80rem"
                             fixedLayout="false">
                             <columns>
@@ -118,20 +158,20 @@
                                 <Column hAlign="Center" width="5rem"><Text text="Env" /></Column>
                                 <Column hAlign="Center" width="8rem"><Text text="Health" /></Column>
                                 <Column hAlign="Center" width="8rem"><Text text="Status" /></Column>
-                                <Column width="14rem" minScreenWidth="Desktop" demandPopin="true"><Text text="Last sync" /></Column>
+                                <Column width="14rem" minScreenWidth="Desktop" demandPopin="true"><Text text="Last health check" /></Column>
                                 <Column hAlign="Begin" width="7rem" popinDisplay="Inline"><Text text="Actions" /></Column>
                             </columns>
                             <items>
-                                <ColumnListItem>
+                                <ColumnListItem type="Active">
                                     <cells>
-                                        <Text text="{mock>name}" />
-                                        <Text text="{mock>destinationName}" />
-                                        <Text text="{mock>baseUrl}" />
-                                        <Text text="{mock>transportType}" />
-                                        <Text text="{mock>environment}" />
-                                        <ObjectStatus text="{mock>health}" state="{= ${mock>health} === 'OK' ? 'Success' : 'None' }" />
-                                        <ObjectStatus text="{mock>status}" state="Success" />
-                                        <Text text="{mock>lastSync}" />
+                                        <Text text="{governance>name}" />
+                                        <Text text="{governance>destinationName}" />
+                                        <Text text="{governance>baseUrl}" />
+                                        <Text text="{governance>transportType}" />
+                                        <Text text="{governance>environment}" />
+                                        <ObjectStatus text="{governance>health}" state="{= ${governance>health} === 'OK' ? 'Success' : (${governance>health} === 'FAIL' ? 'Error' : 'None') }" />
+                                        <ObjectStatus text="{governance>status}" state="Success" />
+                                        <Text text="{path: 'governance>lastHealthCheck', formatOptions: { style: 'short', UTC: true }}" />
                                         <HBox wrap="NoWrap" alignItems="Center">
                                             <Button icon="sap-icon://edit" type="Transparent" tooltip="Edit" press=".onMcpRowEdit" />
                                             <Button icon="sap-icon://delete" type="Transparent" tooltip="Delete" press=".onMcpRowDelete" />
@@ -145,9 +185,21 @@
 
                 <Page id="pageTools" title="Tools catalog" showNavButton="false">
                     <MessageStrip
-                        text="Filters combine with AND. Search matches tool or MCP server name (also AND with dropdowns)."
+                        text="Filters combine with AND. Search matches tool or MCP server name (also AND with dropdowns). Server list is filled from McpServers (name) when OData is available."
                         type="Information"
                         showIcon="true"
+                        class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="Governance OData is not available. The tools list and server filter options cannot load until the shell model is bound."
+                        type="Information"
+                        showIcon="true"
+                        visible="{= ${ui>/governanceMetadataFailed} &amp;&amp; !${appState>/governanceError} }"
+                        class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="{ui>/mcpPageError}"
+                        type="Warning"
+                        showIcon="true"
+                        visible="{= ${ui>/mcpPageError} ? true : false }"
                         class="sapUiResponsiveMargin" />
                     <FlexBox
                         wrap="Wrap"
@@ -157,42 +209,40 @@
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Server" showColon="true" class="sapUiTinyMarginEnd" />
                             <Select
-                                selectedKey="{mock>/filterTools/server}"
+                                id="selToolServer"
+                                items="{ path: 'ui>/mcpServerFilterItems' }"
+                                selectedKey="{ui>/filterTools/server}"
                                 change=".onFilterToolsChange"
                                 width="14rem"
                                 forceSelection="false">
-                                <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="Procurement Data MCP" text="Procurement Data MCP" />
-                                    <core:Item key="Knowledge Base MCP" text="Knowledge Base MCP" />
-                                </items>
+                                <core:Item key="{key}" text="{text}" />
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Risk" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterTools/risk}" change=".onFilterToolsChange" width="9rem" forceSelection="false">
-                                <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="Low" text="Low" />
-                                    <core:Item key="Medium" text="Medium" />
-                                    <core:Item key="High" text="High" />
-                                </items>
+                            <Select
+                                selectedKey="{ui>/filterTools/risk}"
+                                change=".onFilterToolsChange"
+                                width="9rem"
+                                forceSelection="false"
+                                items="{ path: 'ui>/toolRiskFilterItems', templateShareable: false }">
+                                <core:Item key="{key}" text="{text}" />
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Lifecycle" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterTools/lifecycle}" change=".onFilterToolsChange" width="10rem" forceSelection="false">
-                                <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="Active" text="Active" />
-                                    <core:Item key="Draft" text="Draft" />
-                                    <core:Item key="Disabled" text="Disabled" />
-                                </items>
+                            <Select
+                                selectedKey="{ui>/filterTools/lifecycle}"
+                                change=".onFilterToolsChange"
+                                width="10rem"
+                                forceSelection="false"
+                                items="{ path: 'ui>/toolLifecycleFilterItems', templateShareable: false }">
+                                <core:Item key="{key}" text="{text}" />
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Elevated" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterTools/elevated}" change=".onFilterToolsChange" width="10rem" forceSelection="false">
+                            <Select selectedKey="{ui>/filterTools/elevated}" change=".onFilterToolsChange" width="10rem" forceSelection="false">
                                 <items>
                                     <core:Item key="" text="All" />
                                     <core:Item key="true" text="Yes" />
@@ -204,13 +254,13 @@
                             <SearchField
                                 width="18rem"
                                 placeholder="Search tool or server (AND)"
-                                value="{mock>/filterTools/search}"
+                                value="{ui>/filterTools/search}"
                                 liveChange=".onToolsSearchLive" />
                         </HBox>
                     </FlexBox>
                     <Toolbar design="Transparent">
-                        <Button text="Activate (mock)" type="Emphasized" press=".onToolsActivate" />
-                        <Button text="Set risk (mock)" type="Transparent" press=".onToolsSetRisk" />
+                        <Button text="Activate" type="Emphasized" press=".onToolsActivate" />
+                        <Button text="Set risk" type="Transparent" press=".onToolsSetRisk" />
                     </Toolbar>
                     <ScrollContainer
                         horizontal="true"
@@ -218,7 +268,18 @@
                         width="100%"
                         focusable="true"
                         class="sapUiResponsiveMargin acpMcpTableScroll">
-                        <Table id="tblTools" inset="false" items="{mock>/tools}" width="56rem" fixedLayout="false">
+                        <Table
+                            id="tblTools"
+                            inset="false"
+                            items="{
+                                path: 'governance>/Tools',
+                                parameters: {
+                                    $expand: { server: { $select: 'name' } }
+                                }
+                            }"
+                            noDataText="No tools match the current filters, or the catalog is empty. Adjust filters or check governance data."
+                            width="56rem"
+                            fixedLayout="false">
                             <columns>
                                 <Column width="14rem"><Text text="Tool" /></Column>
                                 <Column width="14rem" minScreenWidth="Tablet" demandPopin="true"><Text text="MCP server" /></Column>
@@ -228,13 +289,13 @@
                                 <Column hAlign="Begin" width="7rem" popinDisplay="Inline"><Text text="Actions" /></Column>
                             </columns>
                             <items>
-                                <ColumnListItem>
+                                <ColumnListItem type="Active">
                                     <cells>
-                                        <Text text="{mock>name}" />
-                                        <Text text="{mock>serverName}" />
-                                        <ObjectStatus text="{mock>riskLevel}" state="{= ${mock>riskLevel} === 'High' ? 'Error' : (${mock>riskLevel} === 'Medium' ? 'Warning' : 'Success') }" />
-                                        <Switch type="AcceptReject" enabled="false" state="{mock>elevated}" />
-                                        <ObjectStatus text="{mock>status}" state="{= ${mock>status} === 'Active' ? 'Success' : (${mock>status} === 'Draft' ? 'Information' : 'Error') }" />
+                                        <Text text="{governance>name}" />
+                                        <Text text="{governance>server/name}" />
+                                        <ObjectStatus text="{governance>riskLevel}" state="{= ${governance>riskLevel} === 'High' ? 'Error' : (${governance>riskLevel} === 'Medium' ? 'Warning' : 'Success') }" />
+                                        <Switch type="AcceptReject" enabled="false" state="{governance>elevated}" />
+                                        <ObjectStatus text="{governance>status}" state="{= ${governance>status} === 'Active' ? 'Success' : (${governance>status} === 'Draft' ? 'Information' : 'Error') }" />
                                         <HBox wrap="NoWrap" alignItems="Center">
                                             <Button icon="sap-icon://edit" type="Transparent" tooltip="Edit" press=".onToolsRowEdit" />
                                             <Button icon="sap-icon://delete" type="Transparent" tooltip="Delete" press=".onToolsRowDelete" />
@@ -248,9 +309,15 @@
 
                 <Page id="pageAgents" title="Agents" showNavButton="false">
                     <MessageStrip
-                        text="Search AND status AND model AND dept gate — all active filters narrow the list together."
+                        text="Status and model filters use distinct values from the Agents OData set (plus All). Search matches name, model profile, or identity. The Dept gate column is not on the Agent entity yet — use access groups for claims."
                         type="Information"
                         showIcon="true"
+                        class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="{ui>/agentsFilterError}"
+                        type="Warning"
+                        showIcon="true"
+                        visible="{= !!${ui>/agentsFilterError} }"
                         class="sapUiResponsiveMargin" />
                     <FlexBox
                         wrap="Wrap"
@@ -259,48 +326,50 @@
                         class="sapUiSmallMarginBegin sapUiSmallMarginEnd acpFilterWrap">
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Status" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterAgents/status}" change=".onFilterAgentsChange" width="11rem" forceSelection="false">
+                            <Select
+                                selectedKey="{ui>/filterAgents/status}"
+                                change=".onFilterAgentsChange"
+                                width="11rem"
+                                forceSelection="false"
+                                items="{ path: 'ui>/agentStatusFilterItems', templateShareable: false }">
                                 <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="Active" text="Active" />
-                                    <core:Item key="Draft" text="Draft" />
-                                    <core:Item key="Archived" text="Archived" />
+                                    <core:Item key="{key}" text="{text}" />
                                 </items>
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Model" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterAgents/model}" change=".onFilterAgentsChange" width="10rem" forceSelection="false">
+                            <Select
+                                selectedKey="{ui>/filterAgents/model}"
+                                change=".onFilterAgentsChange"
+                                width="10rem"
+                                forceSelection="false"
+                                items="{ path: 'ui>/agentModelFilterItems', templateShareable: false }">
                                 <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="Quality" text="Quality" />
-                                    <core:Item key="Fast" text="Fast" />
+                                    <core:Item key="{key}" text="{text}" />
                                 </items>
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Dept gate" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterAgents/dept}" change=".onFilterAgentsChange" width="12rem" forceSelection="false">
+                            <Select selectedKey="{ui>/filterAgents/dept}" change=".onFilterAgentsChange" width="12rem" forceSelection="false" enabled="false">
                                 <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="procurement" text="procurement" />
-                                    <core:Item key="finance" text="finance" />
-                                    <core:Item key="it" text="it" />
+                                    <core:Item key="" text="All (not filterable on Agent)" />
                                 </items>
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiSmallMarginBottom">
                             <SearchField
                                 width="18rem"
-                                placeholder="Search agent, model, dept…"
-                                value="{mock>/filterAgents/search}"
+                                placeholder="Search name, model profile, identity…"
+                                value="{ui>/filterAgents/search}"
                                 liveChange=".onAgentsSearchLive" />
                         </HBox>
                     </FlexBox>
                     <Toolbar design="Transparent">
-                        <Button text="New agent (mock)" type="Emphasized" press=".onAgentsNew" />
+                        <Button text="New agent" type="Emphasized" press=".onAgentsNew" />
                         <ToolbarSpacer />
-                        <Button text="Open in Chat UI (mock)" type="Transparent" press=".onAgentsOpenChat" />
+                        <Button text="Open in Chat UI" type="Transparent" press=".onAgentsOpenChat" />
                     </Toolbar>
                     <ScrollContainer
                         horizontal="true"
@@ -308,7 +377,13 @@
                         width="100%"
                         focusable="true"
                         class="sapUiResponsiveMargin acpMcpTableScroll">
-                        <Table id="tblAgents" inset="false" items="{mock>/agents}" width="64rem" fixedLayout="false">
+                        <Table
+                            id="tblAgents"
+                            inset="false"
+                            items="{path: 'governance>/Agents', parameters: { $select: 'ID,name,modelProfile,identityMode,status' }}"
+                            noDataText="{parts: [{path: 'ui>/governanceMetadataFailed'}, {path: 'ui>/governanceError'}], formatter: '.formatAgentsTableNoData'}"
+                            width="64rem"
+                            fixedLayout="false">
                             <columns>
                                 <Column width="16rem"><Text text="Agent" /></Column>
                                 <Column hAlign="Center" width="10rem"><Text text="Model" /></Column>
@@ -319,14 +394,14 @@
                                 <Column hAlign="Begin" width="7rem" popinDisplay="Inline"><Text text="Actions" /></Column>
                             </columns>
                             <items>
-                                <ColumnListItem>
+                                <ColumnListItem type="Active">
                                     <cells>
-                                        <Text text="{mock>name}" />
-                                        <Text text="{mock>modelProfile}" />
-                                        <Text text="{mock>identityMode}" />
-                                        <ObjectNumber number="{mock>assignedTools}" emphasized="false" />
-                                        <Text text="{mock>deptGate}" />
-                                        <ObjectStatus text="{mock>status}" state="{= ${mock>status} === 'Active' ? 'Success' : (${mock>status} === 'Draft' ? 'Information' : 'None') }" />
+                                        <Text text="{governance>name}" />
+                                        <Text text="{governance>modelProfile}" />
+                                        <Text text="{governance>identityMode}" />
+                                        <Text text="{ parts: [{path: 'governance>name'}], formatter: '.formatAgentToolCount' }" />
+                                        <Text text="—" />
+                                        <ObjectStatus text="{governance>status}" state="{= ${governance>status} === 'Active' ? 'Success' : (${governance>status} === 'Draft' ? 'Information' : 'None') }" />
                                         <HBox wrap="NoWrap" alignItems="Center">
                                             <Button icon="sap-icon://edit" type="Transparent" tooltip="Edit" press=".onAgentRowEdit" />
                                             <Button icon="sap-icon://delete" type="Transparent" tooltip="Delete" press=".onAgentRowDelete" />
@@ -340,7 +415,7 @@
 
                 <Page id="pageSkills" title="Skills" showNavButton="false">
                     <MessageStrip
-                        text="Governed procedure packs (architecture §13.1 / PRD): metadata for progressive disclosure; full markdown body at runtime. Mock CRUD only — OData Skills entity wiring is separate."
+                        text="Governed procedure packs: skills load from Governance OData (HANA). CRUD uses the same service."
                         type="Information"
                         showIcon="true"
                         class="sapUiResponsiveMargin" />
@@ -351,25 +426,25 @@
                         class="sapUiSmallMarginBegin sapUiSmallMarginEnd acpFilterWrap">
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Status" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterSkills/status}" change=".onFilterSkillsChange" width="11rem" forceSelection="false">
-                                <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="Draft" text="Draft" />
-                                    <core:Item key="Active" text="Active" />
-                                    <core:Item key="Disabled" text="Disabled" />
-                                </items>
+                            <Select
+                                selectedKey="{ui>/filterSkills/status}"
+                                change=".onFilterSkillsChange"
+                                width="11rem"
+                                forceSelection="false"
+                                items="{ path: 'ui>/skillStatusFilterItems', templateShareable: false }">
+                                <core:Item key="{key}" text="{text}" />
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiSmallMarginBottom">
                             <SearchField
                                 width="20rem"
                                 placeholder="Search name or description"
-                                value="{mock>/filterSkills/search}"
+                                value="{ui>/filterSkills/search}"
                                 liveChange=".onSkillsSearchLive" />
                         </HBox>
                     </FlexBox>
                     <Toolbar design="Transparent">
-                        <Button text="New skill (mock)" type="Emphasized" press=".onSkillsNew" />
+                        <Button text="New skill" type="Emphasized" press=".onSkillsNew" />
                     </Toolbar>
                     <ScrollContainer
                         horizontal="true"
@@ -377,7 +452,13 @@
                         width="100%"
                         focusable="true"
                         class="sapUiResponsiveMargin acpMcpTableScroll">
-                        <Table id="tblSkills" inset="false" items="{mock>/skills}" width="72rem" fixedLayout="false">
+                        <Table
+                            id="tblSkills"
+                            inset="false"
+                            items="{path: 'governance>/Skills', parameters: { $select: 'ID,name,description,status,modifiedAt' }}"
+                            noDataText="{parts: [{path: 'ui>/governanceMetadataFailed'}, {path: 'ui>/governanceError'}], formatter: '.formatSkillsTableNoData'}"
+                            width="72rem"
+                            fixedLayout="false">
                             <columns>
                                 <Column width="18rem"><Text text="Skill" /></Column>
                                 <Column width="22rem" minScreenWidth="Tablet" demandPopin="true"><Text text="Description" /></Column>
@@ -386,12 +467,12 @@
                                 <Column hAlign="Begin" width="7rem" popinDisplay="Inline"><Text text="Actions" /></Column>
                             </columns>
                             <items>
-                                <ColumnListItem>
+                                <ColumnListItem type="Active">
                                     <cells>
-                                        <Text text="{mock>name}" />
-                                        <Text text="{mock>description}" wrapping="true" maxLines="3" />
-                                        <ObjectStatus text="{mock>status}" state="{= ${mock>status} === 'Active' ? 'Success' : (${mock>status} === 'Draft' ? 'Information' : 'Error') }" />
-                                        <Text text="{mock>modifiedAt}" />
+                                        <Text text="{governance>name}" />
+                                        <Text text="{governance>description}" wrapping="true" maxLines="3" />
+                                        <ObjectStatus text="{governance>status}" state="{= ${governance>status} === 'Active' ? 'Success' : (${governance>status} === 'Draft' ? 'Information' : 'Error') }" />
+                                        <Text text="{path: 'governance>modifiedAt', type: 'sap.ui.model.odata.type.DateTimeOffset', formatOptions: { style: 'short', UTC: true }}" />
                                         <HBox wrap="NoWrap" alignItems="Center">
                                             <Button icon="sap-icon://edit" type="Transparent" tooltip="Edit" press=".onSkillRowEdit" />
                                             <Button icon="sap-icon://delete" type="Transparent" tooltip="Delete" press=".onSkillRowDelete" />
@@ -409,6 +490,24 @@
                         type="Information"
                         showIcon="true"
                         class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="{ui>/capabilityFilterListsError}"
+                        type="Error"
+                        showIcon="true"
+                        visible="{= ${ui>/capabilityFilterListsError} ? true : false }"
+                        class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="{ui>/agentCapabilitiesError}"
+                        type="Error"
+                        showIcon="true"
+                        visible="{= ${ui>/agentCapabilitiesError} ? true : false }"
+                        class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="{ui>/agentCapabilitiesInfo}"
+                        type="Information"
+                        showIcon="true"
+                        visible="{= ${ui>/agentCapabilitiesInfo} ? true : false }"
+                        class="sapUiResponsiveMargin" />
                     <FlexBox
                         wrap="Wrap"
                         alignItems="Center"
@@ -416,18 +515,18 @@
                         class="sapUiSmallMarginBegin sapUiSmallMarginEnd acpFilterWrap">
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Agent" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterAgentCapabilities/agent}" change=".onFilterAgentCapabilitiesChange" width="18rem" forceSelection="false">
-                                <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="Procurement Assistant" text="Procurement Assistant" />
-                                    <core:Item key="Finance Copilot" text="Finance Copilot" />
-                                    <core:Item key="IT Helpdesk Agent" text="IT Helpdesk Agent" />
-                                </items>
+                            <Select
+                                selectedKey="{ui>/filterAgentCapabilities/agent}"
+                                change=".onFilterAgentCapabilitiesChange"
+                                items="{path: 'ui>/agentNameFilterItems'}"
+                                width="18rem"
+                                forceSelection="false">
+                                <core:Item key="{key}" text="{text}" />
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Route" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterAgentCapabilities/routeType}" change=".onFilterAgentCapabilitiesChange" width="12rem" forceSelection="false">
+                            <Select selectedKey="{ui>/filterAgentCapabilities/routeType}" change=".onFilterAgentCapabilitiesChange" width="12rem" forceSelection="false">
                                 <items>
                                     <core:Item key="" text="All" />
                                     <core:Item key="Direct" text="Direct tool" />
@@ -437,27 +536,26 @@
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Tool" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterAgentCapabilities/tool}" change=".onFilterAgentCapabilitiesChange" width="16rem" forceSelection="false">
-                                <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="lookup_vendor" text="lookup_vendor" />
-                                    <core:Item key="create_purchase_requisition" text="create_purchase_requisition" />
-                                    <core:Item key="kb_search" text="kb_search" />
-                                    <core:Item key="run_sql_readonly" text="run_sql_readonly" />
-                                </items>
+                            <Select
+                                selectedKey="{ui>/filterAgentCapabilities/tool}"
+                                change=".onFilterAgentCapabilitiesChange"
+                                items="{path: 'ui>/toolNameFilterItems'}"
+                                width="16rem"
+                                forceSelection="false">
+                                <core:Item key="{key}" text="{text}" />
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiSmallMarginBottom">
                             <SearchField
                                 width="20rem"
                                 placeholder="Search skill, note, permission…"
-                                value="{mock>/filterAgentCapabilities/search}"
+                                value="{ui>/filterAgentCapabilities/search}"
                                 liveChange=".onAgentCapabilitiesSearchLive" />
                         </HBox>
                     </FlexBox>
                     <Toolbar design="Transparent">
-                        <Button text="Explain map (mock)" type="Transparent" press=".onAgentCapabilitiesLegend" />
-                        <Button text="Request approval (mock)" type="Transparent" press=".onAgentToolsRequestApproval" />
+                        <Button text="Explain map" type="Transparent" press=".onAgentCapabilitiesLegend" />
+                        <Button text="Request approval" type="Transparent" press=".onAgentToolsRequestApproval" />
                     </Toolbar>
                     <ScrollContainer
                         horizontal="true"
@@ -465,7 +563,13 @@
                         width="100%"
                         focusable="true"
                         class="sapUiResponsiveMargin acpMcpTableScroll">
-                        <Table id="tblAgentCapabilities" inset="false" items="{mock>/agentCapabilities}" width="88rem" fixedLayout="false">
+                        <Table
+                            id="tblAgentCapabilities"
+                            inset="false"
+                            items="{ui>/agentCapabilities}"
+                            noDataText="{ui>/agentCapabilitiesNoDataText}"
+                            width="88rem"
+                            fixedLayout="false">
                             <columns>
                                 <Column width="10rem"><Text text="Route" /></Column>
                                 <Column width="16rem"><Text text="Agent" /></Column>
@@ -478,16 +582,16 @@
                                 <Column hAlign="Begin" width="7rem" popinDisplay="Inline"><Text text="Actions" /></Column>
                             </columns>
                             <items>
-                                <ColumnListItem>
+                                <ColumnListItem type="Active">
                                     <cells>
-                                        <ObjectStatus text="{mock>routeType}" state="{= ${mock>routeTypeKey} === 'Skill' ? 'Information' : 'Success' }" />
-                                        <Text text="{mock>agentName}" />
-                                        <Text text="{mock>skillName}" wrapping="true" />
-                                        <Text text="{mock>toolName}" />
-                                        <Text text="{mock>permissionOverride}" />
-                                        <Switch enabled="false" state="{mock>approved}" />
-                                        <Text text="{mock>lastReviewed}" />
-                                        <Text text="{mock>governanceNote}" wrapping="true" maxLines="3" />
+                                        <ObjectStatus text="{ui>routeType}" state="{= ${ui>routeTypeKey} === 'Skill' ? 'Information' : 'Success' }" />
+                                        <Text text="{ui>agentName}" />
+                                        <Text text="{ui>skillName}" wrapping="true" />
+                                        <Text text="{ui>toolName}" />
+                                        <Text text="{ui>permissionOverride}" />
+                                        <Switch enabled="false" state="{ui>approved}" />
+                                        <Text text="{ui>lastReviewed}" />
+                                        <Text text="{ui>governanceNote}" wrapping="true" maxLines="3" />
                                         <HBox wrap="NoWrap" alignItems="Center">
                                             <Button icon="sap-icon://edit" type="Transparent" tooltip="Edit" press=".onCapabilityRowEdit" />
                                             <Button icon="sap-icon://delete" type="Transparent" tooltip="Delete" press=".onCapabilityRowDelete" />
@@ -507,10 +611,20 @@
                     class="acpPlaygroundPage">
                     <VBox id="playgroundShellHost" width="100%" height="100%" class="acpPlaygroundShell">
                         <MessageStrip
-                            text="Wide: parameters and chat side-by-side. Narrow (under ~960px): use System parameters and Chat tabs. Same contract as Chat UI after wiring."
+                            text="{i18n>PlaygroundLayoutHint}"
                             type="Information"
                             showIcon="true"
                             class="acpPlaygroundStrip" />
+                        <MessageStrip
+                            text="{i18n>PlaygroundGovernanceAgentsHint}"
+                            type="Information"
+                            showIcon="true"
+                            class="sapUiTinyMarginBegin sapUiTinyMarginEnd acpPlaygroundStrip" />
+                        <MessageStrip
+                            text="{i18n>PlaygroundChatUsesApi}"
+                            type="Information"
+                            showIcon="true"
+                            class="sapUiTinyMarginBegin sapUiTinyMarginEnd acpPlaygroundStrip" />
                         <IconTabBar
                             id="playgroundTabBar"
                             visible="{= ${uiShell>/playgroundUseTabs} === true }"
@@ -523,7 +637,7 @@
                                 <FlexItemData growFactor="1" shrinkFactor="1" baseSize="0" />
                             </layoutData>
                             <items>
-                                <IconTabFilter text="System parameters" key="params">
+                                <IconTabFilter text="{i18n>PlaygroundSystemParameters}" key="params">
                                     <content>
                                         <ScrollContainer
                                             horizontal="false"
@@ -534,18 +648,24 @@
                                             class="acpPlaygroundParamsTabScroll">
                                             <VBox width="100%" class="sapUiSmallMargin acpPlaygroundParamsTabInner">
                                                 <Panel
-                                                    headerText="System parameters"
+                                                    headerText="{i18n>PlaygroundSystemParameters}"
                                                     expandable="false"
                                                     backgroundDesign="Translucent"
                                                     width="100%"
                                                     class="acpPlaygroundParamsPanel">
                                                     <VBox>
-                                                        <Label text="Agent" class="sapUiTinyMarginBottom" />
-                                                        <Select id="playgroundAgentSelectTab" enabled="true" width="100%">
-                                                            <items>
-                                                                <core:Item key="proc" text="Procurement Assistant (mock)" />
-                                                                <core:Item key="fin" text="Finance Copilot (mock)" />
-                                                            </items>
+                                                        <Label text="{i18n>PlaygroundAgentLabel}" class="sapUiTinyMarginBottom" />
+                                                        <Select
+                                                            id="playgroundAgentSelectTab"
+                                                            enabled="true"
+                                                            width="100%"
+                                                            selectedKey="{ui>/playgroundSelectedAgent}"
+                                                            forceSelection="false"
+                                                            items="{
+                                                                path: 'ui>/playgroundAgentSelectItems',
+                                                                templateShareable: false
+                                                            }">
+                                                            <core:Item key="{key}" text="{text}" />
                                                         </Select>
                                                         <Label text="System prompt" class="sapUiSmallMarginTop sapUiTinyMarginBottom" />
                                                         <TextArea
@@ -554,28 +674,28 @@
                                                             width="100%"
                                                             growing="true"
                                                             growingMaxLines="16"
-                                                            value="{mock>/playgroundSystemPrompt}" />
+                                                            value="{ui>/playgroundSystemPrompt}" />
                                                         <Label text="Temperature" class="sapUiSmallMarginTop sapUiTinyMarginBottom" />
                                                         <Slider
                                                             id="playgroundTempTab"
                                                             min="0"
                                                             max="2"
                                                             step="0.1"
-                                                            value="{mock>/playgroundTemperature}"
+                                                            value="{ui>/playgroundTemperature}"
                                                             liveChange=".onPlaygroundTempChange"
                                                             width="100%" />
-                                                        <Text text="{mock>/playgroundTemperature}" class="sapUiTinyMarginTop" />
+                                                        <Text text="{ui>/playgroundTemperature}" class="sapUiTinyMarginTop" />
                                                     </VBox>
                                                 </Panel>
                                             </VBox>
                                         </ScrollContainer>
                                     </content>
                                 </IconTabFilter>
-                                <IconTabFilter text="Chat" key="chat">
+                                <IconTabFilter text="{i18n>PlaygroundChatPanelTitle}" key="chat">
                                     <content>
                                         <VBox height="100%" width="100%" class="acpPlaygroundTabPane acpPlaygroundChatCol">
                                             <Panel
-                                                headerText="Chat (mock)"
+                                                headerText="{i18n>PlaygroundChatPanelTitle}"
                                                 expandable="false"
                                                 height="100%"
                                                 width="100%"
@@ -596,11 +716,11 @@
                                                         <layoutData>
                                                             <FlexItemData growFactor="1" shrinkFactor="1" baseSize="0" />
                                                         </layoutData>
-                                                        <List id="playgroundListTab" items="{mock>/playgroundMessages}" showSeparators="All" width="100%" class="acpPlaygroundMsgList">
+                                                        <List id="playgroundListTab" items="{ui>/playgroundMessages}" showSeparators="All" width="100%" class="acpPlaygroundMsgList">
                                                             <CustomListItem>
                                                                 <VBox class="sapUiSmallMargin" width="100%">
-                                                                    <Text text="{mock>author}" class="sapMTextBold" wrapping="true" />
-                                                                    <Text text="{mock>text}" wrapping="true" />
+                                                                    <Text text="{ui>author}" class="sapMTextBold" wrapping="true" />
+                                                                    <Text text="{ui>text}" wrapping="true" />
                                                                 </VBox>
                                                             </CustomListItem>
                                                         </List>
@@ -618,13 +738,14 @@
                                                             growing="true"
                                                             growingMaxLines="8"
                                                             width="100%"
-                                                            placeholder="Type a test message (mock UI only)…"
+                                                            placeholder="{i18n>PlaygroundInputPlaceholder}"
                                                             class="acpPlaygroundInput" />
                                                         <HBox width="100%" justifyContent="End" alignItems="Center" class="sapUiTinyMarginTop">
                                                             <Button
                                                                 id="playgroundSendTab"
-                                                                text="Send (mock)"
+                                                                text="{i18n>PlaygroundSend}"
                                                                 type="Emphasized"
+                                                                enabled="{= !${ui>/playgroundStreaming} }"
                                                                 press=".onPlaygroundSend" />
                                                         </HBox>
                                                     </VBox>
@@ -653,18 +774,24 @@
                                     <FlexItemData growFactor="0" shrinkFactor="0" baseSize="360px" />
                                 </layoutData>
                                 <Panel
-                                    headerText="System parameters"
+                                    headerText="{i18n>PlaygroundSystemParameters}"
                                     expandable="false"
                                     backgroundDesign="Translucent"
                                     height="100%"
                                     class="acpPlaygroundParamsPanel">
                                     <VBox class="sapUiSmallMargin" height="100%">
-                                        <Label text="Agent" class="sapUiTinyMarginBottom" />
-                                        <Select id="playgroundAgentSelect" enabled="true" width="100%">
-                                            <items>
-                                                <core:Item key="proc" text="Procurement Assistant (mock)" />
-                                                <core:Item key="fin" text="Finance Copilot (mock)" />
-                                            </items>
+                                        <Label text="{i18n>PlaygroundAgentLabel}" class="sapUiTinyMarginBottom" />
+                                        <Select
+                                            id="playgroundAgentSelect"
+                                            enabled="true"
+                                            width="100%"
+                                            selectedKey="{ui>/playgroundSelectedAgent}"
+                                            forceSelection="false"
+                                            items="{
+                                                path: 'ui>/playgroundAgentSelectItems',
+                                                templateShareable: false
+                                            }">
+                                            <core:Item key="{key}" text="{text}" />
                                         </Select>
                                         <Label text="System prompt" class="sapUiSmallMarginTop sapUiTinyMarginBottom" />
                                         <TextArea
@@ -673,7 +800,7 @@
                                             width="100%"
                                             growing="true"
                                             growingMaxLines="16"
-                                            value="{mock>/playgroundSystemPrompt}">
+                                            value="{ui>/playgroundSystemPrompt}">
                                             <layoutData>
                                                 <FlexItemData growFactor="1" shrinkFactor="1" baseSize="0" />
                                             </layoutData>
@@ -684,10 +811,10 @@
                                             min="0"
                                             max="2"
                                             step="0.1"
-                                            value="{mock>/playgroundTemperature}"
+                                            value="{ui>/playgroundTemperature}"
                                             liveChange=".onPlaygroundTempChange"
                                             width="100%" />
-                                        <Text text="{mock>/playgroundTemperature}" class="sapUiTinyMarginTop" />
+                                        <Text text="{ui>/playgroundTemperature}" class="sapUiTinyMarginTop" />
                                     </VBox>
                                 </Panel>
                             </VBox>
@@ -696,7 +823,7 @@
                                     <FlexItemData growFactor="1" shrinkFactor="1" baseSize="0" />
                                 </layoutData>
                                 <Panel
-                                    headerText="Chat (mock)"
+                                    headerText="{i18n>PlaygroundChatPanelTitle}"
                                     expandable="false"
                                     height="100%"
                                     width="100%"
@@ -717,11 +844,11 @@
                                             <layoutData>
                                                 <FlexItemData growFactor="1" shrinkFactor="1" baseSize="0" />
                                             </layoutData>
-                                            <List id="playgroundList" items="{mock>/playgroundMessages}" showSeparators="All" width="100%" class="acpPlaygroundMsgList">
+                                            <List id="playgroundList" items="{ui>/playgroundMessages}" showSeparators="All" width="100%" class="acpPlaygroundMsgList">
                                                 <CustomListItem>
                                                     <VBox class="sapUiSmallMargin" width="100%">
-                                                        <Text text="{mock>author}" class="sapMTextBold" wrapping="true" />
-                                                        <Text text="{mock>text}" wrapping="true" />
+                                                        <Text text="{ui>author}" class="sapMTextBold" wrapping="true" />
+                                                        <Text text="{ui>text}" wrapping="true" />
                                                     </VBox>
                                                 </CustomListItem>
                                             </List>
@@ -739,13 +866,14 @@
                                                 growing="true"
                                                 growingMaxLines="8"
                                                 width="100%"
-                                                placeholder="Type a test message (mock UI only)…"
+                                                placeholder="{i18n>PlaygroundInputPlaceholder}"
                                                 class="acpPlaygroundInput" />
                                             <HBox width="100%" justifyContent="End" alignItems="Center" class="sapUiTinyMarginTop">
                                                 <Button
                                                     id="playgroundSend"
-                                                    text="Send (mock)"
+                                                    text="{i18n>PlaygroundSend}"
                                                     type="Emphasized"
+                                                    enabled="{= !${ui>/playgroundStreaming} }"
                                                     press=".onPlaygroundSend" />
                                             </HBox>
                                         </VBox>
@@ -758,7 +886,7 @@
 
                 <Page id="pageAccess" title="Access &amp; groups" showNavButton="false">
                     <MessageStrip
-                        text="Filters use AND. New group / Edit claims open dialogs (mock save via toast)."
+                        text="{i18n>AccessPageStrip}"
                         type="Information"
                         showIcon="true"
                         class="sapUiResponsiveMargin" />
@@ -769,35 +897,37 @@
                         class="sapUiSmallMarginBegin sapUiSmallMarginEnd acpFilterWrap">
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Claim key" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterGroups/claimKey}" change=".onFilterGroupsChange" width="10rem" forceSelection="false">
-                                <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="dept" text="dept" />
-                                    <core:Item key="role" text="role" />
-                                </items>
+                            <Select
+                                selectedKey="{ui>/filterGroups/claimKey}"
+                                change=".onFilterGroupsChange"
+                                width="12rem"
+                                forceSelection="false"
+                                items="{ path: 'ui>/groupClaimKeyFilterItems', templateShareable: false }">
+                                <core:Item key="{key}" text="{text}" />
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiTinyMarginEnd sapUiSmallMarginBottom">
                             <Label text="Status" showColon="true" class="sapUiTinyMarginEnd" />
-                            <Select selectedKey="{mock>/filterGroups/status}" change=".onFilterGroupsChange" width="11rem" forceSelection="false">
-                                <items>
-                                    <core:Item key="" text="All" />
-                                    <core:Item key="Active" text="Active" />
-                                    <core:Item key="Disabled" text="Disabled" />
-                                </items>
+                            <Select
+                                selectedKey="{ui>/filterGroups/status}"
+                                change=".onFilterGroupsChange"
+                                width="11rem"
+                                forceSelection="false"
+                                items="{ path: 'ui>/groupStatusFilterItems', templateShareable: false }">
+                                <core:Item key="{key}" text="{text}" />
                             </Select>
                         </HBox>
                         <HBox alignItems="Center" wrap="NoWrap" class="sapUiSmallMarginBottom">
                             <SearchField
                                 width="18rem"
                                 placeholder="Search group, claims, agents…"
-                                value="{mock>/filterGroups/search}"
+                                value="{ui>/filterGroups/search}"
                                 liveChange=".onGroupsSearchLive" />
                         </HBox>
                     </FlexBox>
                     <Toolbar design="Transparent">
-                        <Button text="New group (mock)" type="Emphasized" press=".onOpenNewGroup" />
-                        <Button text="Edit claim values (mock)" type="Transparent" press=".onOpenEditClaims" />
+                        <Button text="New group" type="Emphasized" press=".onOpenNewGroup" />
+                        <Button text="Edit claim values" type="Transparent" press=".onOpenEditClaims" />
                     </Toolbar>
                     <ScrollContainer
                         horizontal="true"
@@ -805,7 +935,14 @@
                         width="100%"
                         focusable="true"
                         class="sapUiResponsiveMargin acpMcpTableScroll">
-                        <Table id="tblGroups" inset="false" items="{mock>/groups}" width="72rem" fixedLayout="false">
+                        <Table
+                            id="tblGroups"
+                            mode="SingleSelectLeft"
+                            inset="false"
+                            items="{path: 'governance>/AgentGroups', parameters: { $select: 'ID,name,claimKey,description,status' }}"
+                            noDataText="{ui>/groupsTableNoDataText}"
+                            width="72rem"
+                            fixedLayout="false">
                             <columns>
                                 <Column width="18rem"><Text text="Group" /></Column>
                                 <Column width="10rem"><Text text="Claim key" /></Column>
@@ -815,13 +952,13 @@
                                 <Column hAlign="Begin" width="7rem" popinDisplay="Inline"><Text text="Actions" /></Column>
                             </columns>
                             <items>
-                                <ColumnListItem>
+                                <ColumnListItem type="Active">
                                     <cells>
-                                        <Text text="{mock>name}" />
-                                        <Text text="{mock>claimKey}" />
-                                        <Text text="{mock>claimValues}" />
-                                        <Text text="{mock>assignedAgents}" />
-                                        <ObjectStatus text="{mock>status}" state="{= ${mock>status} === 'Active' ? 'Success' : 'Error' }" />
+                                        <Text text="{governance>name}" />
+                                        <Text text="{governance>claimKey}" />
+                                        <Text text="{governance>description}" wrapping="true" maxLines="3" />
+                                        <Text text="—" />
+                                        <ObjectStatus text="{governance>status}" state="{= ${governance>status} === 'Active' ? 'Success' : 'Error' }" />
                                         <HBox wrap="NoWrap" alignItems="Center">
                                             <Button icon="sap-icon://edit" type="Transparent" tooltip="Edit" press=".onGroupRowEdit" />
                                             <Button icon="sap-icon://delete" type="Transparent" tooltip="Delete" press=".onGroupRowDelete" />
@@ -854,7 +991,7 @@
                     </VBox>
                 </content>
                 <beginButton>
-                    <Button text="Save (mock)" type="Emphasized" press=".onMcpDlgSave" />
+                    <Button text="Save" type="Emphasized" press=".onMcpDlgSave" />
                 </beginButton>
                 <endButton>
                     <Button text="Cancel" press=".onMcpDlgCancel" />
@@ -884,14 +1021,6 @@
                                 <core:Item key="Mixed" text="Mixed" />
                             </items>
                         </Select>
-                        <Label text="Dept gate" class="sapUiSmallMarginTop" />
-                        <Select selectedKey="{uiDlg>/agentDlgDept}" width="100%" forceSelection="false">
-                            <items>
-                                <core:Item key="procurement" text="procurement" />
-                                <core:Item key="finance" text="finance" />
-                                <core:Item key="it" text="it" />
-                            </items>
-                        </Select>
                         <Label text="Status" class="sapUiSmallMarginTop" />
                         <Select selectedKey="{uiDlg>/agentDlgStatus}" width="100%" forceSelection="false">
                             <items>
@@ -900,12 +1029,13 @@
                                 <core:Item key="Archived" text="Archived" />
                             </items>
                         </Select>
-                        <Label text="Assigned tools (count)" class="sapUiSmallMarginTop" />
-                        <Input value="{uiDlg>/agentDlgTools}" type="Number" />
+                        <Label text="Direct tools (AgentTool count)" class="sapUiSmallMarginTop" />
+                        <Text text="{uiDlg>/agentDlgToolsLabel}" class="sapUiTinyMarginBottom" />
+                        <Text text="Assign or remove tools on Agent ↔ skills ↔ tools. Dept gate is not stored on Agent; use access groups." class="sapMTextMeta" wrapping="true" />
                     </VBox>
                 </content>
                 <beginButton>
-                    <Button text="Save (mock)" type="Emphasized" press=".onAgentDlgSave" />
+                    <Button text="Save" type="Emphasized" press=".onAgentDlgSave" />
                 </beginButton>
                 <endButton>
                     <Button text="Cancel" press=".onAgentDlgCancel" />
@@ -936,7 +1066,7 @@
                     </VBox>
                 </content>
                 <beginButton>
-                    <Button text="Save (mock)" type="Emphasized" press=".onSkillDlgSave" />
+                    <Button text="Save" type="Emphasized" press=".onSkillDlgSave" />
                 </beginButton>
                 <endButton>
                     <Button text="Cancel" press=".onSkillDlgCancel" />
@@ -949,18 +1079,24 @@
                 draggable="true">
                 <content>
                     <VBox class="sapUiSmallMargin">
+                        <MessageStrip
+                            text="This dialog is a template preview only — values are not claim entities until AgentGroupClaimValue / membership are wired. Save on an empty template does not persist."
+                            type="Information"
+                            showIcon="true"
+                            visible="{uiDlg>/accessDlgIsTemplateOnly}"
+                            class="sapUiTinyMarginBottom" />
                         <Label text="Group name" />
                         <Input value="{uiDlg>/groupName}" placeholder="e.g. Department — Procurement" />
                         <Label text="Claim key" class="sapUiSmallMarginTop" />
                         <Input value="{uiDlg>/claimKey}" placeholder="dept | role | …" />
                         <Label text="Claim values" class="sapUiSmallMarginTop" />
-                        <TextArea rows="3" value="{uiDlg>/claimValues}" placeholder="Comma-separated values" />
+                        <TextArea rows="3" value="{uiDlg>/claimValues}" placeholder="Comma-separated values (stored on group description until claim entities exist)" />
                         <Label text="Agents in scope" class="sapUiSmallMarginTop" />
-                        <TextArea rows="3" value="{uiDlg>/assignedAgents}" placeholder="Comma-separated agent display names" />
+                        <TextArea rows="3" value="{uiDlg>/assignedAgents}" placeholder="Comma-separated agent display names (not persisted yet)" />
                     </VBox>
                 </content>
                 <beginButton>
-                    <Button text="Save (mock)" type="Emphasized" press=".onAccessGroupSave" />
+                    <Button text="Save" type="Emphasized" press=".onAccessGroupSave" />
                 </beginButton>
                 <endButton>
                     <Button text="Cancel" press=".onAccessGroupCancel" />

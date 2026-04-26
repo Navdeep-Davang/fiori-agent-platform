@@ -3,8 +3,8 @@ using acp from '../db/schema';
 service GovernanceService @(path: '/odata/v4/governance') {
 
   @(restrict: [
-    { grant: ['READ'], to: ['Agent.Author', 'Agent.Admin', 'Agent.Audit'] },
-    { grant: ['WRITE', 'CREATE', 'UPDATE', 'DELETE'], to: ['Agent.Admin'] }
+    { grant: ['*'], to: ['Agent.Admin', 'Agent.Author'] },
+    { grant: ['READ'], to: 'Agent.Audit' }
   ])
   entity McpServers as projection on acp.McpServer actions {
     action testConnection() returns String;

@@ -25,6 +25,17 @@
 4. When ready: **go-ahead** for agent to debug **502** / CAP→Python / **1.4.1–1.4.2**.  
 5. **Phase 2 CF** last.
 
+## Plan 07 — Admin UI governance resilience (sync 2026-04-26)
+
+| Task area | Status | Notes |
+|-----------|--------|--------|
+| Phase A (inventory) | **COMPLETE** | A.1–A.4 |
+| Phase B | **B.1–B.2 done**; B.3–B.4 open | B.2 runbook in `doc/Operations/mcp-registration.md` §4 |
+| Phase C (resilience) | **COMPLETE** | C.1–C.6; action error path refreshes governance model; `lastHealthCheck` + `health` FAIL UX |
+| Phase D | **D.1 done**; D.2–D.3 open | D.1: `cds.tx` persist on `testConnection` / `syncTools` failure |
+| Phase E (verification) | **OPEN** | E.1–E.3 manual matrix not closed |
+| Phase F (Elements alignment) | **OPEN** | F.1–F.3 long-term |
+
 ## Session notes
 
 - Prior audits: `.cursor/worker-reports/06-audit-phase*.md`.

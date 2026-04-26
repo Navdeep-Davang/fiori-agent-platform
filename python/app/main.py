@@ -31,10 +31,12 @@ class InternalTokenMiddleware(BaseHTTPMiddleware):
             or ""
         )
         if got != INTERNAL_TOKEN:
+            logger.warning(f"Forbidden: Invalid or missing internal token on {path} (got: {got[:5]}...)")
             return JSONResponse(status_code=403, content={"error": "Invalid or missing internal token"})
         # Plan 05 / 06: prove user context on the hop (CAP sets these).
         uid = request.headers.get("x-ac-user-id") or request.headers.get("X-AC-User-Id")
         if not (uid and str(uid).strip()):
+            logger.warning(f"Forbidden: Missing X-AC-User-Id on {path}")
             return JSONResponse(status_code=403, content={"error": "Missing X-AC-User-Id"})
         return await call_next(request)
 

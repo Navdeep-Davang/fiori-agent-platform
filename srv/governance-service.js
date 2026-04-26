@@ -16,7 +16,11 @@ async function resolveMcpBaseUrl(server) {
       /* local dev without Destination service — fall through */
     }
   }
-  if (server.baseUrl?.trim()) return server.baseUrl.replace(/\/$/, '')
+  let base = server.baseUrl?.trim() || ''
+  if (base.includes('localhost')) {
+    base = base.replace('localhost', '127.0.0.1')
+  }
+  if (base) return base.replace(/\/$/, '')
   throw new Error('McpServer has no resolvable URL (destination or baseUrl)')
 }
 
@@ -37,63 +41,106 @@ module.exports = cds.service.impl(async function () {
     req.data.createdBy = req.user?.id || req.user?.email || 'unknown'
   })
 
+  const LOG = cds.log('governance')
   this.on('testConnection', McpServers, async req => {
-    const id = req.params[0].ID
+    LOG.info(`testConnection triggered. Params: ${JSON.stringify(req.params)}`)
+    const id = req.params[0]?.ID || req.params[0]
+    const srv = await SELECT.one.from(McpServers).where({ ID: id })
+    if (!srv) {
+      LOG.error(`McpServer not found for ID: ${id}`)
+      return req.reject(404, 'McpServer not found')
+    }
+    let base
+    try {
+      base = await resolveMcpBaseUrl(srv)
+      LOG.info(`Resolved base URL: ${base}`)
+    } catch (e) {
+      LOG.error(`Failed to resolve base URL: ${e.message}`)
+      await cds.tx(async () => {
+        await UPDATE(McpServers).set({ health: 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
+      })
+      return req.reject(400, e.message || String(e))
+    }
+    try {
+      LOG.info(`Calling health endpoint: ${base}/health`)
+      const { status } = await axios.get(`${base}/health`, {
+        timeout: 15000,
+        validateStatus: () => true,
+        headers: forwardHeadersForPython(req.user)
+      })
+      LOG.info(`Health check response status: ${status}`)
+      const ok = status === 200
+      await cds.tx(async () => {
+        await UPDATE(McpServers).set({ health: ok ? 'OK' : 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
+      })
+      if (!ok) return req.reject(400, `HTTP ${status}`)
+      return 'OK'
+    } catch (e) {
+      LOG.error(`Health check failed: ${e.message}`)
+      await cds.tx(async () => {
+        await UPDATE(McpServers).set({ health: 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
+      })
+      return req.reject(500, `FAIL: ${e.message}`)
+    }
+  })
+
+  this.on('syncTools', McpServers, async req => {
+    const id = req.params[0]?.ID || req.params[0]
     const srv = await SELECT.one.from(McpServers).where({ ID: id })
     if (!srv) return req.reject(404, 'McpServer not found')
     let base
     try {
       base = await resolveMcpBaseUrl(srv)
     } catch (e) {
-      await UPDATE(McpServers).set({ health: 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
-      return e.message || String(e)
+      await cds.tx(async () => {
+        await UPDATE(McpServers).set({ health: 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
+      })
+      return req.reject(400, e.message || String(e))
     }
-    try {
-      const { status } = await axios.get(`${base}/health`, { timeout: 15000, validateStatus: () => true })
-      const ok = status === 200
-      await UPDATE(McpServers).set({ health: ok ? 'OK' : 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
-      return ok ? 'OK' : `HTTP ${status}`
-    } catch (e) {
-      await UPDATE(McpServers).set({ health: 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
-      return `FAIL: ${e.message}`
-    }
-  })
 
-  this.on('syncTools', McpServers, async req => {
-    const id = req.params[0].ID
-    const srv = await SELECT.one.from(McpServers).where({ ID: id })
-    if (!srv) return req.reject(404, 'McpServer not found')
-    const base = await resolveMcpBaseUrl(srv)
-    const { data } = await axios.post(`${base}/mcp/tools/list`, {}, { timeout: 60000 })
-    const tools = Array.isArray(data?.tools) ? data.tools : Array.isArray(data) ? data : []
-    let n = 0
-    for (const t of tools) {
-      const name = t.name || t.toolName
-      if (!name) continue
-      const existing = await SELECT.one.from(Tools).where({ server_ID: id, name })
-      const row = {
-        name,
-        description: t.description || '',
-        server_ID: id,
-        inputSchema: typeof t.inputSchema === 'string' ? t.inputSchema : JSON.stringify(t.inputSchema || {}),
-        outputSchema: t.outputSchema
-          ? typeof t.outputSchema === 'string'
-            ? t.outputSchema
-            : JSON.stringify(t.outputSchema)
-          : '',
-        riskLevel: 'Low',
-        elevated: false,
-        status: 'Draft',
-        modifiedAt: new Date()
+    try {
+      const { data } = await axios.post(`${base}/mcp/tools/list`, {}, {
+        timeout: 60000,
+        headers: forwardHeadersForPython(req.user)
+      })
+      const tools = Array.isArray(data?.tools) ? data.tools : Array.isArray(data) ? data : []
+      let n = 0
+      for (const t of tools) {
+        const name = t.name || t.toolName
+        if (!name) continue
+        const existing = await SELECT.one.from(Tools).where({ server_ID: id, name })
+        const row = {
+          name,
+          description: t.description || '',
+          server_ID: id,
+          inputSchema: typeof t.inputSchema === 'string' ? t.inputSchema : JSON.stringify(t.inputSchema || {}),
+          outputSchema: t.outputSchema
+            ? typeof t.outputSchema === 'string'
+              ? t.outputSchema
+              : JSON.stringify(t.outputSchema)
+            : '',
+          riskLevel: 'Low',
+          elevated: false,
+          status: 'Draft',
+          modifiedAt: new Date()
+        }
+        if (existing) {
+          await UPDATE(Tools).set(row).where({ ID: existing.ID })
+        } else {
+          await INSERT.into(Tools).entries({ ...row, ID: cds.utils.uuid() })
+        }
+        n++
       }
-      if (existing) {
-        await UPDATE(Tools).set(row).where({ ID: existing.ID })
-      } else {
-        await INSERT.into(Tools).entries({ ...row, ID: cds.utils.uuid() })
-      }
-      n++
+      await cds.tx(async () => {
+        await UPDATE(McpServers).set({ health: 'OK', lastHealthCheck: new Date() }).where({ ID: id })
+      })
+      return `Synced ${n} tools`
+    } catch (e) {
+      await cds.tx(async () => {
+        await UPDATE(McpServers).set({ health: 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
+      })
+      return req.reject(500, `Sync failed: ${e.message}`)
     }
-    return `Synced ${n} tools`
   })
 
   this.on('runTest', Tools, async req => {

@@ -198,6 +198,27 @@ cds.on('bootstrap', app => {
     })
   }
 
+  app.get('/api/session', (req, res) => {
+    try {
+      const user = req.user
+      if (!user) return res.status(401).json({ error: 'Unauthorized' })
+      const authHeader = getAuthHeader(req)
+      const gated = attrForAgentGating(user, authHeader)
+      const dept = String(gated.dept ?? user.attr?.dept ?? '').trim()
+      const roles = userRolesList(user)
+      return res.json({
+        id: user.id,
+        email: user.email || user.id || '',
+        displayName: user.attr?.displayName || user.name || user.id || '—',
+        roles: roles.length ? roles.join(', ') : '—',
+        dept: dept || '—'
+      })
+    } catch (e) {
+      console.error(e)
+      return res.status(500).json({ error: e.message })
+    }
+  })
+
   app.get('/api/agents', async (req, res) => {
     try {
       const user = req.user

@@ -18,6 +18,7 @@
   },
   "devDependencies": {
     "@sap/eslint-plugin-cds": "^3",
+    "hdb": "^0.19.12",
     "rimraf": "^5.0.10"
   },
   "scripts": {
