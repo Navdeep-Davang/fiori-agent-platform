@@ -8,7 +8,7 @@ observation_refs:
   - doc/Observation/admin-app/
 sync_status: draft
 created: 2026-04-23
-last_updated: 2026-04-26
+last_updated: 2026-04-28
 ---
 
 # Action Plan 07 — Admin UI: live governance data, correct MCP, graceful errors
@@ -18,6 +18,8 @@ last_updated: 2026-04-26
 > **Relationship to Plan 06:** [06-architecture-aligned-e2e.md](06-architecture-aligned-e2e.md) stays the **architecture-wide** roadmap. **This file** holds the **admin-specific** checklist—MCP correctness, OData/UI error handling, and verification—so Plan **06** does not become overloaded.
 >
 > **Governance of implementation:** Do **not** merge large refactors until this plan is reviewed and tasks are explicitly approved (same rule as Plan **06** appendix owner gate).
+>
+> **Checkpoint (2026-04-28):** **Phases A, C, D** and **B.1–B.3** are **done** in repo (incl. strict sync, Tools catalog edit + parent MCP line health, `governance-net-errors`). **Open:** **B.4** (CF / destinations data — ties Plan **06**), **E.1–E.3** (manual matrix + Plan **06** cross-tick), **F.1–F.2** (future Elements). **F.3** is **done**.
 
 ---
 
@@ -53,8 +55,8 @@ last_updated: 2026-04-26
 ## 4. Phase B — MCP correctness (data + ops, minimal code later)
 
 - [X] **B.1:** Document **required** fields for a valid `McpServer` row (`destinationName` vs `baseUrl`, `authType`, `transportType`, `environment`) and **when** `getDestination` is used ([`resolveMcpBaseUrl`](../../srv/governance-service.js)).
-- [X] **B.2:** Runbook: **“MCP does not connect”** — check order: Python `/health` → destination in BTP → `baseUrl` in HANA row → App Router session for admin. (Documented in [`doc/Operations/mcp-registration.md`](../Operations/mcp-registration.md) §4.)
-- [ ] **B.3:** Decide policy: **e.g.** “**Test connection** must succeed (or user acknowledges risk) before **Sync tools**” — product rule, then enforce in UI (button enablement) + optional CAP guard.
+- [X] **B.2:** Runbook: **“MCP does not connect”** — check order: Python `/health` → destination in BTP → `baseUrl` in HANA row → App Router session for admin. (Documented in [`doc/Operations/mcp-registration.md`](../Operations/mcp-registration.md) §5.)
+- [X] **B.3:** **Policy A (strict) —** **Sync tools** is enabled only when **Health === OK** (after **Test connection** on that row). Enforced in **UI** (Sync button) and **CAP** (`governance-service.js` rejects sync when `McpServer.health !== 'OK'`). See `doc/Operations/mcp-registration.md` §3.
 - [ ] **B.4:** CF cutover: replace localhost URLs in **deployed** HDI data or use **destinations-only** rows—track as subtask under Plan **06** Phase **2** when relevant.
 
 ---
@@ -75,8 +77,8 @@ last_updated: 2026-04-26
 ## 6. Phase D — CAP service hardening (optional, coordinated with C)
 
 - [X] **D.1:** Ensure **`testConnection`** / **`syncTools`** never leave **partial DB state** without a clear result (already updates `health`; document idempotency of `syncTools`).
-- [ ] **D.2:** Consider **max duration** and **user-facing** timeout message for large `syncTools` (many tools).
-- [ ] **D.3:** Align HTTP client errors (**ECONNREFUSED**, DNS) with **short, operator-safe** strings returned to the UI (avoid leaking internal hostnames in production if policy requires masking).
+- [X] **D.2:** Consider **max duration** and **user-facing** timeout message for large `syncTools` (many tools). — Configurable `ACP_SYNC_TOOLS_TIMEOUT_MS` / `ACP_TEST_CONNECTION_TIMEOUT_MS` in [`governance-service.js`](../../srv/governance-service.js) via [`governance-net-errors.js`](../../srv/governance-net-errors.js); **Sync tools** shows a result **message box** (name preview) when successful; see [`mcp-registration.md`](../Operations/mcp-registration.md) §6.
+- [X] **D.3:** Align HTTP client errors (**ECONNREFUSED**, DNS) with **short, operator-safe** strings returned to the UI (avoid leaking internal hostnames in production if policy requires masking). — [`governance-net-errors.js`](../../srv/governance-net-errors.js) `operatorSafeHttpError`; set **`ACP_MASK_HOSTS_IN_ERRORS=true`** in prod for generic messages.
 
 ---
 
@@ -94,7 +96,7 @@ last_updated: 2026-04-26
 
 - [ ] **F.1:** Align admin delivery with [06 appendix A.4](06-architecture-aligned-e2e.md) and Plan **01** toward **Elements** as the long-term home; until that migration lands, **Phase C** resilience work still applies to whatever admin shell is in use.
 - [ ] **F.2:** After admin is on Elements, re-home **Phase C** items into FE-standard patterns (e.g. list-report / OP message handling, busy states) rather than bespoke controller-only paths where the framework already covers the case.
-- [ ] **F.3:** Treat **chat** as **freestyle by default** in architecture and planning documentation so it is not pulled into an unnecessary Elements migration.
+- [X] **F.3:** Treat **chat** as **freestyle by default** in architecture and planning documentation so it is not pulled into an unnecessary Elements migration. — Stated in [`fiori-agent-platform.md`](../Architecture/fiori-agent-platform.md) §1 front matter; cross-linked in [06 appendix](06-architecture-aligned-e2e.md) A.4.
 
 ---
 
@@ -109,7 +111,10 @@ last_updated: 2026-04-26
 | 2026-04-26 | Completed Phase A inventory (A.1, A.2, A.4). Audited all network entry points and documented current toast-only behavior for actions/CRUD. |
 | 2026-04-26 | Completed **B.1** (MCP Registration Guide) and **C.2/C.5** (Implemented shared `_showHttpError` and updated CRUD/Action handlers to use MessageBox on failure). |
 | 2026-04-26 | Completed **C.4** (Session loss detection) and **D.1** (CAP sync hardening with `try/catch` and server status updates). |
-| 2026-04-26 | **B.2** runbook: expanded [`mcp-registration.md`](../Operations/mcp-registration.md) §4 with full check order (Python `/health` → BTP destination → HANA `McpServer` row → App Router session + roles). |
+| 2026-04-26 | **B.2** runbook: expanded [`mcp-registration.md`](../Operations/mcp-registration.md) (troubleshooting block; renumbered to §5 in 2026-04-28) with full check order (Python `/health` → BTP destination → HANA `McpServer` row → App Router session + roles). |
 | 2026-04-26 | **C.2** (extend): `onMcpBoundAction` / `_runMcpBoundAction` error path now calls `oModel.refresh()` so `health` / `lastHealthCheck` update in the table after a failed `testConnection` or `syncTools`. |
 | 2026-04-26 | **C.6** (extend): `lastHealthCheck` cell uses OData V4 default type handling (removed redundant `DateTimeOffset` type on the binding) so timestamps render; **ObjectStatus** shows **Error** state when `health` is `FAIL`. |
 | 2026-04-26 | **D.1** (extend): `testConnection` / `syncTools` write `health` + `lastHealthCheck` in `cds.tx` so updates persist when the action returns an HTTP error (no rollback of the health row with `req.reject`). |
+| 2026-04-27 | **D.2** / **D.3:** Added [`governance-net-errors.js`](../../srv/governance-net-errors.js) — `ACP_SYNC_TOOLS_TIMEOUT_MS` (default 120s), `ACP_TEST_CONNECTION_TIMEOUT_MS` (15s), `operatorSafeHttpError` + `ACP_MASK_HOSTS_IN_ERRORS`; **Sync** success feedback (toast early on; superseded 2026-04-28 by **MessageBox** for sync). **F.3:** Chat freestyle callout in architecture + Plan **06** appendix A.4. |
+| 2026-04-28 | **B.3 (strict):** UI + CAP gate **Sync tools** to **Health OK**; sync result **MessageBox** with tool name preview; **Tools catalog** edit dialog + line health icon (parent MCP) + description info. Runbook: [`mcp-registration.md`](../Operations/mcp-registration.md) §3. B.2/D.2 section numbers in that file adjusted (troubleshooting §5, timeouts §6). |
+| 2026-04-28 | **UX follow-up (Tools catalog / Edit tool):** full-width **description** `TextArea` in `dlgTool`; `draggable`/`resizable` **false**; info icon **tooltip** bound to `Tool.description` (with formatter) + **click** for full text dialog. — Aligns C.x “actionable feedback” and B.3 operator clarity; does not add a new lettered subtask. |

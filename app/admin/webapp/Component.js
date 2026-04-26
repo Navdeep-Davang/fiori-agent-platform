@@ -46,6 +46,9 @@ sap.ui.define(
                     playgroundSessionId: null,
                     playgroundStreaming: false,
                     mcpRowSelected: false,
+                    /** McpServer.health for the selected table row (Plan 07 B.3). */
+                    mcpSelectedHealth: "",
+                    toolDescriptionDialogText: "",
                     /** Distinct status / modelProfile from Agents OData (fallback: All only). */
                     agentStatusFilterItems: [{ key: "", text: "All" }],
                     agentModelFilterItems: [{ key: "", text: "All" }],

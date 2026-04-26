@@ -20,7 +20,15 @@ The system follows this priority order to find the server URL:
 2.  **Base URL**: If the destination is not found or fails (common in local dev), it falls back to the `baseUrl` field.
 3.  **Failure**: If neither are resolvable, the connection fails with an error.
 
-## 3. Environment Specifics
+## 3. Sync only after a successful Test (B.3, strict)
+
+**Policy A (in product):** The **Sync tools** action is allowed only when the **`McpServer.health`** in HANA is **`OK`** (set by **Test connection** for that same row). The admin UI keeps **Sync tools** disabled until the selected server shows **Health OK**; the CAP `syncTools` action also rejects the call if `health !== 'OK'` (defense in depth, e.g. direct API access).
+
+**Why:** Syncing from an unverified endpoint can import garbage tool rows, break governance joins, and confuse risk/lifecycle. After **Test connection** fails, fix URL/destination/Python first; only then run **Sync tools**.
+
+**What you see on success:** The UI shows a **message box** with a short summary, including up to 40 **tool names**; larger catalogs add a “see **Tools catalog**” hint. The full list always appears in the **Tools catalog** page after sync.
+
+## 4. Environment Specifics
 
 ### Hybrid / Local Dev
 *   Set `baseUrl` to `http://localhost:8000`.
@@ -30,7 +38,7 @@ The system follows this priority order to find the server URL:
 *   Register a **BTP Destination** named `PYTHON_MCP_SERVICE` pointing to the internal/external URL of your Python app.
 *   Leave `baseUrl` as an optional fallback or set it to the public route.
 
-## 4. Troubleshooting — when MCP does not connect
+## 5. Troubleshooting — when MCP does not connect
 
 Use this **order** (Plan **07** / B.2 runbook):
 
@@ -42,3 +50,14 @@ Use this **order** (Plan **07** / B.2 runbook):
 **Additional checks** if **Test connection** still fails after the above:
 - Confirm the `baseUrl` has no trailing-slash issues and matches where the process is actually listening.
 - For localhost vs Node resolution issues, the CAP handler may resolve `localhost` to `127.0.0.1` for outbound HTTP.
+
+## 6. Timeouts (Plan 07 — D.2)
+
+CAP reads these from the environment (optional):
+
+| Variable | Default | Used for |
+| :--- | :--- | :--- |
+| `ACP_TEST_CONNECTION_TIMEOUT_MS` | `15000` | `testConnection` → `GET …/health` |
+| `ACP_SYNC_TOOLS_TIMEOUT_MS` | `120000` | `syncTools` → `POST …/mcp/tools/list` (large tool catalogs) |
+
+For production, you can shorten error text and hide host details in API messages: set `ACP_MASK_HOSTS_IN_ERRORS=true` (Plan 07 — D.3).

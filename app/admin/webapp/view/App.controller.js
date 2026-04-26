@@ -115,10 +115,16 @@ sap.ui.define(
                         skillDlgName: "",
                         skillDlgDescription: "",
                         skillDlgStatus: "Draft",
-                        skillDlgBody: ""
+                        skillDlgBody: "",
+                        toolDlgName: "",
+                        toolDlgDescription: "",
+                        toolDlgRisk: "Low",
+                        toolDlgElevated: false,
+                        toolDlgStatus: "Draft"
                     }),
                     "uiDlg"
                 );
+                this._toolEditCtx = null;
                 this._skillDlgMode = "new";
                 this._skillEditOriginalName = null;
                 this._mcpEditOriginalName = null;
@@ -158,6 +164,24 @@ sap.ui.define(
                     return sKey || "";
                 }
                 return rb.getText(sKey, aArgs);
+            },
+
+            /**
+             * Native tooltips are short; long MCP descriptions are trimmed with a click hint.
+             * Full text: click opens dlgToolDescription (see onToolDescriptionInfo).
+             */
+            formatToolDescriptionTooltip: function (s) {
+                if (s == null) {
+                    return "";
+                }
+                var t = String(s).replace(/\s+/g, " ").trim();
+                if (!t) {
+                    return "";
+                }
+                if (t.length > 500) {
+                    return t.substring(0, 497) + "… (click for full text)";
+                }
+                return t;
             },
 
             _seedPlaygroundI18nMessages: function () {
@@ -983,24 +1007,48 @@ sap.ui.define(
                 // Fully qualified name for CAP bound actions: GovernanceService.<action>(...)
                 var op = oModel.bindContext("GovernanceService." + sAction + "(...)", oCtx);
                 this._setGovernanceLoading(true);
+                var that = this;
                 return op.execute("$auto").then(
                     function () {
-                        this._setGovernanceLoading(false);
+                        that._setGovernanceLoading(false);
                         var oResult = op.getBoundContext();
                         var v = oResult && oResult.getObject();
-                        MessageToast.show(typeof v === "string" ? v : sAction + " OK");
                         oModel.refresh();
-                        this._refreshToolServerFilterItems();
-                        this._refreshOverviewFromGovernance();
-                        this._refreshCapabilityFilterAgentsAndToolsFromGovernance();
-                        this._refreshAgentCapabilitiesFromGovernance();
-                    }.bind(this),
+                        setTimeout(function () {
+                            that._syncMcpSelectionUi();
+                        }, 0);
+                        if (sAction === "syncTools" && typeof v === "string" && v.length) {
+                            MessageBox.information(v, {
+                                title: that._i18n("SyncTools") || "Sync tools"
+                            });
+                        } else {
+                            MessageToast.show(typeof v === "string" ? v : sAction + " OK");
+                        }
+                        that._refreshToolServerFilterItems();
+                        that._refreshOverviewFromGovernance();
+                        that._refreshCapabilityFilterAgentsAndToolsFromGovernance();
+                        that._refreshAgentCapabilitiesFromGovernance();
+                    },
                     function (err) {
-                        this._setGovernanceLoading(false);
+                        that._setGovernanceLoading(false);
                         oModel.refresh();
-                        this._showHttpError(err, "MCP Action: " + sAction);
-                    }.bind(this)
+                        setTimeout(function () {
+                            that._syncMcpSelectionUi();
+                        }, 0);
+                        that._showHttpError(err, "MCP Action: " + sAction);
+                    }
                 );
+            },
+
+            /** After OData refresh, keep Sync tools enablement in sync with selected row health. */
+            _syncMcpSelectionUi: function () {
+                var c = this._getSelectedMcpContext();
+                var m = this.getView().getModel("ui");
+                if (!m) {
+                    return;
+                }
+                m.setProperty("/mcpRowSelected", !!c);
+                m.setProperty("/mcpSelectedHealth", c && c.getProperty("health") != null ? String(c.getProperty("health")) : "");
             },
 
             onMcpTestConnection: function () {
@@ -1015,6 +1063,10 @@ sap.ui.define(
                 var oCtx = this._getSelectedMcpContext();
                 if (!oCtx) {
                     MessageToast.show("Select an MCP server row first.");
+                    return;
+                }
+                if (oCtx.getProperty("health") !== "OK") {
+                    MessageToast.show("Run Test connection first (Health must be OK before Sync tools).");
                     return;
                 }
                 this._runMcpBoundAction(oCtx, "syncTools");
@@ -1222,11 +1274,16 @@ sap.ui.define(
 
             onMcpSelectionChange: function (oEvent) {
                 var oTable = oEvent.getSource();
-                var bSelected = oTable.getSelectedContexts().length > 0;
+                var a = oTable.getSelectedContexts() || [];
                 var oModel = this.getView().getModel("ui");
-                if (oModel) {
-                    oModel.setProperty("/mcpRowSelected", bSelected);
+                if (!oModel) {
+                    return;
                 }
+                oModel.setProperty("/mcpRowSelected", a.length > 0);
+                oModel.setProperty(
+                    "/mcpSelectedHealth",
+                    a[0] && a[0].getProperty("health") != null ? String(a[0].getProperty("health")) : ""
+                );
             },
 
             onToolsActivate: function () {
@@ -1366,8 +1423,71 @@ sap.ui.define(
 
             onToolsRowEdit: function (oEvent) {
                 var oCtx = oEvent.getSource().getBindingContext("governance");
-                var o = oCtx && oCtx.getObject();
-                MessageToast.show("Edit tool: " + (o && o.name ? o.name : "?") + " — use OData detail / runTest in a follow-up.");
+                if (!oCtx) {
+                    return;
+                }
+                this._toolEditCtx = oCtx;
+                var o = oCtx.getObject();
+                var ui = this.getView().getModel("uiDlg");
+                ui.setProperty("/toolDlgName", o.name || "");
+                ui.setProperty("/toolDlgDescription", o.description || "");
+                ui.setProperty("/toolDlgRisk", o.riskLevel || "Low");
+                ui.setProperty("/toolDlgElevated", !!o.elevated);
+                ui.setProperty("/toolDlgStatus", o.status || "Draft");
+                this.byId("dlgTool").setTitle("Edit tool");
+                this.byId("dlgTool").open();
+            },
+
+            onToolDlgSave: function () {
+                if (!this._toolEditCtx) {
+                    return;
+                }
+                var ui = this.getView().getModel("uiDlg");
+                var oModel = this.getView().getModel("governance");
+                var that = this;
+                this._toolEditCtx.setProperty("description", ui.getProperty("/toolDlgDescription") || "");
+                this._toolEditCtx.setProperty("riskLevel", ui.getProperty("/toolDlgRisk") || "Low");
+                this._toolEditCtx.setProperty("elevated", !!ui.getProperty("/toolDlgElevated"));
+                this._toolEditCtx.setProperty("status", ui.getProperty("/toolDlgStatus") || "Draft");
+                oModel
+                    .submitBatch("$auto")
+                    .then(function () {
+                        var nm = that._toolEditCtx.getProperty("name");
+                        MessageToast.show("Saved tool: " + (nm || ""));
+                        that.byId("dlgTool").close();
+                        that._toolEditCtx = null;
+                        oModel.refresh();
+                        that._refreshOverviewFromGovernance();
+                        that._refreshCapabilityFilterAgentsAndToolsFromGovernance();
+                        that._refreshAgentCapabilitiesFromGovernance();
+                        that._refreshToolFilterDistinctsFromGovernance();
+                    })
+                    .catch(function (err) {
+                        that._showHttpError(err, "Save tool");
+                    });
+            },
+
+            onToolDlgCancel: function () {
+                this.byId("dlgTool").close();
+                this._toolEditCtx = null;
+            },
+
+            onToolDescriptionInfo: function (oEvent) {
+                var oCtx = oEvent.getSource().getBindingContext("governance");
+                if (!oCtx) {
+                    return;
+                }
+                var desc = oCtx.getProperty("description");
+                if (!desc) {
+                    return;
+                }
+                this.getView().getModel("ui").setProperty("/toolDescriptionDialogText", String(desc));
+                this.byId("dlgToolDescription").setTitle(oCtx.getProperty("name") || "Description");
+                this.byId("dlgToolDescription").open();
+            },
+
+            onToolDescriptionDialogClose: function () {
+                this.byId("dlgToolDescription").close();
             },
 
             onToolsRowDelete: function (oEvent) {

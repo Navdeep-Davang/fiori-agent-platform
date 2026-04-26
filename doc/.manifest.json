@@ -2,7 +2,7 @@
   "version": "1.0",
   "project_id": "fiori-agent-platform",
   "created": "2026-03-15T00:00:00Z",
-  "last_updated": "2026-04-26T16:15:00Z",
+  "last_updated": "2026-04-28T12:00:00Z",
   "artifacts": {
     "architectures": {
       "fiori-agent-platform": {
@@ -35,10 +35,10 @@
       },
       "07-admin-ui-governance-resilience": {
         "path": "doc/Action-Plan/07-admin-ui-governance-resilience.md",
-        "last_modified": "2026-04-26T00:00:00Z",
+        "last_modified": "2026-04-28T00:00:00Z",
         "status": "in_progress",
-        "current_phase": "B-partial C-complete D-partial E-open",
-        "note": "2026-04-26: Phases A and B.1–B.2 done; C.1–C.6 done; D.1 done; open: B.3–B.4, D.2–D.3, E.1–E.3, F.1–F.3. MCP failure path: HANA health + lastHealthCheck persist + UI refresh on action error."
+        "current_phase": "A-complete B-B4-remaining C-complete D-complete E-open F-partial",
+        "note": "2026-04-28: A,C,D done; B.1–B.3 done; only B.4 (CF) open. E.1–E.3, F.1–F.2 open; F.3 done. Tools catalog: strict sync, edit dlg, line health, desc tooltip+dialog, dlg not draggable. Plan 07 checkpoint block + revision log."
       }
     }
   }

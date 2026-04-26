@@ -118,7 +118,7 @@
 
                 <Page id="pageMcp" title="MCP registration" showNavButton="false">
                     <MessageStrip
-                        text="Select a row, then Test connection or Sync tools (CAP actions update HANA and call Python MCP). Wide tables scroll horizontally below."
+                        text="Select a row, then Test connection, then Sync tools. Sync is enabled only when Health is OK (strict policy B.3). CAP actions update HANA and call the MCP. Wide tables scroll horizontally below."
                         type="Information"
                         showIcon="true"
                         class="sapUiResponsiveMargin" />
@@ -129,8 +129,17 @@
                         visible="{= ${ui>/governanceMetadataFailed} &amp;&amp; !${appState>/governanceError} }"
                         class="sapUiResponsiveMargin" />
                     <Toolbar design="Transparent">
-                        <Button text="Test connection" type="Emphasized" press=".onMcpTestConnection" enabled="{ui>/mcpRowSelected}" />
-                        <Button text="Sync tools" type="Default" press=".onMcpSyncTools" enabled="{ui>/mcpRowSelected}" />
+                        <Button
+                            text="Test connection"
+                            type="Emphasized"
+                            press=".onMcpTestConnection"
+                            enabled="{ui>/mcpRowSelected}" />
+                        <Button
+                            id="btnMcpSyncTools"
+                            text="Sync tools"
+                            type="Default"
+                            press=".onMcpSyncTools"
+                            enabled="{= ${ui>/mcpRowSelected} &amp;&amp; ${ui>/mcpSelectedHealth} === 'OK' }" />
                         <ToolbarSpacer />
                         <Button text="Add server" type="Transparent" press=".onMcpAddServer" />
                     </Toolbar>
@@ -274,14 +283,14 @@
                             items="{
                                 path: 'governance>/Tools',
                                 parameters: {
-                                    $expand: { server: { $select: 'name' } }
+                                    $expand: { server: { $select: 'name,health' } }
                                 }
                             }"
                             noDataText="No tools match the current filters, or the catalog is empty. Adjust filters or check governance data."
-                            width="56rem"
+                            width="60rem"
                             fixedLayout="false">
                             <columns>
-                                <Column width="14rem"><Text text="Tool" /></Column>
+                                <Column width="20rem" minScreenWidth="Tablet" demandPopin="true"><Text text="Tool" /></Column>
                                 <Column width="14rem" minScreenWidth="Tablet" demandPopin="true"><Text text="MCP server" /></Column>
                                 <Column hAlign="Center" width="10rem"><Text text="Risk" /></Column>
                                 <Column hAlign="Center" width="8rem"><Text text="Elevated" /></Column>
@@ -291,7 +300,22 @@
                             <items>
                                 <ColumnListItem type="Active">
                                     <cells>
-                                        <Text text="{governance>name}" />
+                                        <HBox alignItems="Center" class="acpToolNameCell" wrap="NoWrap" justifyContent="Start">
+                                            <ObjectStatus
+                                                class="sapUiTinyMarginEnd"
+                                                text=""
+                                                state="{= ${governance>server/health} === 'OK' ? 'Success' : (${governance>server/health} === 'FAIL' ? 'Error' : 'None') }"
+                                                icon="{= ${governance>server/health} === 'OK' ? 'sap-icon://status-positive' : (${governance>server/health} === 'FAIL' ? 'sap-icon://status-negative' : 'sap-icon://message-information') }"
+                                                tooltip="Inherits parent MCP last known health. Re-run Test connection on the MCP if status is wrong (no per-tool state stored)." />
+                                            <Text text="{governance>name}" class="sapUiTinyMarginEnd" />
+                                            <Button
+                                                class="acpToolDescInfoBtn"
+                                                icon="sap-icon://message-information"
+                                                type="Transparent"
+                                                tooltip="{path: 'governance>description', formatter: '.formatToolDescriptionTooltip'}"
+                                                visible="{= !!${governance>description} }"
+                                                press=".onToolDescriptionInfo" />
+                                        </HBox>
                                         <Text text="{governance>server/name}" />
                                         <ObjectStatus text="{governance>riskLevel}" state="{= ${governance>riskLevel} === 'High' ? 'Error' : (${governance>riskLevel} === 'Medium' ? 'Warning' : 'Success') }" />
                                         <Switch type="AcceptReject" enabled="false" state="{governance>elevated}" />
@@ -995,6 +1019,74 @@
                 </beginButton>
                 <endButton>
                     <Button text="Cancel" press=".onMcpDlgCancel" />
+                </endButton>
+            </Dialog>
+            <Dialog
+                id="dlgTool"
+                class="acpDialogTool"
+                title="Edit tool"
+                contentWidth="40rem"
+                draggable="false"
+                resizable="false">
+                <content>
+                    <VBox width="100%" alignItems="Stretch" class="sapUiSmallMargin acpDialogToolForm">
+                        <MessageStrip
+                            text="Line icon reflects parent MCP health (no separate tool liveness in DB). Use MCP servers to re-test. Risk / lifecycle are governed in HANA."
+                            type="Information"
+                            showIcon="true"
+                            class="sapUiTinyMarginBottom" />
+                        <Label text="Tool name" />
+                        <Text text="{uiDlg>/toolDlgName}" class="sapMTextEmphasized" width="100%" />
+                        <Label text="Description (governed copy)" class="sapUiSmallMarginTop" />
+                        <TextArea
+                            class="acpDialogToolTextArea"
+                            width="100%"
+                            rows="6"
+                            value="{uiDlg>/toolDlgDescription}"
+                            growing="true"
+                            growingMaxLines="10"
+                            placeholder="From MCP sync; edit for admin notes" />
+                        <Label text="Risk" class="sapUiSmallMarginTop" />
+                        <Select selectedKey="{uiDlg>/toolDlgRisk}" width="100%" forceSelection="false">
+                            <items>
+                                <core:Item key="Low" text="Low" />
+                                <core:Item key="Medium" text="Medium" />
+                                <core:Item key="High" text="High" />
+                            </items>
+                        </Select>
+                        <Label text="Elevated" class="sapUiSmallMarginTop" />
+                        <Switch state="{uiDlg>/toolDlgElevated}" type="AcceptReject" customTextOn="Yes" customTextOff="No" />
+                        <Label text="Lifecycle" class="sapUiSmallMarginTop" />
+                        <Select selectedKey="{uiDlg>/toolDlgStatus}" width="100%" forceSelection="false">
+                            <items>
+                                <core:Item key="Draft" text="Draft" />
+                                <core:Item key="Active" text="Active" />
+                                <core:Item key="Disabled" text="Disabled" />
+                            </items>
+                        </Select>
+                    </VBox>
+                </content>
+                <beginButton>
+                    <Button text="Save" type="Emphasized" press=".onToolDlgSave" />
+                </beginButton>
+                <endButton>
+                    <Button text="Cancel" press=".onToolDlgCancel" />
+                </endButton>
+            </Dialog>
+            <Dialog
+                id="dlgToolDescription"
+                class="acpDialogToolDesc"
+                title="Description"
+                contentWidth="32rem"
+                draggable="false"
+                resizable="false">
+                <content>
+                    <ScrollContainer vertical="true" height="20rem" width="100%" class="sapUiSmallMargin">
+                        <Text text="{ui>/toolDescriptionDialogText}" wrapping="true" class="sapUiSmallMargin" />
+                    </ScrollContainer>
+                </content>
+                <endButton>
+                    <Button text="Close" press=".onToolDescriptionDialogClose" />
                 </endButton>
             </Dialog>
             <Dialog

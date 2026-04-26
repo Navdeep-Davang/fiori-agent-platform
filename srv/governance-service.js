@@ -3,6 +3,11 @@ const axios = require('axios')
 const { getDestination } = require('@sap-cloud-sdk/connectivity')
 const { SELECT, INSERT, UPDATE } = cds.ql
 const { forwardHeadersForPython } = require('./python-trust')
+const {
+  operatorSafeHttpError,
+  syncToolsTimeoutMs,
+  testConnectionTimeoutMs
+} = require('./governance-net-errors')
 
 const PYTHON_URL = () => process.env.PYTHON_URL || 'http://localhost:8000'
 
@@ -64,7 +69,7 @@ module.exports = cds.service.impl(async function () {
     try {
       LOG.info(`Calling health endpoint: ${base}/health`)
       const { status } = await axios.get(`${base}/health`, {
-        timeout: 15000,
+        timeout: testConnectionTimeoutMs(),
         validateStatus: () => true,
         headers: forwardHeadersForPython(req.user)
       })
@@ -80,7 +85,7 @@ module.exports = cds.service.impl(async function () {
       await cds.tx(async () => {
         await UPDATE(McpServers).set({ health: 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
       })
-      return req.reject(500, `FAIL: ${e.message}`)
+      return req.reject(500, `FAIL: ${operatorSafeHttpError(e, { phase: 'testConnection' })}`)
     }
   })
 
@@ -88,6 +93,10 @@ module.exports = cds.service.impl(async function () {
     const id = req.params[0]?.ID || req.params[0]
     const srv = await SELECT.one.from(McpServers).where({ ID: id })
     if (!srv) return req.reject(404, 'McpServer not found')
+    /* Plan 07 B.3 — strict: only after Test connection (health === OK) */
+    if (srv.health !== 'OK') {
+      return req.reject(400, 'McpServer health must be OK. Run Test connection on this server first, then sync tools.')
+    }
     let base
     try {
       base = await resolveMcpBaseUrl(srv)
@@ -95,16 +104,17 @@ module.exports = cds.service.impl(async function () {
       await cds.tx(async () => {
         await UPDATE(McpServers).set({ health: 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
       })
-      return req.reject(400, e.message || String(e))
+      return req.reject(400, operatorSafeHttpError(e))
     }
 
     try {
       const { data } = await axios.post(`${base}/mcp/tools/list`, {}, {
-        timeout: 60000,
+        timeout: syncToolsTimeoutMs(),
         headers: forwardHeadersForPython(req.user)
       })
       const tools = Array.isArray(data?.tools) ? data.tools : Array.isArray(data) ? data : []
       let n = 0
+      const toolNames = []
       for (const t of tools) {
         const name = t.name || t.toolName
         if (!name) continue
@@ -130,16 +140,26 @@ module.exports = cds.service.impl(async function () {
           await INSERT.into(Tools).entries({ ...row, ID: cds.utils.uuid() })
         }
         n++
+        toolNames.push(name)
       }
       await cds.tx(async () => {
         await UPDATE(McpServers).set({ health: 'OK', lastHealthCheck: new Date() }).where({ ID: id })
       })
-      return `Synced ${n} tools`
+      if (n === 0) {
+        return 'No tools were returned from the MCP. Check /mcp/tools/list and server logs.'
+      }
+      const maxList = 40
+      if (n <= maxList) {
+        return `Synced ${n} tool(s). Names: ${toolNames.join(', ')}`
+      }
+      return `Synced ${n} tool(s). Names: ${toolNames
+        .slice(0, maxList)
+        .join(', ')} …and ${n - maxList} more (open Tools catalog for the full list).`
     } catch (e) {
       await cds.tx(async () => {
         await UPDATE(McpServers).set({ health: 'FAIL', lastHealthCheck: new Date() }).where({ ID: id })
       })
-      return req.reject(500, `Sync failed: ${e.message}`)
+      return req.reject(500, `Sync failed: ${operatorSafeHttpError(e, { phase: 'syncTools' })}`)
     }
   })
 

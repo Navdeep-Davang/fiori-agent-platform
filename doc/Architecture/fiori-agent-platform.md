@@ -1,8 +1,10 @@
 # Architecture: Agent Control Plane (SAP BTP)
 
 > **Audience:** developers implementing this system. For product requirements and "why" reasoning, see `doc/PRD/agent-control-plane.md`. For phased delivery (tasks, exit criteria), see `doc/Action-Plan/06-architecture-aligned-e2e.md`.
-> Last updated: 2026-04-22.
+> Last updated: 2026-04-26.
 >
+> **Admin vs chat (UI strategy):** The **admin** app may adopt **Fiori Elements** over time (list report / object page) where that pays off, but the **chat** app stays **freestyle** by default (TNT, streaming, custom layout). Do not plan an Elements migration for **chat** unless there is a concrete product requirement. See `doc/Action-Plan/07-admin-ui-governance-resilience.md` §8, task **F.3**.
+
 > **Reading order:** **§1.1** is a fast end-to-end map. **§2–§12** describe the **current codebase** (CAP-centric policy, **thin CAP→Python** JSON + forwarded **`Authorization: Bearer`**, Fiori apps, OData). **`python/`** runs chat through **[`deepagents`](https://github.com/langchain-ai/deepagents)** / LangGraph only (**§13.4** — ADK and hand-rolled loops **removed**). **§13** is the **north-star** for remaining increments (Skills refinements, summarization hardening, optional MCP pool).
 
 ---

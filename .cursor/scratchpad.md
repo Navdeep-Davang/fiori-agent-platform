@@ -25,17 +25,18 @@
 4. When ready: **go-ahead** for agent to debug **502** / CAP→Python / **1.4.1–1.4.2**.  
 5. **Phase 2 CF** last.
 
-## Plan 07 — Admin UI governance resilience (sync 2026-04-26)
+## Plan 07 — Admin UI governance resilience (sync 2026-04-28)
 
 | Task area | Status | Notes |
 |-----------|--------|--------|
 | Phase A (inventory) | **COMPLETE** | A.1–A.4 |
-| Phase B | **B.1–B.2 done**; B.3–B.4 open | B.2 runbook in `doc/Operations/mcp-registration.md` §4 |
+| Phase B | **B.1–B.3 done** (B.3 strict: sync only if Health OK, UI+CAP); B.4 open | B.2/B.3 in `doc/Operations/mcp-registration.md` §5 / §3 |
 | Phase C (resilience) | **COMPLETE** | C.1–C.6; action error path refreshes governance model; `lastHealthCheck` + `health` FAIL UX |
-| Phase D | **D.1 done**; D.2–D.3 open | D.1: `cds.tx` persist on `testConnection` / `syncTools` failure |
+| Phase D | **COMPLETE** (D.1–D.3) | D.2: env timeouts, sync **MessageBox** (name list on success); D.3: `governance-net-errors.js` + mask flag |
 | Phase E (verification) | **OPEN** | E.1–E.3 manual matrix not closed |
-| Phase F (Elements alignment) | **OPEN** | F.1–F.3 long-term |
+| Phase F (Elements alignment) | **F.3 done**; F.1–F.2 open | F.3: chat freestyle in architecture + Plan 06 A.4 |
 
 ## Session notes
 
+- **2026-04-28:** **B.3** + Tools UX: **strict** sync, CAP guard, runbook §3, parent-health icon, **Edit tool** (full-width description, not draggable), info **tooltip**=description, click=full dialog, sync **MessageBox**+names. Plan 07 **checkpoint** + manifest `current_phase` = B-B4-remaining. **2026-04-27:** F.3 / D.2 / D.3 re-verified.
 - Prior audits: `.cursor/worker-reports/06-audit-phase*.md`.

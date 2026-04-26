@@ -362,6 +362,22 @@
             max-width: 100%;
             overflow-wrap: anywhere;
         }
+        /* Edit tool dialog: description TextArea same width as Risk / Select (100% of dialog content) */
+        .acpDialogTool .acpDialogToolForm,
+        .acpDialogTool .acpDialogToolForm .sapMText,
+        .acpDialogTool .acpDialogToolForm .sapMTextArea {
+            min-width: 0;
+        }
+        .acpDialogTool .acpDialogToolTextArea,
+        .acpDialogTool .acpDialogToolTextArea.sapMTextArea {
+            width: 100% !important;
+        }
+        .acpDialogTool .acpDialogToolTextArea .sapMTextAreaInner,
+        .acpDialogTool .acpDialogToolTextArea .sapMTextAreaGrow {
+            width: 100% !important;
+            min-width: 0 !important;
+            box-sizing: border-box;
+        }
     </style>
     <script>
         window["sap-ui-config"] = { frameOptions: "allow" };

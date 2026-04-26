@@ -535,6 +535,8 @@ Phase 11 MCP governance hardening  ◄── continuous (not a gate)
 
 **Recommendation:** **Strategy A** unless the product **requires** the bespoke mock layout — Fiori Elements already encodes columns, OP facets, and **Skills** annotations in-repo.
 
+**Chat UI remains freestyle:** The **chat** app is **not** expected to move to Fiori Elements by default (streaming, custom layout). See architecture **§1** (front matter), **Plan 07** §8 task **F.3**, and **Plan 01** for admin-only Elements alignment.
+
 ### A.5 Checklist before any coding (owner gate)
 
 1. **Decide A vs B** (or hybrid: FE lists + minimal shell).
