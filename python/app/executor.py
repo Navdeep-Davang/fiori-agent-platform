@@ -89,7 +89,10 @@ async def run(payload: Dict[str, Any], authorization_header: str = "") -> AsyncI
                 return
         else:
             title = message[:40]
-            session_id = session_store.create_session(conn, user_id, agent_id, title)
+            user_email = str(user_info.get("email") or "").strip() or None
+            session_id = session_store.create_session(
+                conn, user_id, agent_id, title, user_email
+            )
 
         assistant_text = ""
         tool_records: List[Dict[str, Any]] = []
@@ -103,6 +106,8 @@ async def run(payload: Dict[str, Any], authorization_header: str = "") -> AsyncI
             user_message=message,
             user_token=user_token,
             conn=conn,
+            conversation_session_id=session_id,
+            conversation_user_id=user_id,
         ):
             if line.startswith("data: "):
                 try:

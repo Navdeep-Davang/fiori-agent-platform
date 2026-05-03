@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pydantic
+httpx
+hdbcli
+python-jose[cryptography]
+python-dotenv
+sap-xssec

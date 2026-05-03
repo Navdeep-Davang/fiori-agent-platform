@@ -9,7 +9,7 @@ const {
   testConnectionTimeoutMs
 } = require('./governance-net-errors')
 
-const PYTHON_URL = () => process.env.PYTHON_URL || 'http://localhost:8000'
+const PYTHON_URL = () => process.env.PYTHON_URL || 'http://localhost:8003'
 
 async function resolveMcpBaseUrl(server) {
   const destName = server.destinationName?.trim()

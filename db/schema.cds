@@ -99,6 +99,8 @@ entity ChatSession {
   key ID              : UUID;
   agentId             : UUID;
   userId              : String(200);
+  /** End-user email from JWT at session creation (audit display); optional for legacy rows. */
+  userEmail           : String(320);
   title               : String(200);
   createdAt           : Timestamp;
   updatedAt           : Timestamp;
@@ -126,3 +128,17 @@ entity ToolCallRecord {
   elevatedUsed        : Boolean default false;
   timestamp           : Timestamp;
 }
+
+entity AuditLog {
+  key ID              : UUID;
+  timestamp           : Timestamp @cds.on.insert: $now;
+  userId              : String(200);
+  agentId             : UUID;
+  toolName            : String(200);
+  arguments           : LargeString;
+  status              : String(20) enum { Success; Failure; Forbidden };
+  errorMessage        : LargeString;
+  correlationId       : String(100);
+  durationMs          : Integer;
+}
+

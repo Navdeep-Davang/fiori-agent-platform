@@ -1,11 +1,13 @@
 # Architecture: Agent Control Plane (SAP BTP)
 
 > **Audience:** developers implementing this system. For product requirements and "why" reasoning, see `doc/PRD/agent-control-plane.md`. For phased delivery (tasks, exit criteria), see `doc/Action-Plan/06-architecture-aligned-e2e.md`.
-> Last updated: 2026-04-26.
+> Last updated: 2026-04-30.
 >
 > **Admin vs chat (UI strategy):** The **admin** app may adopt **Fiori Elements** over time (list report / object page) where that pays off, but the **chat** app stays **freestyle** by default (TNT, streaming, custom layout). Do not plan an Elements migration for **chat** unless there is a concrete product requirement. See `doc/Action-Plan/07-admin-ui-governance-resilience.md` §8, task **F.3**.
 
-> **Reading order:** **§1.1** is a fast end-to-end map. **§2–§12** describe the **current codebase** (CAP-centric policy, **thin CAP→Python** JSON + forwarded **`Authorization: Bearer`**, Fiori apps, OData). **`python/`** runs chat through **[`deepagents`](https://github.com/langchain-ai/deepagents)** / LangGraph only (**§13.4** — ADK and hand-rolled loops **removed**). **§13** is the **north-star** for remaining increments (Skills refinements, summarization hardening, optional MCP pool).
+> **Reading order:** **§1.1** is a fast end-to-end map. **§2–§12** describe the **current codebase** (CAP-centric policy, **thin CAP→Python** JSON + forwarded **`Authorization: Bearer`**, Fiori apps, OData). **`python/`** runs chat through **[`deepagents`](https://github.com/langchain-ai/deepagents)** / LangGraph only (**§13.4** — ADK and hand-rolled loops **removed**). **§13** is the **north-star** for remaining increments (Skills refinements, summarization hardening, optional MCP pool). Target **Temporal + MCP microservices** refactor is tracked in **`[agentic-microservices-python.md](./agentic-microservices-python.md)`** (Roadmap Stage 4, §7.1).
+>
+> **Python microservices & Temporal (target layout):** For the split into **`apps/orchestrator`**, **`apps/mcp-gateway`**, **`apps/mcp-server/{domain}`**, optional **`apps/mcp-client`**, **Temporal** workflows, end-to-end flows, and DB/security boundaries, see **[`agentic-microservices-python.md`](./agentic-microservices-python.md)**.
 
 ---
 
@@ -117,6 +119,7 @@ When context is too large, update `ChatSession.summary` + `summaryWatermark`; mo
 - **Stage 1:** App Router → CAP → Python → MCP (embedded pool today); add Skills + thin payload + summarization per §13.
 - **Stage 2:** Split **`services/mcp-pool/`** when load or team boundaries require it.
 - **Stage 3:** **MCP gateway** for federation + centralized OAuth only when multiple external MCPs justify the complexity.
+- **Stage 4 (architecture target — see linked doc):** Split Python into **`apps/orchestrator`**, **`apps/mcp-client`**, **`apps/mcp-gateway`**, **`apps/mcp-server/{domain}`**; add **Temporal** for durable workflows; align **Langfuse** trace propagation across services per **[agentic-microservices-python.md](./agentic-microservices-python.md)**.
 
 #### Rules to remember
 
@@ -129,6 +132,14 @@ When context is too large, update `ChatSession.summary` + `summaryWatermark`; mo
 7. **Canonical detail** for implementation: **§2–§12**; **target specs: §13**.
 
 **Folder layout:** see **§7** (actual tree) and **§7.1** (planned paths). Detailed API contracts: **§5**.
+
+#### Microservice refactor — tracked architecture (spec only until code lands)
+
+Implementation work packages for the **Temporal + MCP gateway + MCP client + domain MCP servers + Langfuse propagation** refactor must follow the dedicated spec (**not** abbreviated here):
+
+**[Architecture: Agentic Python Microservices, MCP Stack & Temporal Target](./agentic-microservices-python.md)**
+
+Action plans should cite that file explicitly for phase breakdown (extract MCP domains → gateway → MCP client → Temporal → observability polish).
 
 ---
 
@@ -777,7 +788,8 @@ fiori-agent-platform/
 ├── README.md
 └── doc/
     ├── Architecture/
-    │   └── fiori-agent-platform.md         # THIS FILE: §1.1 quick map + §2–§12 current + §13 target deltas
+    │   ├── fiori-agent-platform.md         # THIS FILE: §1.1 quick map + §2–§12 current + §13 target deltas
+    │   └── agentic-microservices-python.md # Target apps/* + Temporal + Langfuse propagation (tracked refactor spec)
     ├── Action-Plan/                        # Execution plans (hybrid setup, public/private split, etc.)
     ├── PRD/
     │   └── agent-control-plane.md
@@ -787,7 +799,11 @@ fiori-agent-platform/
 
 ### 7.1 Planned additions (target state, see §13)
 
-**Already in repo:** `python/app/deepagent_engine.py`, `hydrator.py`, `session_store.py` (§13.3–13.4). **Still optional / future** layout:
+**Authoritative detailed layout:** **[agentic-microservices-python.md](./agentic-microservices-python.md)** (§2 — **`apps/`** tree, MCP stack layers, Temporal, Langfuse correlation, saga guidance). Implement that document when refactoring; do not diverge filenames without updating both architecture files together.
+
+**Still relevant from §13 inside `python/` (today / near-term deltas):**
+
+**Already in repo:** `python/app/deepagent_engine.py`, `hydrator.py`, `session_store.py` (§13.3–13.4). Optional / incremental layout:
 
 ```
 python/app/
@@ -795,7 +811,7 @@ python/app/
 └── skills/                 # §13.1  Optional local cache for skill bodies fetched by id (progressive disclosure)
 
 services/
-└── mcp-pool/               # §13.5  Extract of python/app/mcp_server.py + tools/ into its own CF module
+└── mcp-pool/               # §13.5  Legacy carve-out naming; superseded path-wise by apps/mcp-server/* in agentic-microservices-python.md Phase P1+
     ├── app/
     │   ├── main.py         #         POST /mcp/tools/list, POST /mcp/tools/call
     │   ├── registry.py
@@ -1124,6 +1140,8 @@ Role templates use an **`ACP`** suffix (**`AgentUserACP`**, **`AgentAuthorACP`**
 
 This section lists the **planned deltas** between the current implementation (Sections 1–12) and the **target** summarized in **§1.1**. Each delta is a discrete increment; they are independent and can land in any order.
 
+**Microservices split (Orchestrator · Temporal · MCP gateway · MCP servers):** The authoritative **folder layout**, sequence diagrams, MCP client placement options, and migration notes live in **[`agentic-microservices-python.md`](./agentic-microservices-python.md)**. §13.5 below summarizes MCP extraction and governance; that doc adds **Temporal** and **`apps/mcp-gateway` / `apps/mcp-server`** naming.
+
 ### 13.1 Skills (new first-class entity)
 
 A **Skill** is a short procedure pack (markdown body + JSON metadata) that teaches an agent *how* to use a tool or handle a repeating workflow. Skills complement MCP tools (which are *capabilities*); a skill is *procedure*.
@@ -1225,11 +1243,11 @@ Python's DB role is **read-only** for governance entities + **append-only** for 
 | Capability | ADK (legacy path) | This product (DeepAgent) |
 |------------|-------------------|---------------------------|
 | Trace UI (steps, tools, planning, optional sub-agents, latency, tokens) | ADK Web | **[Langfuse](https://langfuse.com/docs/observability/overview)** — project dashboard, drill-down spans; integrate via **`langfuse.langchain.CallbackHandler`** on `agent.invoke(..., config={"callbacks": [langfuse_handler]})` ([DeepAgents + Langfuse](https://langfuse.com/integrations/frameworks/langchain-deepagents)) |
-| Self-host / data sovereignty | N/A (Google-centric) | **[Self-hosted Langfuse](https://langfuse.com/self-hosting)** (Docker/K8s) — traces and prompts stay on your infrastructure; optional [Langfuse Cloud](https://cloud.langfuse.com) for dev |
+| Self-host / data sovereignty | N/A (Google-centric) | **[Self-hosted Langfuse](https://langfuse.com/self-hosting)**: **`docker/docker-compose.yml`** (shared PostgreSQL with Temporal; Langfuse v3 + ClickHouse + Redis + MinIO) |
 | Eval / regression | ADK `AgentEvaluator`, evalsets | Langfuse **datasets**, **scores**, experiments, LLM-as-judge ([docs](https://langfuse.com/docs/evaluation/overview)); export production traces into eval sets |
 | Optional graph debugging | — | **[LangGraph Studio](https://langchain-ai.github.io/langgraph/)** (local) for graph replay — orthogonal to Langfuse |
 
-**Environment (Python):** `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` (point `LANGFUSE_HOST` at self-hosted URL or regional cloud). Never commit keys; use CF user-provided service or Credential Store in prod.
+**Environment (Python):** `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` (defaults to **`http://localhost:3000`** for self-hosted compose). Never commit keys; use CF user-provided service or Credential Store in prod.
 
 **Not used:** **LangSmith** — proprietary SaaS; this architecture standardizes on **Langfuse** for OSS alignment and self-hosting. **Arize Phoenix** (Apache 2.0) remains a valid alternative if teams standardize on it instead.
 
@@ -1270,20 +1288,22 @@ What we get for free from the harness:
 
 Current (§7): MCP router is embedded in `python/app/mcp_server.py` (same CF app as the executor).
 
-Target: extract to `services/mcp-pool/` as an independent CF module:
+**Target (2026-04+):** split the tool plane into **`apps/mcp-server/<domain>`** (procurement, finance, …) and an **`apps/mcp-gateway`** in front of them for policy, audit, and routing. The executor lives in **`apps/orchestrator`**; **Temporal** workers and **MCP client** code are described in **[`agentic-microservices-python.md`](./agentic-microservices-python.md)**. This supersedes the earlier single-folder `services/mcp-pool/` sketch.
+
+Legacy reference (one-pool layout) for comparison only:
 
 ```
-services/
+services/   # deprecated sketch — prefer apps/mcp-server + apps/mcp-gateway
 └── mcp-pool/
     ├── app/
-    │   ├── main.py          # FastAPI: POST /mcp/tools/list, POST /mcp/tools/call
-    │   ├── registry.py      # dynamic tool registry (all tools live here)
-    │   └── tools/           # procurement.py, finance.py, ...
+    │   ├── main.py
+    │   ├── registry.py
+    │   └── tools/
     ├── requirements.txt
     └── manifest.yml
 ```
 
-Python executor then speaks to `mcp-pool` over HTTP (same transport as any external MCP server). Benefits: independent scaling, separate deploy cadence, clean "tool host" vs "agent host" split. Not required for v1.
+Python orchestrator then speaks to **`mcp-gateway`** (or directly to a pool only in dev). Benefits: independent scaling, separate deploy cadence, clean **tool host vs agent host** split. Not required for v1.
 
 #### 13.5.1 MCP governance & tool-level authorization
 

@@ -106,7 +106,25 @@ sap.ui.define(
                     playgroundDraft: "",
                     playgroundSystemPrompt:
                         "You are a procurement assistant. Follow company policy and cite tools when used.",
-                    playgroundTemperature: 0.7
+                    playgroundTemperature: 0.7,
+                    /** Admin shell: audit tab + auditor-only mode (set from /api/session in App.controller). */
+                    shell: {
+                        showAuditNav: false,
+                        hideGovernanceNav: false,
+                        auditorOnly: false
+                    },
+                    /** Chat audit tab: subject picker + detail (see App.controller). */
+                    audit: {
+                        subjectItems: [],
+                        subjectsLoaded: false,
+                        subjectsError: "",
+                        agentNameById: {},
+                        detailOpen: false,
+                        detailTitle: "",
+                        detailLoading: false,
+                        detailMessages: [],
+                        detailSession: null
+                    }
                 };
 
                 this.setModel(new JSONModel(oData), "ui");
@@ -119,23 +137,7 @@ sap.ui.define(
                     "appState"
                 );
 
-                var that = this
-                fetch("/api/session", { credentials: "include" })
-                    .then(function (r) {
-                        return r.ok ? r.json() : null
-                    })
-                    .then(function (j) {
-                        if (!j) return
-                        var m = that.getModel("ui")
-                        if (!m) return
-                        m.setProperty("/user/displayName", j.displayName || j.id || "")
-                        m.setProperty("/user/email", j.email || "")
-                        m.setProperty("/user/roles", j.roles || "")
-                        m.setProperty("/user/dept", j.dept || "")
-                    })
-                    .catch(function () {
-                        /* Anonymous or session API unavailable — header stays empty */
-                    })
+                /* Session + shell flags: App.controller onInit loads /api/session (single source). */
             }
         });
     }

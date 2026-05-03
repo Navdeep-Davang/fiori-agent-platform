@@ -7,9 +7,10 @@ sap.ui.define(
         "sap/m/library",
         "sap/ui/model/json/JSONModel",
         "sap/ui/model/Filter",
-        "sap/ui/model/FilterOperator"
+        "sap/ui/model/FilterOperator",
+        "acp/admin/util/SimpleMarkdown"
     ],
-    function (Controller, ResizeHandler, MessageToast, MessageBox, mobileLibrary, JSONModel, Filter, FilterOperator) {
+    function (Controller, ResizeHandler, MessageToast, MessageBox, mobileLibrary, JSONModel, Filter, FilterOperator, SimpleMarkdown) {
         "use strict";
 
         /** sap.m.URLHelper is not a standalone module (no sap/m/URLHelper.js on CDN); it lives on sap/m/library. */
@@ -155,6 +156,7 @@ sap.ui.define(
                 this._setupGovernanceErrorHandling();
                 this._seedPlaygroundI18nMessages();
                 this._initGovernanceAfterMeta();
+                this._loadSessionAndShell();
             },
 
             _i18n: function (sKey, aArgs) {
@@ -969,6 +971,9 @@ sap.ui.define(
                 }
                 if (sKey === "pagePlayground") {
                     setTimeout(this._ensurePlaygroundResizeHandler.bind(this), 0);
+                }
+                if (sKey === "pageAudit") {
+                    this._loadAuditAgentNames();
                 }
             },
 
@@ -2280,6 +2285,305 @@ sap.ui.define(
             _refreshToolServerFilterItems: function () {
                 this._refreshMcpServerFilterItems();
                 this._refreshToolFilterDistinctsFromGovernance();
+            },
+
+            _loadSessionAndShell: function () {
+                var that = this;
+                fetch("/api/session", { credentials: "include" })
+                    .then(function (r) {
+                        return r.ok ? r.json() : null;
+                    })
+                    .then(function (j) {
+                        if (!j) {
+                            return;
+                        }
+                        var m = that.getView().getModel("ui");
+                        if (!m) {
+                            return;
+                        }
+                        m.setProperty("/user/displayName", j.displayName || j.id || "");
+                        m.setProperty("/user/email", j.email || "");
+                        m.setProperty("/user/roles", j.roles || "");
+                        m.setProperty("/user/dept", j.dept || "");
+                        var hasAd = !!j.hasAdmin;
+                        var hasAu = !!j.hasAuthor;
+                        var hasAud = !!j.hasAudit;
+                        m.setProperty("/shell/showAuditNav", hasAud);
+                        m.setProperty("/shell/hideGovernanceNav", hasAud && !hasAd && !hasAu);
+                        m.setProperty("/shell/auditorOnly", hasAud && !hasAd && !hasAu);
+                        if (hasAud && !hasAd && !hasAu) {
+                            var oNav = that.byId("mainNav");
+                            var oPage = that.byId("pageAudit");
+                            var oSide = that.byId("sideNav");
+                            if (oNav && oPage) {
+                                oNav.to(oPage.getId(), false);
+                            }
+                            if (oSide) {
+                                oSide.setSelectedKey("pageAudit");
+                            }
+                        }
+                        if (hasAud) {
+                            that._loadAuditAgentNames();
+                            that._loadAuditSubjects();
+                        }
+                    })
+                    .catch(function () {
+                        /* keep defaults */
+                    });
+            },
+
+            /** Resolve agent UUID → name for Chat audit (GovernanceService READ allowed for Agent.Audit). */
+            _loadAuditAgentNames: function () {
+                var that = this;
+                var m = this.getView().getModel("ui");
+                if (!m) {
+                    return;
+                }
+                fetch("/odata/v4/governance/Agents?$select=ID,name&$top=5000", { credentials: "include" })
+                    .then(function (r) {
+                        if (!r.ok) {
+                            return null;
+                        }
+                        return r.json();
+                    })
+                    .then(function (body) {
+                        if (!body) {
+                            return;
+                        }
+                        var map = {};
+                        (body.value || []).forEach(function (a) {
+                            var id = a.ID || a.id;
+                            var nm = a.name || a.NAME;
+                            if (id) {
+                                map[id] = nm || id;
+                            }
+                        });
+                        m.setProperty("/audit/agentNameById", map);
+                        var tbl = that.byId("tblAuditSessions");
+                        var ob = tbl && tbl.getBinding("items");
+                        if (ob && typeof ob.refresh === "function") {
+                            ob.refresh();
+                        }
+                    })
+                    .catch(function () {
+                        /* non-blocking: column falls back to agentId */
+                    });
+            },
+
+            _loadAuditSubjects: function () {
+                var that = this;
+                var m = this.getView().getModel("ui");
+                if (!m) {
+                    return;
+                }
+                fetch("/api/audit/chat-subjects", { credentials: "include" })
+                    .then(function (r) {
+                        if (r.status === 403) {
+                            m.setProperty("/audit/subjectsError", "Agent.Audit required");
+                            m.setProperty("/audit/subjectsLoaded", true);
+                            return null;
+                        }
+                        if (!r.ok) {
+                            return r.text().then(function (t) {
+                                throw new Error(t || "HTTP " + r.status);
+                            });
+                        }
+                        return r.json();
+                    })
+                    .then(function (body) {
+                        if (!body) {
+                            return;
+                        }
+                        var subjects = body.subjects || [];
+                        var items = [{ key: "", text: that._i18n("auditSubjectPlaceholder") }];
+                        subjects.forEach(function (s) {
+                            var em = (s.userEmail || "").trim();
+                            var id = s.userId || "";
+                            var label = (em || id) + " (" + s.sessionCount + ")";
+                            items.push({ key: id, text: label });
+                        });
+                        m.setProperty("/audit/subjectItems", items);
+                        m.setProperty("/audit/subjectsLoaded", true);
+                        m.setProperty("/audit/subjectsError", "");
+                        setTimeout(function () {
+                            that._applyAuditSessionFilter("");
+                        }, 0);
+                    })
+                    .catch(function (e) {
+                        m.setProperty("/audit/subjectsError", e && e.message ? e.message : "Load failed");
+                        m.setProperty("/audit/subjectsLoaded", true);
+                    });
+            },
+
+            /** Filter sessions table by subject userId; empty key shows no rows. */
+            _applyAuditSessionFilter: function (sUid) {
+                var oTable = this.byId("tblAuditSessions");
+                if (!oTable) {
+                    return;
+                }
+                var ob = oTable.getBinding("items");
+                if (!ob) {
+                    return;
+                }
+                var sentinel = "__ACP_NO_SUBJECT__";
+                if (!sUid) {
+                    ob.filter(new Filter("userId", FilterOperator.EQ, sentinel));
+                    return;
+                }
+                ob.filter(new Filter("userId", FilterOperator.EQ, sUid));
+            },
+
+            onAuditSubjectChange: function (oEvent) {
+                var k = oEvent.getSource().getSelectedKey();
+                this._applyAuditSessionFilter(k);
+            },
+
+            formatAuditMessageHtml: function (content, role) {
+                return SimpleMarkdown.formatAuditMessageBody(content, role);
+            },
+
+            formatAuditHasToolCalls: function (toolCalls) {
+                if (!toolCalls) {
+                    return false;
+                }
+                if (Array.isArray(toolCalls)) {
+                    return toolCalls.length > 0;
+                }
+                return typeof toolCalls === "object" && Object.keys(toolCalls).length > 0;
+            },
+
+            formatAuditUpdatedAt: function (v) {
+                if (v == null || v === "") {
+                    return "";
+                }
+                var d = v instanceof Date ? v : new Date(v);
+                if (isNaN(d.getTime())) {
+                    return "";
+                }
+                try {
+                    return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+                } catch (e0) {
+                    return String(v);
+                }
+            },
+
+            formatAuditAgentName: function (agentId) {
+                var id = agentId == null ? "" : String(agentId).trim();
+                var m = this.getView() && this.getView().getModel("ui");
+                if (!m || !id) {
+                    return id || "—";
+                }
+                var map = m.getProperty("/audit/agentNameById") || {};
+                if (map[id]) {
+                    return map[id];
+                }
+                var lower = id.toLowerCase();
+                var k;
+                for (k in map) {
+                    if (Object.prototype.hasOwnProperty.call(map, k) && k && k.toLowerCase() === lower) {
+                        return map[k];
+                    }
+                }
+                return id;
+            },
+
+            onAuditSessionPress: function (oEvent) {
+                var oItem = oEvent.getSource();
+                var oCtx = oItem.getBindingContext("audit");
+                if (!oCtx) {
+                    return;
+                }
+                var sid = oCtx.getProperty("ID");
+                var that = this;
+                var m = this.getView().getModel("ui");
+                m.setProperty("/audit/detailLoading", true);
+                m.setProperty("/audit/detailTitle", oCtx.getProperty("title") || sid);
+                m.setProperty("/audit/detailMessages", []);
+                var dlg = that.byId("dlgAuditSession");
+                if (dlg) {
+                    dlg.open();
+                }
+                var urlGuid =
+                    "/odata/v4/audit/AuditedChatSessions(guid'" +
+                    sid +
+                    "')?$expand=messages($expand=toolCalls)";
+                var urlPlain = "/odata/v4/audit/AuditedChatSessions(" + sid + ")?$expand=messages($expand=toolCalls)";
+                fetch(urlGuid, { credentials: "include" })
+                    .then(function (r) {
+                        if (r.status === 404) {
+                            return fetch(urlPlain, { credentials: "include" });
+                        }
+                        return r;
+                    })
+                    .then(function (r) {
+                        if (!r.ok) {
+                            return r.text().then(function (t) {
+                                throw new Error(t || "HTTP " + r.status);
+                            });
+                        }
+                        return r.json();
+                    })
+                    .then(function (data) {
+                        var payload = data && data.value !== undefined ? data.value : data;
+                        var rawMsgs = (payload && (payload.messages || payload.Messages)) || [];
+                        var msgs = rawMsgs.slice().sort(function (a, b) {
+                            var ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                            var tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                            return ta - tb;
+                        });
+                        var lines = [];
+                        msgs.forEach(function (msg) {
+                            var tc = msg.toolCalls || msg.toolcalls || msg.ToolCalls;
+                            if (tc == null) {
+                                tc = [];
+                            } else if (!Array.isArray(tc)) {
+                                tc = [tc];
+                            }
+                            lines.push({
+                                role: msg.role || msg.Role || "",
+                                content:
+                                    msg.content != null
+                                        ? msg.content
+                                        : msg.Content != null
+                                          ? msg.Content
+                                          : "",
+                                toolCalls: tc.map(function (t) {
+                                    return {
+                                        toolName: t.toolName || t.ToolName || "",
+                                        resultSummary:
+                                            t.resultSummary != null
+                                                ? t.resultSummary
+                                                : t.ResultSummary != null
+                                                  ? t.ResultSummary
+                                                  : ""
+                                    };
+                                })
+                            });
+                        });
+                        m.setProperty("/audit/detailMessages", lines);
+                        m.setProperty("/audit/detailSession", payload);
+                        m.setProperty("/audit/detailLoading", false);
+                    })
+                    .catch(function (e) {
+                        m.setProperty("/audit/detailLoading", false);
+                        MessageBox.error(e && e.message ? e.message : "Failed to load session");
+                    });
+            },
+
+            onAuditDetailCloseRequest: function () {
+                var dlg = this.byId("dlgAuditSession");
+                if (dlg) {
+                    dlg.close();
+                }
+            },
+
+            onAuditDialogAfterClose: function () {
+                var m = this.getView().getModel("ui");
+                if (m) {
+                    m.setProperty("/audit/detailMessages", []);
+                    m.setProperty("/audit/detailSession", null);
+                    m.setProperty("/audit/detailLoading", false);
+                }
             }
         });
     }

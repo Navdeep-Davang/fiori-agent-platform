@@ -16,6 +16,13 @@
         "settings": {
           "odataVersion": "4.0"
         }
+      },
+      "auditService": {
+        "uri": "/odata/v4/audit/",
+        "type": "OData",
+        "settings": {
+          "odataVersion": "4.0"
+        }
       }
     }
   },
@@ -58,6 +65,15 @@
       "governance": {
         "dataSource": "governanceService",
         "preload": true,
+        "settings": {
+          "operationMode": "Server",
+          "synchronizationMode": "None",
+          "autoExpandSelect": true
+        }
+      },
+      "audit": {
+        "dataSource": "auditService",
+        "preload": false,
         "settings": {
           "operationMode": "Server",
           "synchronizationMode": "None",

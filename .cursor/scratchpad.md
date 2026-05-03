@@ -1,42 +1,44 @@
-# Orchestration scratchpad — Plan 06
+# Orchestration scratchpad — Plan 08 (Python Microservices & Temporal Refactor)
 
-## Task analysis (synced 2026-04-22)
+## Task analysis (synced 2026-05-01)
 
-| Area | Status | Notes |
-|------|--------|--------|
-| Phase 0.1 env / bind / deploy / watch / Python / App Router | **DONE** | Developer confirmed |
-| Phase 0.2 OData `$metadata` | **IN PROGRESS** | 401 on bare **:4004** expected (no Bearer); smoke via **:5000** + login or token — see Plan 06 Phase 0 note |
-| Phase 0.3–0.4 Admin + Chat UI smoke | **OPEN** | Steps 7–8 of runbook — user will run |
-| Phase 1.1–1.3 IAS / hybrid / trust / Python not browser-exposed | **DONE** | Developer confirmed |
-| Phase 1.4 JWT scopes + Python logs | **OPEN** | Pending stable chat; **502** CAP→Python — **agent debug only after user go-ahead** |
-| Phase 3.3.1 HANA deploy | **DONE** | `npm run deploy:hana` |
-| Phase 3.3.2–3.3.3 Skills OData + chat | **OPEN** | After chat path green |
-| Phases 4–9 (code) | **COMPLETE** | In repo |
-| Phase 2 CF / **2.1.1** mbt | **DEFERRED** | After hybrid green; **make** for MBT on Windows if needed |
-| 5.4.x, 6.5, 6b, 7.3, 8.4, 9.5 | **OPEN** | User will progress after hybrid |
+| Phase | Task | Status | Notes |
+|-------|------|--------|-------|
+| **Phase 1** | **1.1 Shared Utilities** | **COMPLETE** | Created `python/utils/`, moved `db.py` to `db_utils.py` and `config.py` to `config_utils.py`. |
+| | **1.2 Docker Infra** | **COMPLETE** | Temporal, Postgres, Langfuse. |
+| | **1.3 Service Skeletons** | **COMPLETE** | Orchestrator, MCP Client, Gateway, Server. |
+| **Phase 2** | **2.1 Procurement extraction** | **COMPLETE** | Moved `procurement.py` to `python/apps/mcp_server/procurement/tools/`. |
+| | **2.2 Finance extraction** | **COMPLETE** | Moved `finance.py` to `python/apps/mcp_server/finance/tools/`. |
+| | **2.3 Governance Sync** | **COMPLETE** | Verified `GovernanceService` compatibility with multiple MCP servers. |
+| **Phase 3** | **3.1 Gateway Cache** | **COMPLETE** | Implemented `mcp_gateway/registry` with `/refresh`. |
+| | **3.2 XSUAA Validation** | **COMPLETE** | Implemented JWT validation and Policy Enforcement in Gateway. |
+| | **3.3 Audit Logging** | **COMPLETE** | Implemented Audit Logging to `AuditLog` table in HANA. |
+| **Phase 4** | **4.1 MCP Client** | **COMPLETE** | Implemented `python/apps/mcp_client/app/main.py` with JSON-RPC mapping. |
+| | **4.2 Tool Search** | **COMPLETE** | Implemented keyword-based search over tool catalog via Gateway. |
+| **Phase 5** | **5.1 Orchestrator Brain** | **COMPLETE** | Moved `deepagent_engine.py` logic, implemented FastAPI starter. |
+| | **5.2 Skill Workflows** | **COMPLETE** | Implemented `AgentWorkflow` with Temporal SDK. |
+| | **5.3 Activity Workers** | **COMPLETE** | Implemented `call_mcp_tool` and `list_mcp_tools` activities. |
+| **Phase 6** | **6.1 Correlation Propagation** | **COMPLETE** | Implemented `X-Acp-Correlation-Id` and Langfuse trace propagation across all microservices. |
 
-**Overall:** Hybrid HANA + identity **in progress**; **Bad Gateway** on chat is the main blocker for closing Phase 0 / 1.4 / 3.3.3.
-
-## Next (developer)
-
-1. Close **0.2** using **`http://localhost:5000/...`** (after login) for `$metadata`, or REST client with JWT — not raw `:4004` alone.  
-2. Run **0.3–0.4** (Admin + Chat checklists).  
-3. **`GET .../governance/Skills`** as Admin (**3.3.2**).  
-4. When ready: **go-ahead** for agent to debug **502** / CAP→Python / **1.4.1–1.4.2**.  
-5. **Phase 2 CF** last.
-
-## Plan 07 — Admin UI governance resilience (sync 2026-04-28)
-
-| Task area | Status | Notes |
-|-----------|--------|--------|
-| Phase A (inventory) | **COMPLETE** | A.1–A.4 |
-| Phase B | **B.1–B.3 done** (B.3 strict: sync only if Health OK, UI+CAP); B.4 open | B.2/B.3 in `doc/Operations/mcp-registration.md` §5 / §3 |
-| Phase C (resilience) | **COMPLETE** | C.1–C.6; action error path refreshes governance model; `lastHealthCheck` + `health` FAIL UX |
-| Phase D | **COMPLETE** (D.1–D.3) | D.2: env timeouts, sync **MessageBox** (name list on success); D.3: `governance-net-errors.js` + mask flag |
-| Phase E (verification) | **OPEN** | E.1–E.3 manual matrix not closed |
-| Phase F (Elements alignment) | **F.3 done**; F.1–F.2 open | F.3: chat freestyle in architecture + Plan 06 A.4 |
+**Overall Status:** PHASE-6-TASK-6.1-COMPLETE
 
 ## Session notes
 
-- **2026-04-28:** **B.3** + Tools UX: **strict** sync, CAP guard, runbook §3, parent-health icon, **Edit tool** (full-width description, not draggable), info **tooltip**=description, click=full dialog, sync **MessageBox**+names. Plan 07 **checkpoint** + manifest `current_phase` = B-B4-remaining. **2026-04-27:** F.3 / D.2 / D.3 re-verified.
-- Prior audits: `.cursor/worker-reports/06-audit-phase*.md`.
+- **2026-05-01:** Starting Plan 08. Initializing library and infrastructure.
+- User requested subagents to speed up tasks.
+- Phase 2, 3, 4 completed through parallel subagents and manual verification.
+- AuditLog table added to schema.cds.
+- MCP Client fixed to include `agentId` in tool calls.
+
+## Subagent Tracking
+
+| Agent ID | Task | Status | Notes |
+|----------|------|--------|-------|
+| A | Task 1.1 | COMPLETE | |
+| B | Task 1.2 | COMPLETE | |
+| C | Task 1.3 | COMPLETE | |
+| D | Task 2.1 | COMPLETE | |
+| E | Task 2.2 | COMPLETE | |
+| F | Phase 3 | COMPLETE | |
+| G | Phase 4 | COMPLETE | |
+| H | Phase 5 | IN PROGRESS | |

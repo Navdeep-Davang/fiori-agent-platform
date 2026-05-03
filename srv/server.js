@@ -3,7 +3,8 @@ const axios = require('axios')
 const readline = require('readline')
 const { randomUUID } = require('crypto')
 
-const PYTHON_URL = () => process.env.PYTHON_URL || 'http://localhost:8000'
+// Chat/tool-test API lives on Layer 3 (apps/server), not the MCP gateway (8000).
+const PYTHON_URL = () => process.env.PYTHON_URL || 'http://localhost:8003'
 
 function deptValueEmpty(v) {
   if (v == null) return true
@@ -211,8 +212,50 @@ cds.on('bootstrap', app => {
         email: user.email || user.id || '',
         displayName: user.attr?.displayName || user.name || user.id || '—',
         roles: roles.length ? roles.join(', ') : '—',
-        dept: dept || '—'
+        dept: dept || '—',
+        hasAdmin: !!user.is?.('Agent.Admin'),
+        hasAuthor: !!user.is?.('Agent.Author'),
+        hasAudit: !!user.is?.('Agent.Audit')
       })
+    } catch (e) {
+      console.error(e)
+      return res.status(500).json({ error: e.message })
+    }
+  })
+
+  /** Distinct chat owners for audit subject picker (Agent.Audit only). */
+  app.get('/api/audit/chat-subjects', async (req, res) => {
+    try {
+      const user = req.user
+      if (!user?.is?.('Agent.Audit')) return res.status(403).json({ error: 'Agent.Audit required' })
+      const db = await cds.connect.to('db')
+      /** Prefer MAX(userEmail) without quotes — HANA folds unquoted ids to match deployed columns. */
+      const sqlWithEmail = `SELECT userId, MAX(userEmail) AS userEmail, COUNT(*) AS sessionCount, MAX(updatedAt) AS lastUpdatedAt
+         FROM acp_ChatSession
+         GROUP BY userId
+         ORDER BY lastUpdatedAt DESC`
+      const sqlLegacy = `SELECT userId, COUNT(*) AS sessionCount, MAX(updatedAt) AS lastUpdatedAt
+         FROM acp_ChatSession
+         GROUP BY userId
+         ORDER BY lastUpdatedAt DESC`
+      let rows
+      try {
+        rows = await db.run(sqlWithEmail)
+      } catch (e1) {
+        const msg = String(e1.message || e1)
+        if (/userEmail|USEREMAIL/i.test(msg)) {
+          rows = await db.run(sqlLegacy)
+        } else {
+          throw e1
+        }
+      }
+      const subjects = (rows || []).map(r => ({
+        userId: String(r.userId ?? r.USERID ?? ''),
+        userEmail: r.userEmail != null && r.userEmail !== '' ? String(r.userEmail ?? r.USEREMAIL ?? '') : '',
+        sessionCount: Number(r.sessionCount ?? r.SESSIONCOUNT ?? 0),
+        lastUpdatedAt: r.lastUpdatedAt ?? r.LASTUPDATEDAT ?? null
+      }))
+      return res.json({ subjects })
     } catch (e) {
       console.error(e)
       return res.status(500).json({ error: e.message })
@@ -366,9 +409,10 @@ cds.on('bootstrap', app => {
         await db.run(`UPDATE acp_ChatSession SET updatedAt = ? WHERE ID = ?`, [now, sid])
       } else {
         sid = randomUUID()
+        const userEmail = String(user.email || user.id || '').slice(0, 320)
         await db.run(
-          `INSERT INTO acp_ChatSession (ID, agentId, userId, title, createdAt, updatedAt) VALUES (?,?,?,?,?,?)`,
-          [sid, agentId, uid, String(userMessage).slice(0, 40), now, now]
+          `INSERT INTO acp_ChatSession (ID, agentId, userId, userEmail, title, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?)`,
+          [sid, agentId, uid, userEmail, String(userMessage).slice(0, 40), now, now]
         )
       }
       const userMsgId = randomUUID()

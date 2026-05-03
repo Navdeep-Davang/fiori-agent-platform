@@ -1,4 +1,4 @@
-from ..db import query_as_dicts
+from python.utils.db_utils import query_as_dicts
 
 def get_invoices(conn, status: str = None, due_before: str = None):
     """List invoices with optional status or due_before date filters."""

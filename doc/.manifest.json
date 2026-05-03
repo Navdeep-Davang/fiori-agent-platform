@@ -2,17 +2,31 @@
   "version": "1.0",
   "project_id": "fiori-agent-platform",
   "created": "2026-03-15T00:00:00Z",
-  "last_updated": "2026-04-28T12:00:00Z",
+  "last_updated": "2026-05-01T07:55:00Z",
   "artifacts": {
     "architectures": {
       "fiori-agent-platform": {
         "path": "doc/Architecture/fiori-agent-platform.md",
-        "hash": "sha256:bd3960c53bfd1fdad32e2525fc45194a6f6e10e3f784ca6c420a5c3a52b0ea8a",
-        "last_modified": "2026-04-05T00:00:00Z",
+        "hash": "sha256:ea1e68ef85393f9fbd714cb5c088a2c1342f2446e7209f398a5012e057f4ca37",
+        "last_modified": "2026-04-30T15:55:00Z",
         "description": "Full-stack SAP Fiori chat playground on BTP with XSUAA auth, Node.js BFF, and Python DeepAgent (deepagents/LangGraph) executor (Spectrum 1: hybrid HANA + local CAP/Python documented)"
+      },
+      "agentic-microservices-python": {
+        "path": "doc/Architecture/agentic-microservices-python.md",
+        "hash": "sha256:c0befacaa41718946420e7aaec73a357a2d32095de7e36a91dac4e27e27db6c5",
+        "last_modified": "2026-05-01T07:05:00Z",
+        "description": "Target python/apps/ orchestrator+mcp-gateway+mcp-client+mcp-server domains; python/utils/ common; Temporal (Postgres); Langfuse local correlation; MCP stack and platform vs business DB boundaries"
       }
     },
     "action_plans": {
+      "08-python-microservices-temporal-refactor": {
+        "path": "doc/Action-Plan/08-python-microservices-temporal-refactor.md",
+        "hash": "sha256:f2ddbb18927c03914a80195fb9f824cd4950818d028314976172698a6cb66cd3",
+        "last_modified": "2026-05-01T07:45:00Z",
+        "status": "completed",
+        "current_phase": "Phase 6: Observability (Langfuse) & Final Integration",
+        "description": "Refactor monolithic Python executor into distributed microservices (python/apps/*) with Temporal durable execution and identity-first security; local Docker infrastructure."
+      },
       "06-architecture-aligned-e2e": {
         "path": "doc/Action-Plan/06-architecture-aligned-e2e.md",
         "last_modified": "2026-04-22T12:00:00Z",
@@ -43,3 +57,5 @@
     }
   }
 }
+
+

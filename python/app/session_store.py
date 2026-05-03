@@ -19,17 +19,20 @@ def _now_iso() -> str:
     return datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
 
 
-def create_session(conn, user_id: str, agent_id: str, title: str) -> str:
+def create_session(
+    conn, user_id: str, agent_id: str, title: str, user_email: Optional[str] = None
+) -> str:
     sid = str(uuid.uuid4())
     now = _now_iso()
+    email = (user_email or "").strip()[:320] or None
     cur = conn.cursor()
     try:
         cur.execute(
             """
-            INSERT INTO acp_ChatSession (ID, agentId, userId, title, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO acp_ChatSession (ID, agentId, userId, userEmail, title, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (sid, agent_id, user_id, title[:200], now, now),
+            (sid, agent_id, user_id, email, title[:200], now, now),
         )
         conn.commit()
     finally:

@@ -21,14 +21,15 @@
         <tnt:sideContent>
             <tnt:SideNavigation id="sideNav" selectedKey="pageOverview" itemSelect=".onSideNavSelect">
                 <tnt:NavigationList id="adminNavList">
-                    <tnt:NavigationListItem text="Overview" icon="sap-icon://home" key="pageOverview" />
-                    <tnt:NavigationListItem text="MCP servers" icon="sap-icon://it-host" key="pageMcp" />
-                    <tnt:NavigationListItem text="Tools catalog" icon="sap-icon://wrench" key="pageTools" />
-                    <tnt:NavigationListItem text="Agents" icon="sap-icon://customer" key="pageAgents" />
-                    <tnt:NavigationListItem text="Skills" icon="sap-icon://learning-assistant" key="pageSkills" />
-                    <tnt:NavigationListItem text="Agent ↔ skills ↔ tools" icon="sap-icon://tree" key="pageAgentSkillTools" />
-                    <tnt:NavigationListItem text="Playground" icon="sap-icon://discussion" key="pagePlayground" />
-                    <tnt:NavigationListItem text="Access &amp; groups" icon="sap-icon://group" key="pageAccess" />
+                    <tnt:NavigationListItem text="Overview" icon="sap-icon://home" key="pageOverview" visible="{= !${ui>/shell/hideGovernanceNav} }" />
+                    <tnt:NavigationListItem text="MCP servers" icon="sap-icon://it-host" key="pageMcp" visible="{= !${ui>/shell/hideGovernanceNav} }" />
+                    <tnt:NavigationListItem text="Tools catalog" icon="sap-icon://wrench" key="pageTools" visible="{= !${ui>/shell/hideGovernanceNav} }" />
+                    <tnt:NavigationListItem text="Agents" icon="sap-icon://customer" key="pageAgents" visible="{= !${ui>/shell/hideGovernanceNav} }" />
+                    <tnt:NavigationListItem text="Skills" icon="sap-icon://learning-assistant" key="pageSkills" visible="{= !${ui>/shell/hideGovernanceNav} }" />
+                    <tnt:NavigationListItem text="Agent ↔ skills ↔ tools" icon="sap-icon://tree" key="pageAgentSkillTools" visible="{= !${ui>/shell/hideGovernanceNav} }" />
+                    <tnt:NavigationListItem text="Playground" icon="sap-icon://discussion" key="pagePlayground" visible="{= !${ui>/shell/hideGovernanceNav} }" />
+                    <tnt:NavigationListItem text="Access &amp; groups" icon="sap-icon://group" key="pageAccess" visible="{= !${ui>/shell/hideGovernanceNav} }" />
+                    <tnt:NavigationListItem text="Chat audit" icon="sap-icon://inspect" key="pageAudit" visible="{= ${ui>/shell/showAuditNav} }" />
                 </tnt:NavigationList>
                 <tnt:fixedItem>
                     <tnt:NavigationList id="adminNavFooter">
@@ -993,7 +994,116 @@
                         </Table>
                     </ScrollContainer>
                 </Page>
+
+                <Page id="pageAudit" title="{i18n>auditPageTitle}" showNavButton="false">
+                    <MessageStrip
+                        text="{i18n>auditOnlyBanner}"
+                        type="Information"
+                        showIcon="true"
+                        visible="{= ${ui>/shell/auditorOnly} === true }"
+                        class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="{i18n>auditPageHint}"
+                        type="Information"
+                        showIcon="true"
+                        class="sapUiResponsiveMargin" />
+                    <MessageStrip
+                        text="{ui>/audit/subjectsError}"
+                        type="Error"
+                        showIcon="true"
+                        visible="{= !!${ui>/audit/subjectsError} }"
+                        class="sapUiResponsiveMargin" />
+                    <HBox alignItems="Center" class="sapUiResponsiveMargin" wrap="Wrap">
+                        <Label text="{i18n>auditSubjectLabel}" showColon="true" class="sapUiTinyMarginEnd" />
+                        <Select
+                            id="selAuditSubject"
+                            width="36rem"
+                            forceSelection="false"
+                            enabled="{ui>/audit/subjectsLoaded}"
+                            items="{ path: 'ui>/audit/subjectItems' }"
+                            change=".onAuditSubjectChange">
+                            <core:Item key="{ui>key}" text="{ui>text}" />
+                        </Select>
+                    </HBox>
+                    <ScrollContainer horizontal="true" vertical="false" width="100%" focusable="true" class="sapUiResponsiveMargin acpMcpTableScroll">
+                        <Table
+                            id="tblAuditSessions"
+                            mode="None"
+                            inset="false"
+                            growing="true"
+                            items="{
+                                path: 'audit>/AuditedChatSessions',
+                                parameters: { $select: 'ID,title,updatedAt,agentId,userId' },
+                                sorter: { path: 'updatedAt', descending: true }
+                            }"
+                            noDataText="{i18n>auditSessionsNoData}"
+                            width="56rem"
+                            fixedLayout="false">
+                            <columns>
+                                <Column width="14rem"><Text text="Title" /></Column>
+                                <Column width="12rem" minScreenWidth="Tablet" demandPopin="true"><Text text="User" /></Column>
+                                <Column width="12rem" minScreenWidth="Tablet" demandPopin="true"><Text text="Agent" /></Column>
+                                <Column width="12rem"><Text text="Updated" /></Column>
+                            </columns>
+                            <items>
+                                <ColumnListItem type="Active" press=".onAuditSessionPress">
+                                    <cells>
+                                        <Text text="{audit>title}" />
+                                        <Text text="{= ${audit>userEmail} ? ${audit>userEmail} : ${audit>userId} }" />
+                                        <Text text="{path: 'audit>agentId', formatter: '.formatAuditAgentName'}" />
+                                        <Text text="{path: 'audit>updatedAt', formatter: '.formatAuditUpdatedAt'}" />
+                                    </cells>
+                                </ColumnListItem>
+                            </items>
+                        </Table>
+                    </ScrollContainer>
+                </Page>
             <dependents>
+            <Dialog
+                id="dlgAuditSession"
+                title="{ui>/audit/detailTitle}"
+                contentWidth="40rem"
+                contentHeight="32rem"
+                draggable="true"
+                afterClose=".onAuditDialogAfterClose">
+                <content>
+                    <VBox class="sapUiSmallMargin">
+                        <BusyIndicator visible="{ui>/audit/detailLoading}" />
+                        <ScrollContainer vertical="true" height="28rem" width="100%">
+                            <List items="{ui>/audit/detailMessages}" showSeparators="All" width="100%">
+                                <CustomListItem>
+                                    <VBox class="sapUiSmallMargin" width="100%">
+                                        <Text text="{ui>role}" class="sapMTextBold" />
+                                        <core:HTML
+                                            sanitizeContent="false"
+                                            preferDOM="false"
+                                            content="{
+                                                parts: [{ path: 'content', model: 'ui' }, { path: 'role', model: 'ui' }],
+                                                formatter: '.formatAuditMessageHtml'
+                                            }" />
+                                        <List
+                                            showNoData="false"
+                                            visible="{parts: [{ path: 'toolCalls', model: 'ui' }], formatter: '.formatAuditHasToolCalls'}"
+                                            items="{path: 'toolCalls', model: 'ui'}"
+                                            showSeparators="Inner"
+                                            width="100%">
+                                            <CustomListItem>
+                                                <VBox class="sapUiTinyMarginBegin">
+                                                    <Text text="{path: 'toolName', model: 'ui'}" class="sapMTextEmphasized" />
+                                                    <Text text="{path: 'resultSummary', model: 'ui'}" wrapping="true" maxLines="4" />
+                                                </VBox>
+                                            </CustomListItem>
+                                        </List>
+                                    </VBox>
+                                </CustomListItem>
+                            </List>
+                        </ScrollContainer>
+                    </VBox>
+                </content>
+                <endButton>
+                    <Button text="{i18n>auditDetailClose}" press=".onAuditDetailCloseRequest" />
+                </endButton>
+            </Dialog>
             <Dialog
                 id="dlgMcpServer"
                 title="MCP server"

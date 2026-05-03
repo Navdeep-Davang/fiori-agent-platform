@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import nullcontext
 from typing import Any, AsyncIterator, Dict, List, Optional, Set
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -24,6 +25,7 @@ from .config import (
     LANGFUSE_SECRET_KEY,
 )
 from .hydrator import load_skill_body
+from python.utils.observability import configure_langfuse_otel_env
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,9 @@ def build_system_prompt(agent_cfg: Dict[str, Any], skill_metadata: List[Dict[str
     return base + "\n\n" + "\n".join(lines)
 
 
-def _make_mcp_tool(meta: Dict[str, Any], user_token: str, allowed_names: Set[str]) -> StructuredTool:
+def _make_mcp_tool(
+    meta: Dict[str, Any], user_token: str, allowed_names: Set[str], agent_id: str
+) -> StructuredTool:
     name = meta["name"]
 
     async def _run(**kwargs: Any) -> str:
@@ -67,7 +71,7 @@ def _make_mcp_tool(meta: Dict[str, Any], user_token: str, allowed_names: Set[str
         if not url:
             return json.dumps({"error": "No MCP URL for tool"})
         tok = token_for_mcp(meta, user_token)
-        return await mcp_client.call_tool(url, name, kwargs, tok)
+        return await mcp_client.call_tool(url, name, kwargs, tok, agent_id=agent_id)
 
     return StructuredTool.from_function(
         name=name,
@@ -119,7 +123,8 @@ def _langfuse_handler():
 
     os.environ.setdefault("LANGFUSE_PUBLIC_KEY", LANGFUSE_PUBLIC_KEY)
     os.environ.setdefault("LANGFUSE_SECRET_KEY", LANGFUSE_SECRET_KEY)
-    os.environ.setdefault("LANGFUSE_HOST", LANGFUSE_HOST)
+    os.environ.setdefault("LANGFUSE_HOST", LANGFUSE_HOST or "http://localhost:3000")
+    configure_langfuse_otel_env()
     try:
         from langfuse.langchain import CallbackHandler
 
@@ -176,14 +181,21 @@ async def run_deep_agent_stream(
     user_message: str,
     user_token: str,
     conn: Any,
+    conversation_session_id: Optional[str] = None,
+    conversation_user_id: Optional[str] = None,
 ) -> AsyncIterator[str]:
-    """SSE lines for tokens, tool_call, tool_result, planning; no final `done` (executor adds after persistence)."""
+    """SSE lines for tokens, tool_call, tool_result, planning; no final `done` (executor adds after persistence).
+
+    conversation_session_id / conversation_user_id map to Langfuse ``session_id`` and ``user_id`` so multi-turn
+    chat appears under one Session in Langfuse (one trace per HTTP request).
+    """
     allowed_tool_names: Set[str] = {t["name"] for t in effective_tools}
     allowed_skill_ids: Set[str] = {str(s.get("id")) for s in skill_metadata if s.get("id")}
 
     tools: List[Any] = []
+    agent_pk = str(agent_cfg.get("id") or "").strip()
     for meta in effective_tools:
-        tools.append(_make_mcp_tool(meta, user_token, allowed_tool_names))
+        tools.append(_make_mcp_tool(meta, user_token, allowed_tool_names, agent_pk))
     if allowed_skill_ids:
         tools.append(_make_load_skill_tool(conn, allowed_skill_ids))
 
@@ -207,10 +219,37 @@ async def run_deep_agent_stream(
     msgs.append(HumanMessage(content=user_message))
 
     langfuse = _langfuse_handler()
-    cfg: Dict[str, Any] = {"configurable": {"thread_id": "acp-chat"}}
+    _thread = ((conversation_session_id or "").strip() or "default")[:200]
+    cfg: Dict[str, Any] = {"configurable": {"thread_id": f"acp-{_thread}"[:200]}}
     if langfuse:
         cfg["callbacks"] = [langfuse]
 
-    async for ev in graph.astream_events({"messages": msgs}, config=cfg, version="v2"):
-        for line in _event_to_sse_lines(ev):
-            yield line
+    _lf_propagate = nullcontext()
+    if langfuse:
+        try:
+            from langfuse import propagate_attributes
+
+            _kw: Dict[str, str] = {}
+            _sid = (conversation_session_id or "").strip()
+            _uid = (conversation_user_id or "").strip()
+            if _sid:
+                _kw["session_id"] = _sid[:200]
+            if _uid:
+                _kw["user_id"] = _uid[:200]
+            if _kw:
+                _lf_propagate = propagate_attributes(**_kw)
+        except Exception as pe:
+            logger.debug("Langfuse propagate_attributes unavailable: %s", pe)
+
+    with _lf_propagate:
+        async for ev in graph.astream_events({"messages": msgs}, config=cfg, version="v2"):
+            for line in _event_to_sse_lines(ev):
+                yield line
+
+    if langfuse:
+        try:
+            from langfuse import get_client
+
+            get_client().flush()
+        except Exception as fe:
+            logger.debug("Langfuse flush: %s", fe)

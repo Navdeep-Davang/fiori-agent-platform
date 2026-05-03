@@ -56,7 +56,7 @@ npm install
 
 ### 2. Configure `.env`
 
-Set LLM vars, `PYTHON_URL=http://localhost:8000`, optional matching **`ACP_INTERNAL_TOKEN`** on both CAP and Python when you want a shared secret on the internal hop, and **all `HANA_*` fields** (see above). Export vars the CAP process can see (this repo does not auto-load `.env` into Node; use your shell or a tool of your choice).
+Set LLM vars, `PYTHON_URL=http://localhost:8003` (Layer 3 chat API; the MCP gateway is **`MCP_GATEWAY_URL`**, typically port 8000), optional matching **`ACP_INTERNAL_TOKEN`** on both CAP and Python when you want a shared secret on the internal hop, and **all `HANA_*` fields** (see above). Export vars the CAP process can see (this repo does not auto-load `.env` into Node; use your shell or a tool of your choice).
 
 ### 3. Bind services (hybrid — XSUAA + HANA)
 
@@ -83,22 +83,27 @@ npm run watch
 
 This runs **`cds watch --profile hybrid`** (reloads on change). It **requires** prior **`cds bind`** for **db** and **xsuaa** (hybrid auth is **`xsuaa`** in root **`package.json`**).
 
-### 5. Start the Python executor
+### 5. Start the Python microservices (9-layer architecture)
 
-FastAPI / MCP / LLM; default **http://localhost:8000**. Use a virtual environment so dependencies stay isolated:
+The Python backend is now split into distributed microservices for durability (Temporal) and security (MCP Gateway).
 
-```bash
-cd python
-python -m venv venv # Only run if the venv not there, else skip this and move to next command
-venv\Scripts\activate
+#### 5.1. Start Infrastructure (Docker)
+Ensure Docker Desktop is running, then start the Temporal and Langfuse cluster:
+```powershell
+cd docker
+docker-compose up -d
 ```
+- **Temporal UI:** http://localhost:8080
+- **Langfuse UI:** http://localhost:3000
 
-Then install and run:
-
-```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+#### 5.2. Start Python Services
+Use the automated script to open 6 separate terminals for the microservices (Gateway, Client, Orchestrator, API Server, and MCP Servers):
+```powershell
+.\scripts\start-python-services.ps1
 ```
+This script resolves the repo root automatically, sets `PYTHONPATH`, uses `python/venv`, and **tees each service’s stdout/stderr into `.\.log\<service>-<port>.log`** (with `PYTHONUNBUFFERED=1` so lines show up quickly while the process runs). When you close that window or the service exits, the helper removes that session’s log file; the launcher also clears leftover `*.log` on each run so a fresh start is not mixed with old crashes.
+
+---
 
 ### 6. SAP App Router (recommended for login)
 
@@ -155,9 +160,26 @@ The browser sends **only** `{ agentId, message, sessionId }` in the JSON body of
 
 **Implemented:** [`srv/server.js`](srv/server.js) POSTs the **thin** JSON to Python and forwards **`Authorization: Bearer`** plus internal-trust headers. Python owns chat persistence and emits the final SSE **`done`**.
 
-### Observability (Langfuse)
+### Observability (self-hosted Langfuse)
 
-Optional **[Langfuse](https://langfuse.com/)** (MIT) for DeepAgent / LangChain traces: set **`LANGFUSE_PUBLIC_KEY`**, **`LANGFUSE_SECRET_KEY`**, and optionally **`LANGFUSE_HOST`** in `.env` (never commit secrets). This product does **not** rely on ADK Web or LangSmith for production observability.
+Traces use **[Langfuse](https://langfuse.com/)** (MIT) self-hosted — **not** Langfuse Cloud in this setup. Langfuse v3 runs in the **same** Compose file as PostgreSQL and Temporal: one Postgres instance for Temporal (`temporal` / `temporal_visibility` databases) and for Langfuse metadata (`postgres` database, schema **`langfuse`**).
+
+From the **repository root**:
+
+```bash
+# Start Postgres, Temporal, Temporal UI, Langfuse (web + worker), ClickHouse, Redis, MinIO
+docker compose -f docker/docker-compose.yml up -d
+
+# Stop the whole dev stack (optional)
+docker compose -f docker/docker-compose.yml down
+```
+
+On Windows (PowerShell), the same commands work with Docker Compose V2.
+
+1. After **`up -d`**, open **`http://localhost:3000`**, create a project, and copy the API keys into `.env`: **`LANGFUSE_PUBLIC_KEY`**, **`LANGFUSE_SECRET_KEY`**, **`LANGFUSE_HOST=http://localhost:3000`** (or your reverse-proxy URL).
+2. Python sets **`OTEL_EXPORTER_OTLP_ENDPOINT`** to `{LANGFUSE_HOST}/api/public/otel` automatically ([`python/utils/observability.py`](python/utils/observability.py)). Restart Python services after changing `.env`.
+
+Stack file: [`docker/docker-compose.yml`](docker/docker-compose.yml). Langfuse layout matches the upstream **[Langfuse docker-compose](https://github.com/langfuse/langfuse/blob/main/docker-compose.yml)** (adapted to share **`postgresql`**). See [`docker/langfuse/README.txt`](docker/langfuse/README.txt).
 
 ---
 

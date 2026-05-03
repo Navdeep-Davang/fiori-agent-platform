@@ -1,4 +1,4 @@
-from ..db import query_as_dicts
+from python.utils.db_utils import query_as_dicts
 
 def get_vendors(conn, category: str = None, country: str = None):
     """List vendors, optionally filtered by category or country."""
