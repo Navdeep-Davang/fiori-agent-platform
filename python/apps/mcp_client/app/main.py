@@ -94,14 +94,36 @@ async def mcp_rpc(request: JsonRpcRequest, req_raw: Request):
                         error={"code": -32602, "message": "Invalid params: 'name' is required"},
                         id=request.id
                     )
-                
+
+                aid = str(request.params.get("agentId") or "").strip()
+                if not aid:
+                    return JsonRpcResponse(
+                        error={
+                            "code": -32602,
+                            "message": "Invalid params: 'agentId' is required (CAP/HANA agent UUID)",
+                        },
+                        id=request.id,
+                    )
+
                 # The Gateway requires 'agentId', 'toolName', and 'arguments'
                 payload = {
-                    "agentId": request.params.get("agentId", "unknown-agent"),
+                    "agentId": aid,
                     "toolName": request.params["name"],
-                    "arguments": request.params.get("arguments", {})
+                    "arguments": request.params.get("arguments", {}) or {},
                 }
-                
+
+                _itk = os.getenv("ACP_INTERNAL_TOKEN", "").strip()
+                if _itk:
+                    headers["X-Internal-Token"] = _itk
+                _dept = (
+                    str(request.params.get("dept") or request.params.get("capDept") or "")
+                    .strip()
+                )
+                if not _dept:
+                    _dept = (req_raw.headers.get("X-AC-Dept") or req_raw.headers.get("x-ac-dept") or "").strip()
+                if _dept:
+                    headers["X-AC-Dept"] = _dept
+
                 logger.info(f"Forwarding call request for '{payload['toolName']}' to {GATEWAY_URL}/mcp/tools/call")
                 response = await client.post(f"{GATEWAY_URL}/mcp/tools/call", json=payload, headers=headers)
                 response.raise_for_status()

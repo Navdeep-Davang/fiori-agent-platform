@@ -17,7 +17,7 @@ SUMMARY_TOKEN_THRESHOLD = int(os.getenv("SUMMARY_TOKEN_THRESHOLD", "6000"))
 # Langfuse (Phase 6b) — optional; never commit keys
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "").strip()
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "").strip()
-LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "http://localhost:3000").strip()
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "").strip()
 
 # Python App Config
 PYTHON_INTERNAL_BASE_URL = os.getenv("PYTHON_URL", "http://localhost:8003")

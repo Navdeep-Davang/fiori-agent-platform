@@ -97,6 +97,7 @@ async def run(payload: Dict[str, Any], authorization_header: str = "") -> AsyncI
         assistant_text = ""
         tool_records: List[Dict[str, Any]] = []
 
+        dept_for_gw = str(user_info.get("dept") or "").strip() or None
         async for line in deepagent_engine.run_deep_agent_stream(
             agent_cfg=agent_cfg,
             effective_tools=effective_tools,
@@ -108,6 +109,7 @@ async def run(payload: Dict[str, Any], authorization_header: str = "") -> AsyncI
             conn=conn,
             conversation_session_id=session_id,
             conversation_user_id=user_id,
+            dept_for_gateway=dept_for_gw,
         ):
             if line.startswith("data: "):
                 try:

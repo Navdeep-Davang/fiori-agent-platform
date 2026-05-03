@@ -11,22 +11,32 @@ CORRELATION_ID_HEADER = "X-Acp-Correlation-Id"
 LANGFUSE_TRACE_ID_HEADER = "X-Langfuse-Trace-Id"
 
 
+def _langfuse_otel_enabled() -> bool:
+    v = (os.environ.get("ACP_LANGFUSE_OTEL") or os.environ.get("LANGFUSE_OTEL") or "").strip().lower()
+    return v in ("1", "true", "yes")
+
+
 def configure_langfuse_otel_env() -> None:
     """
-    Self-hosted Langfuse (v3+) exports OpenTelemetry spans to:
-    ``{LANGFUSE_HOST}/api/public/otel`` (not the Next.js root).
-    See https://langfuse.com/integrations/native/opentelemetry
+    OpenTelemetry export to Langfuse is **opt-in** (``ACP_LANGFUSE_OTEL=true``).
+    Without it, Langfuse CallbackHandler still works for ingestion, but the OTLP
+    HTTP exporter is not configured — avoiding connection spam to localhost:3000 when
+    Langfuse is not running.
     """
+    if not _langfuse_otel_enabled():
+        return
+
     if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
         host = (os.environ.get("LANGFUSE_HOST") or "").strip().rstrip("/")
         if not host:
+            logger.debug("ACP_LANGFUSE_OTEL set but LANGFUSE_HOST empty — skip OTLP endpoint")
             return
         if "/api/public/otel" in host:
             endpoint = host
         else:
             endpoint = f"{host}/api/public/otel"
         os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint
-        logger.info("Set OTEL_EXPORTER_OTLP_ENDPOINT for Langfuse OTLP: %s", endpoint)
+        logger.info("Langfuse OTLP exporter enabled: %s", endpoint)
 
     if os.environ.get("OTEL_EXPORTER_OTLP_HEADERS"):
         return

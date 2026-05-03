@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from contextlib import nullcontext
 from typing import Any, AsyncIterator, Dict, List, Optional, Set
 
@@ -60,7 +61,11 @@ def build_system_prompt(agent_cfg: Dict[str, Any], skill_metadata: List[Dict[str
 
 
 def _make_mcp_tool(
-    meta: Dict[str, Any], user_token: str, allowed_names: Set[str], agent_id: str
+    meta: Dict[str, Any],
+    user_token: str,
+    allowed_names: Set[str],
+    agent_id: str,
+    cap_dept: Optional[str] = None,
 ) -> StructuredTool:
     name = meta["name"]
 
@@ -71,7 +76,9 @@ def _make_mcp_tool(
         if not url:
             return json.dumps({"error": "No MCP URL for tool"})
         tok = token_for_mcp(meta, user_token)
-        return await mcp_client.call_tool(url, name, kwargs, tok, agent_id=agent_id)
+        return await mcp_client.call_tool(
+            url, name, kwargs, tok, agent_id=agent_id, cap_dept=cap_dept
+        )
 
     return StructuredTool.from_function(
         name=name,
@@ -119,11 +126,14 @@ def _langfuse_handler():
     """Langfuse 4.x reads keys from env; CallbackHandler() uses trace context."""
     if not (LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY):
         return None
+    host = (LANGFUSE_HOST or "").strip()
+    if not host:
+        return None
     import os
 
     os.environ.setdefault("LANGFUSE_PUBLIC_KEY", LANGFUSE_PUBLIC_KEY)
     os.environ.setdefault("LANGFUSE_SECRET_KEY", LANGFUSE_SECRET_KEY)
-    os.environ.setdefault("LANGFUSE_HOST", LANGFUSE_HOST or "http://localhost:3000")
+    os.environ.setdefault("LANGFUSE_HOST", host)
     configure_langfuse_otel_env()
     try:
         from langfuse.langchain import CallbackHandler
@@ -183,6 +193,7 @@ async def run_deep_agent_stream(
     conn: Any,
     conversation_session_id: Optional[str] = None,
     conversation_user_id: Optional[str] = None,
+    dept_for_gateway: Optional[str] = None,
 ) -> AsyncIterator[str]:
     """SSE lines for tokens, tool_call, tool_result, planning; no final `done` (executor adds after persistence).
 
@@ -194,8 +205,11 @@ async def run_deep_agent_stream(
 
     tools: List[Any] = []
     agent_pk = str(agent_cfg.get("id") or "").strip()
+    _gw_dept = (dept_for_gateway or "").strip() or None
     for meta in effective_tools:
-        tools.append(_make_mcp_tool(meta, user_token, allowed_tool_names, agent_pk))
+        tools.append(
+            _make_mcp_tool(meta, user_token, allowed_tool_names, agent_pk, cap_dept=_gw_dept)
+        )
     if allowed_skill_ids:
         tools.append(_make_load_skill_tool(conn, allowed_skill_ids))
 
@@ -220,7 +234,14 @@ async def run_deep_agent_stream(
 
     langfuse = _langfuse_handler()
     _thread = ((conversation_session_id or "").strip() or "default")[:200]
-    cfg: Dict[str, Any] = {"configurable": {"thread_id": f"acp-{_thread}"[:200]}}
+    try:
+        _recursion_cap = max(25, int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "50")))
+    except ValueError:
+        _recursion_cap = 50
+    cfg: Dict[str, Any] = {
+        "configurable": {"thread_id": f"acp-{_thread}"[:200]},
+        "recursion_limit": _recursion_cap,
+    }
     if langfuse:
         cfg["callbacks"] = [langfuse]
 
@@ -249,7 +270,11 @@ async def run_deep_agent_stream(
     if langfuse:
         try:
             from langfuse import get_client
+            import asyncio
 
-            get_client().flush()
+            # Run flush in a background thread to avoid blocking the event loop on slow OTLP export.
+            # The SDK's OTLP exporter uses synchronous 'requests', which can block for seconds.
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, get_client().flush)
         except Exception as fe:
             logger.debug("Langfuse flush: %s", fe)

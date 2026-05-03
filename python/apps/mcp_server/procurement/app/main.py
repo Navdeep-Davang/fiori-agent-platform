@@ -9,6 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.
 
 from python.utils.db_utils import get_connection
 from python.utils.observability import get_correlation_id
+from python.utils.mcp_args import flatten_tool_arguments
 from ..tools import procurement
 
 # Configure logging
@@ -71,6 +72,7 @@ async def call_tool(
     arguments: Dict[str, Any] = Body(default_factory=dict, embed=True)
 ):
     """Executes a tool by name with provided arguments."""
+    arguments = flatten_tool_arguments(arguments)
     correlation_id = get_correlation_id(dict(req.headers))
     logger.info(f"Calling tool: {name} | correlation_id: {correlation_id} | arguments: {arguments}")
     

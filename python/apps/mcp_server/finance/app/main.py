@@ -9,6 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.
 
 from python.utils.db_utils import get_connection
 from python.utils.observability import get_correlation_id
+from python.utils.mcp_args import flatten_tool_arguments
 from ..tools import finance
 
 # Configure logging
@@ -54,11 +55,11 @@ TOOLS_METADATA = [
     },
     {
         "name": "get_spend_summary",
-        "description": "Aggregate PO spend amounts, grouped by vendor or category.",
+        "description": "Aggregate PO spend amounts, grouped by vendor or category. To filter by a specific vendor or category, use the 'group_by' parameter set to 'vendor' or 'category' respectively.",
         "parameters": {
             "type": "object",
             "properties": {
-                "group_by": {"type": "string", "enum": ["vendor", "category"], "description": "Grouping criteria"},
+                "group_by": {"type": "string", "enum": ["vendor", "category"], "description": "Grouping criteria (vendor or category)"},
                 "period": {"type": "string", "description": "Optional period filter"}
             },
             "required": ["group_by"]
@@ -82,6 +83,7 @@ async def call_tool(
     arguments: Dict[str, Any] = Body(default_factory=dict, embed=True)
 ):
     """Executes a tool by name with provided arguments."""
+    arguments = flatten_tool_arguments(arguments)
     correlation_id = get_correlation_id(dict(req.headers))
     logger.info(f"Calling tool: {name} | correlation_id: {correlation_id} | arguments: {arguments}")
     

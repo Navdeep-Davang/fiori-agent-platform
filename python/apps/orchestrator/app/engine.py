@@ -37,7 +37,7 @@ except ImportError:
     LLM_API_KEY = os.getenv("LLM_API_KEY")
     LLM_MODEL = os.getenv("LLM_MODEL", "gemini-1.5-flash")
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "google-genai")
-    LANGFUSE_HOST = os.getenv("LANGFUSE_HOST")
+    LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "").strip()
     LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
     LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
 
@@ -77,7 +77,16 @@ def build_system_prompt(agent_cfg: Dict[str, Any], skill_metadata: List[Dict[str
     lines.append("Call `load_skill` with a skill id to load the full procedure body when needed.")
     return base + "\n\n" + "\n".join(lines)
 
-async def call_mcp_client(url: str, name: str, args: dict, token: str, correlation_id: str) -> str:
+async def call_mcp_client(
+    url: str,
+    name: str,
+    args: dict,
+    token: str,
+    correlation_id: str,
+    *,
+    agent_id: str,
+    cap_dept: Optional[str] = None,
+) -> str:
     import httpx
     async with httpx.AsyncClient(timeout=60.0) as client:
         rpc_request = {
@@ -86,14 +95,22 @@ async def call_mcp_client(url: str, name: str, args: dict, token: str, correlati
             "params": {
                 "name": name,
                 "arguments": args,
-                "agentId": "orchestrator-brain", # Should be passed from context
-                "correlation_id": correlation_id
+                "agentId": str(agent_id).strip(),
+                "correlation_id": correlation_id,
             },
-            "id": 1
+            "id": 1,
         }
         # In this microservice arch, we route to mcp-client
         # The url passed here is legacy from monolith; we now use MCP_CLIENT_URL
         headers = get_observability_headers(correlation_id)
+        tok = (token or "").strip()
+        if tok:
+            headers["Authorization"] = (
+                tok if tok.lower().startswith("bearer ") else f"Bearer {tok}"
+            )
+        _d = (cap_dept or "").strip()
+        if _d:
+            headers["X-AC-Dept"] = _d
         response = await client.post(f"{MCP_CLIENT_URL}/mcp/rpc", json=rpc_request, headers=headers)
         response.raise_for_status()
         res = response.json()
@@ -101,12 +118,28 @@ async def call_mcp_client(url: str, name: str, args: dict, token: str, correlati
             return json.dumps(res["error"])
         return json.dumps(res.get("result", {}))
 
-def _make_mcp_tool(meta: Dict[str, Any], user_token: str, allowed_tool_names: Set[str], correlation_id: str) -> StructuredTool:
+def _make_mcp_tool(
+    meta: Dict[str, Any],
+    user_token: str,
+    allowed_tool_names: Set[str],
+    correlation_id: str,
+    *,
+    agent_id: str,
+    cap_dept: Optional[str] = None,
+) -> StructuredTool:
     name = meta["name"]
     async def _run(**kwargs: Any) -> str:
         if name not in allowed_tool_names:
             raise PermissionError(f"Tool {name} not in allowlist")
-        return await call_mcp_client("", name, kwargs, user_token, correlation_id)
+        return await call_mcp_client(
+            "",
+            name,
+            kwargs,
+            user_token,
+            correlation_id,
+            agent_id=agent_id,
+            cap_dept=cap_dept,
+        )
 
     return StructuredTool.from_function(
         name=name,
@@ -128,10 +161,13 @@ def _stringify_llm_chunk_content(raw: Any) -> str:
 def _langfuse_handler(correlation_id: str):
     if not (LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY):
         return None
+    host = (LANGFUSE_HOST or "").strip()
+    if not host:
+        return None
     import os
     os.environ.setdefault("LANGFUSE_PUBLIC_KEY", LANGFUSE_PUBLIC_KEY)
     os.environ.setdefault("LANGFUSE_SECRET_KEY", LANGFUSE_SECRET_KEY)
-    os.environ.setdefault("LANGFUSE_HOST", LANGFUSE_HOST or "http://localhost:3000")
+    os.environ.setdefault("LANGFUSE_HOST", host)
     configure_langfuse_otel_env()
     try:
         from langfuse.langchain import CallbackHandler
@@ -194,11 +230,27 @@ async def run_deep_agent_stream(
         )
         return
 
+    agent_pk = str(agent_cfg.get("id") or "").strip()
+    if effective_tools and not agent_pk:
+        yield (
+            f'data: {json.dumps({"type": "error", "message": "agent_cfg.id required for MCP gateway tool calls", "correlationId": correlation_id})}\n\n'
+        )
+        return
+
     allowed_tool_names: Set[str] = {t["name"] for t in effective_tools}
-    
+
     tools: List[Any] = []
     for meta in effective_tools:
-        tools.append(_make_mcp_tool(meta, user_token, allowed_tool_names, correlation_id))
+        tools.append(
+            _make_mcp_tool(
+                meta,
+                user_token,
+                allowed_tool_names,
+                correlation_id,
+                agent_id=agent_pk,
+                cap_dept=None,
+            )
+        )
 
     system_prompt = build_system_prompt(agent_cfg, skill_metadata)
     model = _build_chat_model()
@@ -231,3 +283,14 @@ async def run_deep_agent_stream(
     async for ev in graph.astream_events({"messages": msgs}, config=cfg, version="v2"):
         for line in _event_to_sse_lines(ev, correlation_id):
             yield line
+
+    if langfuse:
+        try:
+            from langfuse import get_client
+            import asyncio
+            # Run flush in a background thread to avoid blocking the event loop on slow OTLP export.
+            # The SDK's OTLP exporter uses synchronous 'requests', which can block for seconds.
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, get_client().flush)
+        except Exception as fe:
+            logger.debug("Langfuse flush: %s", fe)
