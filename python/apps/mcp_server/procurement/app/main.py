@@ -23,7 +23,7 @@ TOOLS_METADATA = [
     {
         "name": "get_vendors",
         "description": "List vendors, optionally filtered by category or country.",
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "category": {"type": "string", "description": "Vendor category filter"},
@@ -34,7 +34,7 @@ TOOLS_METADATA = [
     {
         "name": "get_purchase_orders",
         "description": "List POs with optional filters for status, vendor_id, or buyer.",
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "status": {"type": "string", "description": "PO status filter"},
@@ -46,7 +46,7 @@ TOOLS_METADATA = [
     {
         "name": "get_po_detail",
         "description": "Retrieve full detail for a single PO including line items.",
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "po_id": {"type": "string", "description": "Purchase Order ID"}
@@ -61,6 +61,7 @@ async def health():
     return {"status": "OK"}
 
 @app.get("/mcp/tools/list")
+@app.post("/mcp/tools/list")
 async def list_tools():
     """Returns the list of tools available in this server."""
     return {"tools": TOOLS_METADATA}
